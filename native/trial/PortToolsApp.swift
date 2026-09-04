@@ -56,6 +56,17 @@ struct RelevanceRecord: Codable, Sendable {
     let developerRelevant: Bool
 }
 
+struct RouteRecord: Codable, Sendable {
+    let alias: String
+    let port: Int
+    let scheme: String
+    let hostMode: String
+    let tlsPolicy: String
+    let projectRoot: String?
+    let applicationRoot: String?
+    let url: String
+}
+
 struct ServiceRecord: Codable, Identifiable, Sendable {
     let id: String
     let listener: ListenerRecord
@@ -64,6 +75,7 @@ struct ServiceRecord: Codable, Identifiable, Sendable {
     let application: ApplicationRecord?
     let observation: ObservationRecord
     let relevance: RelevanceRecord
+    let route: RouteRecord?
 }
 
 struct ScanDocument: Codable, Sendable {
@@ -89,14 +101,14 @@ struct ProjectGroup: Identifiable {
     }
 }
 
-enum TrialScannerError: LocalizedError {
+enum CoreError: LocalizedError {
     case missingResource
     case failed(String)
 
     var errorDescription: String? {
         switch self {
         case .missingResource:
-            return "Bundled trial scanner is missing."
+            return "Bundled Port Tools core is missing."
         case .failed(let message):
             return message
         }
@@ -105,39 +117,148 @@ enum TrialScannerError: LocalizedError {
 
 protocol InventoryProviding: Sendable {
     func scan() throws -> ScanDocument
+    func assignAlias(_ alias: String, to service: ServiceRecord) throws -> RouteRecord
+    func removeAlias(_ alias: String) throws
 }
 
-/// Trial-only adapter. The production provider will call the bundled Go core
-/// over its versioned Unix-socket API without changing the SwiftUI inventory.
-struct BundledPythonInventoryProvider: InventoryProviding {
-    func scan() throws -> ScanDocument {
-        guard let scanner = Bundle.main.url(
-            forResource: "port_tools",
-            withExtension: "py",
-            subdirectory: "Scanner"
-        ) else {
-            throw TrialScannerError.missingResource
+final class CoreRuntime: @unchecked Sendable {
+    static let shared = CoreRuntime()
+
+    private let lock = NSLock()
+    private var process: Process?
+    private var logHandle: FileHandle?
+
+    private var executableURL: URL {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/port-tools-core")
+    }
+
+    private var stateRoot: URL {
+        if let override = ProcessInfo.processInfo.environment["PORT_TOOLS_STATE_ROOT"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
         }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Port Tools", isDirectory: true)
+    }
+
+    private var socketURL: URL { stateRoot.appendingPathComponent("runtime/core.sock") }
+    private var routeStateURL: URL { stateRoot.appendingPathComponent("routes.json") }
+    private var logURL: URL {
+        if ProcessInfo.processInfo.environment["PORT_TOOLS_STATE_ROOT"] != nil {
+            return stateRoot.appendingPathComponent("core.log")
+        }
+        return FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs/Port Tools/core.log")
+    }
+
+    private init() {}
+
+    func start() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        try startLocked()
+    }
+
+    private func startLocked() throws {
+        if let process, process.isRunning, FileManager.default.fileExists(atPath: socketURL.path) { return }
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            throw CoreError.missingResource
+        }
+        try FileManager.default.createDirectory(at: socketURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: routeStateURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+        let logHandle = try FileHandle(forWritingTo: logURL)
+        try logHandle.seekToEnd()
 
         let task = Process()
-        let output = Pipe()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        task.arguments = [scanner.path, "scan", "--json", "--all"]
-        task.environment = [
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            "LANG": "en_US.UTF-8",
+        task.executableURL = executableURL
+        task.arguments = [
+            "serve",
+            "--socket", socketURL.path,
+            "--state", routeStateURL.path,
+            "--proxy", ProcessInfo.processInfo.environment["PORT_TOOLS_PROXY_ADDRESS"] ?? "127.0.0.1:17890",
+            "--parent-pid", String(ProcessInfo.processInfo.processIdentifier),
         ]
+        task.standardOutput = logHandle
+        task.standardError = logHandle
+        try task.run()
+        process = task
+        self.logHandle = logHandle
+
+        for _ in 0..<80 {
+            if !task.isRunning {
+                throw CoreError.failed("Port Tools core exited during startup. See \(logURL.path).")
+            }
+            if FileManager.default.fileExists(atPath: socketURL.path) { return }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        task.terminate()
+        throw CoreError.failed("Port Tools core did not become ready.")
+    }
+
+    func stop() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let process, process.isRunning { process.terminate() }
+        process = nil
+        try? logHandle?.close()
+        logHandle = nil
+    }
+
+    func request(method: String = "GET", path: String, body: Data? = nil) throws -> Data {
+        try start()
+        let task = Process()
+        let output = Pipe()
+        let errors = Pipe()
+        task.executableURL = executableURL
+        var arguments = ["request", "--socket", socketURL.path, "--method", method, "--path", path]
+        if let body, let value = String(data: body, encoding: .utf8) {
+            arguments += ["--body", value]
+        }
+        task.arguments = arguments
         task.standardOutput = output
-        task.standardError = output
+        task.standardError = errors
         try task.run()
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errors.fileHandleForReading.readDataToEndOfFile()
         task.waitUntilExit()
         guard task.terminationStatus == 0 else {
-            let message = String(data: data, encoding: .utf8) ?? "Scanner exited with an error."
-            throw TrialScannerError.failed(message.trimmingCharacters(in: .whitespacesAndNewlines))
+            let apiMessage = (try? JSONSerialization.jsonObject(with: data))
+                .flatMap { $0 as? [String: Any] }?["error"] as? String
+            let stderr = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CoreError.failed(apiMessage ?? stderr ?? "Port Tools core request failed.")
         }
+        return data
+    }
+}
+
+struct BundledGoInventoryProvider: InventoryProviding {
+    func scan() throws -> ScanDocument {
+        let data = try CoreRuntime.shared.request(path: "/v1/services")
         return try JSONDecoder().decode(ScanDocument.self, from: data)
+    }
+
+    func assignAlias(_ alias: String, to service: ServiceRecord) throws -> RouteRecord {
+        let body: [String: Any] = [
+            "port": service.listener.port,
+            "scheme": service.observation.protocol == "https" ? "https" : "http",
+            "hostMode": "rewrite",
+            "tlsPolicy": "verify",
+            "projectRoot": service.project?.root ?? "",
+            "applicationRoot": service.application?.root ?? "",
+            "previousAlias": service.route?.alias ?? "",
+        ]
+        let requestBody = try JSONSerialization.data(withJSONObject: body)
+        let encodedAlias = alias.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? alias
+        let data = try CoreRuntime.shared.request(method: "PUT", path: "/v1/routes/\(encodedAlias)", body: requestBody)
+        return try JSONDecoder().decode(RouteRecord.self, from: data)
+    }
+
+    func removeAlias(_ alias: String) throws {
+        let encodedAlias = alias.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? alias
+        _ = try CoreRuntime.shared.request(method: "DELETE", path: "/v1/routes/\(encodedAlias)")
     }
 }
 
@@ -147,7 +268,7 @@ final class InventoryStore: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
 
-    private let provider: InventoryProviding = BundledPythonInventoryProvider()
+    private let provider: InventoryProviding = BundledGoInventoryProvider()
 
     func refresh(silent: Bool = false) {
         guard !isRefreshing else { return }
@@ -166,6 +287,28 @@ final class InventoryStore: ObservableObject {
                     NSLog("Port Tools scan failed: %@", error.localizedDescription)
                 }
                 self.isRefreshing = false
+            }
+        }
+    }
+
+    func assignAlias(_ alias: String, to service: ServiceRecord, completion: @escaping (Result<RouteRecord, Error>) -> Void) {
+        let provider = provider
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try provider.assignAlias(alias, to: service) }
+            DispatchQueue.main.async {
+                completion(result)
+                if case .success = result { self.refresh() }
+            }
+        }
+    }
+
+    func removeAlias(_ alias: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        let provider = provider
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try provider.removeAlias(alias) }
+            DispatchQueue.main.async {
+                completion(result)
+                if case .success = result { self.refresh() }
             }
         }
     }
@@ -278,6 +421,29 @@ func serviceURL(_ service: ServiceRecord) -> URL? {
     return URL(string: "\(scheme)://\(host):\(service.listener.port)")
 }
 
+func primaryServiceURL(_ service: ServiceRecord) -> URL? {
+    if let value = service.route?.url, let routeURL = URL(string: value) { return routeURL }
+    return serviceURL(service)
+}
+
+func compactServiceAddress(_ service: ServiceRecord) -> String {
+    let value = primaryServiceURL(service)?.absoluteString ?? ":\(service.listener.port)"
+    return value.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
+}
+
+func suggestedAlias(_ service: ServiceRecord) -> String {
+    let source = service.application?.name ?? service.project?.name ?? serviceName(service)
+    let latin = source.applyingTransform(.toLatin, reverse: false)?
+        .applyingTransform(.stripDiacritics, reverse: false) ?? source
+    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789")
+    let normalized = latin.lowercased().unicodeScalars.map { scalar -> Character in
+        allowed.contains(scalar) ? Character(String(scalar)) : "-"
+    }
+    let collapsed = String(normalized).replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+    let trimmed = collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    return String((trimmed.isEmpty ? "local-app" : trimmed).prefix(63)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+}
+
 func listenerEndpoint(_ service: ServiceRecord) -> String {
     let address = service.listener.address
     let host = address.contains(":") && address != "::" ? "[\(address)]" : address
@@ -310,6 +476,8 @@ func serviceSearchText(_ service: ServiceRecord) -> String {
         service.application?.name,
         service.application?.relativePath,
         service.process.command,
+        service.route?.alias,
+        service.route?.url,
     ].compactMap { $0 }.joined(separator: " ").lowercased()
 }
 
@@ -441,12 +609,91 @@ struct RenameView: View {
     }
 }
 
+struct AliasTarget: Identifiable {
+    let id = UUID()
+    let service: ServiceRecord
+}
+
+struct AliasView: View {
+    let target: AliasTarget
+    let onSave: (String) -> Void
+    let onRemove: ((String) -> Void)?
+    @Environment(\.dismiss) private var dismiss
+    @State private var alias: String
+
+    init(target: AliasTarget, onSave: @escaping (String) -> Void, onRemove: ((String) -> Void)? = nil) {
+        self.target = target
+        self.onSave = onSave
+        self.onRemove = onRemove
+        _alias = State(initialValue: target.service.route?.alias ?? suggestedAlias(target.service))
+    }
+
+    private var normalizedAlias: String {
+        alias.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var valid: Bool {
+        normalizedAlias.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"#, options: .regularExpression) != nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(target.service.route == nil ? "Add local address" : "Local address")
+                    .font(.headline)
+                Text("A stable name for this app on your Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 0) {
+                TextField("project-name", text: $alias)
+                    .textFieldStyle(.plain)
+                    .onSubmit { save() }
+                Text(".localhost:17890")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 34)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(valid ? Color.accentColor.opacity(0.55) : Color.red.opacity(0.75)))
+
+            Text("Routes only on this Mac's IPv4/IPv6 loopback. No hosts file, certificate, sudo, or public tunnel is used.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                if let currentAlias = target.service.route?.alias, let onRemove {
+                    Button("Remove", role: .destructive) {
+                        onRemove(currentAlias)
+                        dismiss()
+                    }
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!valid)
+            }
+        }
+        .padding(18)
+        .frame(width: 390)
+    }
+
+    private func save() {
+        guard valid else { return }
+        onSave(normalizedAlias)
+        dismiss()
+    }
+}
+
 struct ServiceRow: View {
     let service: ServiceRecord
     let displayName: String
     let selected: Bool
     let onSelect: () -> Void
     let onRename: () -> Void
+    let onAlias: () -> Void
     let onEvidence: () -> Void
     let onMessage: (String) -> Void
 
@@ -462,10 +709,11 @@ struct ServiceRow: View {
                         Spacer(minLength: 4)
                     }
                     HStack(spacing: 5) {
-                        Image(systemName: "terminal")
-                        Text(serviceURL(service)?.absoluteString.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "") ?? ":\(service.listener.port)")
+                        Image(systemName: service.route == nil ? "terminal" : "link")
+                        Text(compactServiceAddress(service))
                             .font(.system(size: 10, design: .monospaced))
                             .lineLimit(1)
+                            .foregroundStyle(service.route == nil ? Color.secondary : Color.accentColor)
                         if service.listener.bindScope != "loopback" {
                             Text("→")
                             Text("listens \(listenerEndpoint(service))")
@@ -491,13 +739,13 @@ struct ServiceRow: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Button("Open", systemImage: "arrow.up.forward.square") {
-                            if let url = serviceURL(service) { NSWorkspace.shared.open(url) }
+                            if let url = primaryServiceURL(service) { NSWorkspace.shared.open(url) }
                         }
                         .buttonStyle(.borderedProminent)
 
                         Button("Copy", systemImage: "doc.on.doc") {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(serviceURL(service)?.absoluteString ?? "", forType: .string)
+                            NSPasteboard.general.setString(primaryServiceURL(service)?.absoluteString ?? "", forType: .string)
                             onMessage("Address copied")
                         }
                         Button("Rename", systemImage: "pencil", action: onRename)
@@ -516,6 +764,17 @@ struct ServiceRow: View {
                     }
                     .font(.system(size: 10, weight: .medium))
                     .controlSize(.small)
+
+                    Button(action: onAlias) {
+                        Label(
+                            service.route?.url.replacingOccurrences(of: "http://", with: "") ?? "Add a stable .localhost address",
+                            systemImage: service.route == nil ? "link.badge.plus" : "link"
+                        )
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(service.route == nil ? Color.accentColor : Color.secondary)
 
                     if let path = service.project?.root {
                         Button {
@@ -546,6 +805,7 @@ struct InventoryView: View {
     @State private var selectedServiceID: String?
     @State private var evidenceService: ServiceRecord?
     @State private var renameTarget: RenameTarget?
+    @State private var aliasTarget: AliasTarget?
     @State private var projectNames = UserDefaults.standard.dictionary(forKey: "projectDisplayNames") as? [String: String] ?? [:]
     @State private var serviceNames = UserDefaults.standard.dictionary(forKey: "serviceDisplayNames") as? [String: String] ?? [:]
     @State private var query = ""
@@ -726,6 +986,27 @@ struct InventoryView: View {
                 showMessage("Name saved")
             }
         }
+        .sheet(item: $aliasTarget) { target in
+            AliasView(
+                target: target,
+                onSave: { alias in
+                    store.assignAlias(alias, to: target.service) { result in
+                        switch result {
+                        case .success(let route): showMessage("Local address ready · \(route.alias).localhost")
+                        case .failure(let error): showMessage(error.localizedDescription)
+                        }
+                    }
+                },
+                onRemove: target.service.route == nil ? nil : { alias in
+                    store.removeAlias(alias) { result in
+                        switch result {
+                        case .success: showMessage("Local address removed")
+                        case .failure(let error): showMessage(error.localizedDescription)
+                        }
+                    }
+                }
+            )
+        }
         .task {
             let stored = UserDefaults.standard.stringArray(forKey: "expandedProjects") ?? []
             expanded = Set(stored)
@@ -847,6 +1128,7 @@ struct InventoryView: View {
                                             currentName: serviceNames[serviceRenameKey(service)] ?? serviceName(service)
                                         )
                                     },
+                                    onAlias: { aliasTarget = AliasTarget(service: service) },
                                     onEvidence: { evidenceService = service },
                                     onMessage: showMessage
                                 )
@@ -885,11 +1167,19 @@ struct InventoryView: View {
     }
 }
 
+final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        CoreRuntime.shared.stop()
+    }
+}
+
 @main
 struct PortToolsApp: App {
+    @NSApplicationDelegateAdaptor(PortToolsAppDelegate.self) private var appDelegate
     @StateObject private var store = InventoryStore()
 
     init() {
+        try? CoreRuntime.shared.start()
         let initialStore = InventoryStore()
         _store = StateObject(wrappedValue: initialStore)
         initialStore.refresh()

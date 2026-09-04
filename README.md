@@ -70,24 +70,28 @@ distribution choice. The production macOS app must be self-contained and must
 not require the user to install Python, Node.js, npm, Homebrew, Docker, or a
 separate proxy. See [`docs/packaging-requirements.md`](docs/packaging-requirements.md).
 
-## Native menu bar trial
+## Native menu bar app
 
-The current interaction trial is a real macOS menu bar app:
+The current macOS build is a real menu bar app with a bundled, self-contained
+Go core. Building it requires Go and Xcode Command Line Tools, but running the
+resulting app does not:
 
 ```bash
-native/trial/build.sh
+GO_BIN=/absolute/path/to/go native/trial/build.sh
 open "native/.build/Port Tools.app"
 ```
 
-It reads the live scanner, groups development Web services by project, searches
-projects and services, opens or copies local addresses, explains Web-detection
-evidence, and persists custom project and service display names. Stop remains a
-non-destructive preview in this trial.
+It reads the live Go scanner through a private owner-only Unix socket, groups
+development Web services by project, searches projects and services, opens or
+copies local addresses, explains Web-detection evidence, and persists custom
+display names. A service can claim a real stable URL such as
+`http://phone-studio.localhost:17890`; the bundled reverse proxy listens only on
+IPv4 and IPv6 loopback, persists routes atomically, and provides a diagnostic
+page when the upstream is absent. Stop remains a non-destructive preview.
 
-This trial deliberately reuses the Python scanner through `/usr/bin/python3` so
-the menu interaction can be evaluated now. It is not the distributable product;
-the packaged app boundary remains SwiftUI plus a bundled Go core with no external
-runtime dependency.
+The release bundle contains no Python or Node runtime. Developer-side Python
+fixtures remain in the repository as compatibility specifications while the Go
+implementation is brought to full scanner, proxy, and safe-stop parity.
 
 No privileged helper, trusted certificate authority, background service, or
 force-termination behavior should be introduced until the corresponding
