@@ -1,0 +1,4 @@
+http://caddy-spike.localhost:14080 {
+	bind 127.0.0.1 ::1
+	reverse_proxy 127.0.0.1:41731
+}

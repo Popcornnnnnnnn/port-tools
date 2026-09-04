@@ -1,0 +1,12 @@
+{
+  "name": "port-tools-vite-fixture",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "8.2.2"
+  }
+}

@@ -25,24 +25,20 @@ Evaluation is necessary, but it should answer concrete questions rather than bec
 - Portless: benchmark alias lifecycle, worktree behavior, Host-header compatibility, HMR, route failure, and cleanup.
 - Caddy: benchmark dynamic route reload and local HTTPS as a possible embedded/sidecar engine.
 
-### Safe evaluation stages
+### Evaluation operating rules
 
-Stage 1 requires no owner intervention:
+The product owner authorized normal end-to-end installation and testing on the
+evaluation Mac. This includes signed native apps, package-manager installs,
+trusted local HTTPS, and the real ports a competitor normally uses.
 
-- inspect source, tests, issues, release history, licenses, and architecture;
-- run CLI components from temporary directories;
-- use high unprivileged ports and loopback-only bindings;
-- run disposable fixture servers;
-- do not modify the workspace with competitor code.
-
-Stage 2 requires owner confirmation because it changes the Mac:
-
-- install or open signed native menu-bar competitors;
-- copy applications into `/Applications`;
-- install background launch services;
-- bind privileged ports 80/443;
-- add a local root CA to Keychain trust;
-- modify `/etc/hosts` or DNS resolver configuration.
+- Use disposable fixtures and preserve an exact inventory of system changes.
+- Prefer loopback unless exposure behavior is the subject of the test.
+- Never send or store the operator's macOS password. If `sudo` needs interactive
+  authentication, pause that individual test at a visible local prompt while
+  other evaluation continues.
+- Do not modify unrelated projects with competitor code.
+- At the end, uninstall test subjects and verify CA, hosts, resolver, launch
+  item, process, and state-directory residue.
 
 ### Evaluation scorecard
 
