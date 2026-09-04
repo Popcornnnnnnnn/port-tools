@@ -77,7 +77,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"event: ready\ndata: first\n\n")
             self.wfile.flush()
-            time.sleep(0.05)
+            time.sleep(0.25)
             self.wfile.write(b"event: complete\ndata: second\n\n")
             self.wfile.flush()
         elif self.path == "/stream":
@@ -87,9 +87,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"chunk-one\n")
             self.wfile.flush()
-            time.sleep(0.05)
+            time.sleep(0.25)
             self.wfile.write(b"chunk-two\n")
             self.wfile.flush()
+        elif self.path == "/long-stream":
+            self._record()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.end_headers()
+            for index in range(20):
+                self.wfile.write("chunk-{0:02d}\n".format(index).encode("ascii"))
+                self.wfile.flush()
+                time.sleep(0.05)
         elif self.path == "/cookie":
             self._record()
             self.send_response(200)

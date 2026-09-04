@@ -31,8 +31,18 @@ bin/port-tools proxy --listen 127.0.0.1:17890
 # open http://studio.localhost:17890
 ```
 
+For a self-signed local HTTPS upstream, the exception is explicit and scoped to
+that alias:
+
+```bash
+bin/port-tools alias add secure-studio 4443 \
+  --upstream-scheme https --tls-policy insecure-local
+```
+
 Alias state is updated atomically and live without restarting the proxy. The
-proxy implementation is a compatibility spike, not a final build-versus-reuse
+compatibility suite covers streaming, SSE, redirects, cookies, large request
+bodies, HTTPS upstreams, route updates during a long response, and Vite/Next.js
+HMR. The proxy implementation remains a spike, not a final build-versus-reuse
 decision.
 
 No privileged helper, trusted certificate authority, background service, or process termination behavior should be introduced until the corresponding decision gate in the PRD is resolved.

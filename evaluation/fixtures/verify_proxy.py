@@ -6,9 +6,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import socket
 import subprocess
+import sys
+import threading
 import time
 
 
@@ -62,8 +65,43 @@ def request(alias: str, path: str = "/", method: str = "GET", body: bytes = None
     return result
 
 
-def add_alias(alias: str, port: int, host_mode: str = "rewrite") -> None:
-    run([CLI, "alias", "add", alias, port, "--host-mode", host_mode, "--state", STATE])
+def timed_body(alias: str, path: str, first_size: int):
+    connection = http.client.HTTPConnection("127.0.0.1", PROXY_PORT, timeout=4)
+    started = time.monotonic()
+    connection.request("GET", path, headers={"Host": "{}.localhost:{}".format(alias, PROXY_PORT)})
+    response = connection.getresponse()
+    first = response.read(first_size)
+    first_elapsed = time.monotonic() - started
+    rest = response.read()
+    total_elapsed = time.monotonic() - started
+    connection.close()
+    return first + rest, first_elapsed, total_elapsed
+
+
+def add_alias(
+    alias: str,
+    port: int,
+    host_mode: str = "rewrite",
+    scheme: str = "http",
+    tls_policy: str = "verify",
+) -> None:
+    run(
+        [
+            CLI,
+            "alias",
+            "add",
+            alias,
+            port,
+            "--host-mode",
+            host_mode,
+            "--upstream-scheme",
+            scheme,
+            "--tls-policy",
+            tls_policy,
+            "--state",
+            STATE,
+        ]
+    )
 
 
 def remove_alias(alias: str) -> None:
@@ -95,6 +133,7 @@ def main() -> None:
     RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
     run(["python3", MANAGER, "start", "static-http"])
     run(["python3", MANAGER, "start", "vite-hmr"])
+    run(["python3", MANAGER, "start", "self-signed-https"])
     STATE.unlink(missing_ok=True)
     add_alias("static", 51739)
     add_alias("vite", 51742)
@@ -108,6 +147,7 @@ def main() -> None:
         start_new_session=True,
     )
     results = {}
+    completed = False
     try:
         wait_for_port(PROXY_PORT, expected=True)
         results["static_html"] = request("static")["status"] == 200
@@ -120,6 +160,10 @@ def main() -> None:
         add_alias("preserve", 51739, host_mode="preserve")
         preserved = json.loads(request("preserve", "/inspect")["body"])
         results["host_preserve"] = preserved["host"] == "preserve.localhost:17890"
+        add_alias("secure", 51741, scheme="https", tls_policy="insecure-local")
+        results["https_upstream"] = request("secure")["status"] == 200
+        add_alias("secure-verify", 51741, scheme="https", tls_policy="verify")
+        results["https_verification"] = request("secure-verify")["status"] == 502
 
         add_alias("missing", 59999)
         missing = request("missing")
@@ -132,10 +176,12 @@ def main() -> None:
         )
         results["relative_redirect"] = request("static", "/redirect")["status"] == 302
         results["cookie"] = "fixture=present" in request("static", "/cookie")["headers"].get("set-cookie", "")
-        results["sse"] = request("static", "/events")["body"] == (
-            b"event: ready\ndata: first\n\nevent: complete\ndata: second\n\n"
-        )
-        results["stream"] = request("static", "/stream")["body"] == b"chunk-one\nchunk-two\n"
+        sse_body, sse_first, sse_total = timed_body("static", "/events", 26)
+        results["sse"] = sse_body == b"event: ready\ndata: first\n\nevent: complete\ndata: second\n\n"
+        results["sse_first_chunk"] = sse_first < 0.18 and sse_total >= 0.2
+        stream_body, stream_first, stream_total = timed_body("static", "/stream", 10)
+        results["stream"] = stream_body == b"chunk-one\nchunk-two\n"
+        results["stream_first_chunk"] = stream_first < 0.18 and stream_total >= 0.2
 
         upload = b"port-tools-upload" * 65536
         uploaded = json.loads(request("static", "/upload", "POST", upload)["body"])
@@ -150,9 +196,28 @@ def main() -> None:
         remove_alias("dynamic")
         results["atomic_remove"] = request("dynamic")["status"] == 404
 
+        long_stream = {}
+
+        def read_long_stream() -> None:
+            long_stream["body"] = request("static", "/long-stream")["body"]
+
+        reader = threading.Thread(target=read_long_stream)
+        reader.start()
+        time.sleep(0.1)
+        for index in range(8):
+            update_alias = "update-{}".format(index)
+            add_alias(update_alias, 51739)
+            remove_alias(update_alias)
+        reader.join(timeout=4)
+        expected_long_stream = b"".join(
+            "chunk-{0:02d}\n".format(index).encode("ascii") for index in range(20)
+        )
+        results["route_updates_preserve_stream"] = long_stream.get("body") == expected_long_stream
+
         lsof = run(["lsof", "-nP", "-iTCP:{}".format(PROXY_PORT), "-sTCP:LISTEN"]).stdout
         results["loopback_only"] = "127.0.0.1:{} (LISTEN)".format(PROXY_PORT) in lsof and "*:" not in lsof
         passed = all(results.values())
+        completed = passed
         print(json.dumps({"passed": passed, "results": results}, indent=2))
         if not passed:
             raise SystemExit(1)
@@ -163,6 +228,15 @@ def main() -> None:
         wait_for_port(PROXY_PORT, expected=False, timeout=2)
         run(["python3", MANAGER, "stop", "static-http"])
         run(["python3", MANAGER, "stop", "vite-hmr"])
+        run(["python3", MANAGER, "stop", "self-signed-https"])
+        log_handle.close()
+        if completed:
+            shutil.rmtree(RUNTIME_ROOT, ignore_errors=True)
+        else:
+            print(
+                json.dumps({"failureArtifactsRetained": str(RUNTIME_ROOT)}),
+                file=sys.stderr,
+            )
 
 
 if __name__ == "__main__":

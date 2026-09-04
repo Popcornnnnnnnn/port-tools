@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 
 
@@ -87,13 +88,15 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  const upstream = http.request(
+  const transport = route.scheme === "https" ? https : http;
+  const upstream = transport.request(
     {
       hostname: "127.0.0.1",
       port: route.port,
       method: request.method,
       path: request.url,
       headers: upstreamHeaders(request, route),
+      rejectUnauthorized: route.tlsPolicy !== "insecure-local",
     },
     (upstreamResponse) => {
       response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
@@ -119,6 +122,10 @@ server.on("upgrade", (request, clientSocket, head) => {
   const { alias, route } = resolveRoute(request, options.state);
   if (!alias || !route) {
     clientSocket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+    return;
+  }
+  if (route.scheme === "https") {
+    clientSocket.end("HTTP/1.1 501 Not Implemented\r\nConnection: close\r\n\r\n");
     return;
   }
   const upstreamSocket = net.connect(route.port, "127.0.0.1");

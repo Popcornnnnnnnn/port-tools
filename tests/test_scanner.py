@@ -167,6 +167,7 @@ class RouteStateTests(unittest.TestCase):
             added = add_alias(state, "Todo-App", 5173, "rewrite")
             self.assertEqual(added["alias"], "todo-app")
             self.assertEqual(load_route_state(state)["routes"]["todo-app"]["port"], 5173)
+            self.assertEqual(load_route_state(state)["routes"]["todo-app"]["scheme"], "http")
             with self.assertRaises(ValueError):
                 add_alias(state, "todo-app", 8000, "rewrite")
             self.assertTrue(remove_alias(state, "todo-app")["removed"])

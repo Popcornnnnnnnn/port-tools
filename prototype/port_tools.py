@@ -670,13 +670,25 @@ def write_route_state(state_path: Path, document: Dict[str, object]) -> None:
     os.replace(str(temporary), str(state_path))
 
 
-def add_alias(state_path: Path, alias: str, port: int, host_mode: str) -> Dict[str, object]:
+def add_alias(
+    state_path: Path,
+    alias: str,
+    port: int,
+    host_mode: str,
+    scheme: str = "http",
+    tls_policy: str = "verify",
+) -> Dict[str, object]:
     alias = validate_alias(alias)
     if port < 1 or port > 65535:
         raise ValueError("port must be between 1 and 65535")
     document = load_route_state(state_path)
     existing = document["routes"].get(alias)
-    proposed = {"port": port, "hostMode": host_mode}
+    proposed = {
+        "port": port,
+        "hostMode": host_mode,
+        "scheme": scheme,
+        "tlsPolicy": tls_policy,
+    }
     if existing and existing != proposed:
         raise ValueError("alias already exists with a different route")
     document["routes"][alias] = proposed
@@ -703,7 +715,10 @@ def run_proxy(listen: str, state_path: Path) -> int:
         "--state",
         str(state_path),
     ]
-    return subprocess.run(command, check=False).returncode
+    try:
+        return subprocess.run(command, check=False).returncode
+    except KeyboardInterrupt:
+        return 130
 
 
 def main() -> None:
@@ -724,6 +739,8 @@ def main() -> None:
     alias_add.add_argument("alias")
     alias_add.add_argument("port", type=int)
     alias_add.add_argument("--host-mode", choices=("rewrite", "preserve"), default="rewrite")
+    alias_add.add_argument("--upstream-scheme", choices=("http", "https"), default="http")
+    alias_add.add_argument("--tls-policy", choices=("verify", "insecure-local"), default="verify")
     alias_add.add_argument("--state", type=Path, default=DEFAULT_ROUTE_STATE)
     alias_list = alias_subparsers.add_parser("list")
     alias_list.add_argument("--state", type=Path, default=DEFAULT_ROUTE_STATE)
@@ -737,7 +754,14 @@ def main() -> None:
     if args.command == "alias":
         try:
             if args.alias_command == "add":
-                result = add_alias(args.state, args.alias, args.port, args.host_mode)
+                result = add_alias(
+                    args.state,
+                    args.alias,
+                    args.port,
+                    args.host_mode,
+                    args.upstream_scheme,
+                    args.tls_policy,
+                )
             elif args.alias_command == "remove":
                 result = remove_alias(args.state, args.alias)
             else:

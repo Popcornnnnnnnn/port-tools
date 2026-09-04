@@ -1,7 +1,7 @@
 # Unprivileged localhost route spike
 
 Date: 2026-09-04  
-Status: First compatibility baseline passing; Next.js HMR and endurance pending
+Status: Compatibility and 15-minute HMR endurance acceptance passing
 
 ## Boundary
 
@@ -12,28 +12,44 @@ create a launch service.
 
 ## Passing evidence
 
-The automated route check currently passes all fifteen assertions:
+The automated route check currently passes all twenty assertions:
 
 - static HTML routing;
 - unknown-alias 404 diagnostic;
 - missing-upstream 502 diagnostic naming the exact loopback target;
 - upstream Host rewrite plus `X-Forwarded-Host`;
 - public Host preservation mode;
+- HTTPS upstream routing with explicit verification policy;
+- rejection of an untrusted self-signed upstream under the default verification policy;
 - relative redirect pass-through;
 - external redirect pass-through without following it;
 - `Set-Cookie` pass-through;
 - server-sent event body preservation;
+- server-sent event first-chunk delivery without full-response buffering;
 - chunked/streamed response preservation;
+- streamed-response first-chunk delivery without full-response buffering;
 - 1 MiB request upload with byte count and SHA-256 equality;
 - Vite 8 HMR WebSocket `101 Switching Protocols`;
 - atomic alias addition without proxy restart;
 - atomic alias removal without proxy restart;
+- an existing long response surviving eight concurrent atomic route updates;
 - an observed IPv4 loopback-only listener.
 
 Vite 8 rejects a WebSocket handshake without its generated HMR token both
 directly and through the proxy. Using the token delivered by `/@vite/client`
 produces `101 Switching Protocols` and the `vite-hmr` subprotocol through both
 paths. This separates a current Vite security requirement from proxy failure.
+
+An additional 900-second endurance run kept both the Vite 8 and Next.js 16 HMR
+WebSockets open through the proxy. Disposable copies of both applications were
+modified at elapsed seconds 1, 300, 600, and 897. At every update, the new
+source marker was visible over HTTP and each framework emitted a new HMR
+WebSocket message. Both original connections remained open at the end, with no
+socket errors recorded.
+
+HTTPS upstreams verify certificates by default. A route must explicitly select
+`insecure-local` to reach a self-signed local development server; the policy is
+stored per route rather than weakening TLS globally.
 
 ## State and collision behavior
 
@@ -45,19 +61,18 @@ changes do not restart or disconnect unrelated applications.
 
 ## Current implementation choice
 
-The spike uses Node's built-in HTTP and TCP modules so request/response streams
+The spike uses Node's built-in HTTP, HTTPS, and TCP modules so request/response streams
 and WebSocket bytes can be observed directly without introducing another proxy
 dependency. This is not yet a recommendation to ship a custom proxy. The
-remaining compatibility and endurance results will be compared with the
-already measured Portless/Caddy behavior before the architecture decision.
+passing results establish the minimum compatibility contract for comparison
+with the already measured Portless/Caddy behavior before the architecture
+decision.
 
-## Remaining acceptance work
+## Remaining architecture decision
 
-- Run Vite and Next.js HMR through the alias for 15 minutes and trigger actual
-  source updates, not only the WebSocket handshake.
-- Add an HTTPS upstream route and record certificate-verification policy.
-- Measure first-chunk timing for SSE and streaming rather than only final body
-  equality.
-- Exercise concurrent route updates and concurrent long-lived connections.
-- Decide whether the production listener should bind separate IPv4 and IPv6
-  loopback sockets.
+The accepted spike deliberately binds only `127.0.0.1`; LAN reachability is
+therefore excluded by construction and by the observed listener. A production
+implementation may add a separate `::1` listener for IPv6 localhost support,
+but must never use an unspecified or LAN interface. This is an implementation
+choice rather than an unresolved compatibility requirement for the IPv4 v0.1
+prototype.
