@@ -563,7 +563,10 @@ struct StatusPill: View {
 }
 
 func serviceTypeDescription(_ service: ServiceRecord) -> String {
-    isOpenablePage(service) ? "Openable Web page" : "Background HTTP service"
+    if isOpenablePage(service) { return "Openable Web page" }
+    if service.observation.classification == "confirmed-web" { return "Background HTTP service" }
+    if service.observation.classification == "suspected-web" { return "Likely Web service" }
+    return "TCP listener"
 }
 
 func homepageDescription(_ service: ServiceRecord) -> String {
@@ -581,6 +584,23 @@ func detectionDescription(_ service: ServiceRecord) -> String {
         return "Process resembles a Web service"
     }
     return "Active local listener"
+}
+
+func secondaryServiceName(_ service: ServiceRecord) -> String {
+    if webClassifications.contains(service.observation.classification) {
+        return isOpenablePage(service) ? serviceName(service) : relatedServiceName(service)
+    }
+    if let commandName = commandApplicationName(service), !commandName.isEmpty { return commandName }
+    return service.process.name ?? "Listener :\(service.listener.port)"
+}
+
+func secondaryServiceDescription(_ service: ServiceRecord) -> String {
+    if webClassifications.contains(service.observation.classification) {
+        if isOpenablePage(service) { return "Web page" }
+        return relatedServiceDescription(service)
+    }
+    if service.observation.protocol == "unknown" { return "Unverified listener" }
+    return "\(service.observation.protocol.uppercased()) listener"
 }
 
 struct ServiceDetailRow: View {
@@ -640,7 +660,9 @@ struct ServiceDetailView: View {
                         Text("OVERVIEW")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(.tertiary)
-                        ServiceDetailRow(label: "Homepage", value: homepageDescription(service))
+                        if webClassifications.contains(service.observation.classification) {
+                            ServiceDetailRow(label: "Homepage", value: homepageDescription(service))
+                        }
                         ServiceDetailRow(label: "Shown because", value: detectionDescription(service))
                     }
 
@@ -650,7 +672,9 @@ struct ServiceDetailView: View {
                         Text("ENDPOINT")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(.tertiary)
-                        ServiceDetailRow(label: "Local", value: serviceURL(service)?.absoluteString ?? "Unknown", monospaced: true)
+                        if webClassifications.contains(service.observation.classification) {
+                            ServiceDetailRow(label: "Local", value: serviceURL(service)?.absoluteString ?? "Unknown", monospaced: true)
+                        }
                         ServiceDetailRow(label: "Listening", value: listenerEndpoint(service), monospaced: true)
                         ServiceDetailRow(
                             label: "Network",
@@ -978,10 +1002,55 @@ struct RelatedServiceRow: View {
     }
 }
 
+struct SecondaryServiceRow: View {
+    let service: ServiceRecord
+    let onDetails: () -> Void
+
+    var body: some View {
+        Button(action: onDetails) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(secondaryServiceName(service))
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(secondaryServiceDescription(service))
+                        Text("·")
+                        Text(listenerEndpoint(service))
+                            .font(.system(size: 9, design: .monospaced))
+                        if service.listener.bindScope != "loopback" {
+                            Text("· LAN access")
+                        }
+                    }
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if let age = relativeAge(service.process.started) {
+                    Text(age)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+                Image(systemName: "info.circle")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+        }
+        .buttonStyle(.plain)
+        .help("Show details")
+    }
+}
+
 struct InventoryView: View {
     @ObservedObject var store: InventoryStore
     @State private var expanded = Set<String>()
     @State private var expandedRelated = Set<String>()
+    @State private var expandedOtherWeb = false
+    @State private var expandedOtherListeners = false
     @State private var initializedExpansion = false
     @State private var selectedServiceID: String?
     @State private var evidenceService: ServiceRecord?
@@ -1012,13 +1081,27 @@ struct InventoryView: View {
     private var displayedProjectServiceIDs: Set<String> {
         Set(projects.flatMap(\.services).map(\.id))
     }
-    private var otherWebCount: Int {
-        webServices.filter { !displayedProjectServiceIDs.contains($0.id) }.count
+    private var otherWebServices: [ServiceRecord] {
+        webServices.filter { !displayedProjectServiceIDs.contains($0.id) }
     }
-    private var otherListenerCount: Int { allServices.count - webServices.count }
+    private var otherListenerServices: [ServiceRecord] {
+        allServices.filter { !webClassifications.contains($0.observation.classification) }
+    }
+    private var searchNeedle: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    private var isSearching: Bool { !searchNeedle.isEmpty }
+    private var filteredOtherWebServices: [ServiceRecord] {
+        guard isSearching else { return otherWebServices }
+        return otherWebServices.filter { serviceSearchText($0).contains(searchNeedle) }
+    }
+    private var filteredOtherListenerServices: [ServiceRecord] {
+        guard isSearching else { return otherListenerServices }
+        return otherListenerServices.filter { serviceSearchText($0).contains(searchNeedle) }
+    }
 
     private var filteredProjects: [ProjectGroup] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let needle = searchNeedle
         guard !needle.isEmpty else { return projects }
         return projects.compactMap { project in
             let projectText = [project.name, projectNames[project.id], project.project?.branch, project.project?.root, project.project?.remoteUrl]
@@ -1119,7 +1202,7 @@ struct InventoryView: View {
                         ProgressView("Checking active Web services…")
                             .controlSize(.small)
                             .padding(.vertical, 80)
-                    } else if filteredProjects.isEmpty {
+                    } else if filteredProjects.isEmpty && filteredOtherWebServices.isEmpty && filteredOtherListenerServices.isEmpty {
                         ContentUnavailableView(
                             query.isEmpty ? "No development Web apps" : "No matching Web apps",
                             systemImage: "magnifyingglass",
@@ -1132,10 +1215,22 @@ struct InventoryView: View {
                                 .padding(.vertical, 3)
                         }
 
-                        if query.isEmpty {
-                            Spacer(minLength: 5)
-                            quietCountRow("Other Web endpoints", count: otherWebCount)
-                            quietCountRow("Other listeners", count: otherListenerCount)
+                        Spacer(minLength: 5)
+                        if !filteredOtherWebServices.isEmpty {
+                            secondarySection(
+                                "Other Web endpoints",
+                                services: filteredOtherWebServices,
+                                isOpen: isSearching || expandedOtherWeb,
+                                onToggle: { expandedOtherWeb.toggle() }
+                            )
+                        }
+                        if !filteredOtherListenerServices.isEmpty {
+                            secondarySection(
+                                "Other listeners",
+                                services: filteredOtherListenerServices,
+                                isOpen: isSearching || expandedOtherListeners,
+                                onToggle: { expandedOtherListeners.toggle() }
+                            )
                         }
                     }
                 }
@@ -1395,21 +1490,53 @@ struct InventoryView: View {
         }
     }
 
-    private func quietCountRow(_ label: String, count: Int) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(String(count))
-                .font(.system(size: 9, weight: .semibold))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Color.secondary.opacity(0.1), in: Capsule())
+    @ViewBuilder
+    private func secondarySection(
+        _ label: String,
+        services: [ServiceRecord],
+        isOpen: Bool,
+        onToggle: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: 2) {
+            Button {
+                guard !isSearching else { return }
+                onToggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .frame(width: 12)
+                    Text(label)
+                    Spacer()
+                    Text(String(services.count))
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.secondary.opacity(0.1), in: Capsule())
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .contentShape(Rectangle())
+                .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            if isOpen {
+                VStack(spacing: 2) {
+                    ForEach(services) { service in
+                        SecondaryServiceRow(service: service) {
+                            evidenceService = service
+                        }
+                    }
+                }
+                .padding(.leading, 28)
+                .padding(.trailing, 8)
+                .padding(.bottom, 5)
+            }
         }
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
-        .frame(height: 36)
-        .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
     }
