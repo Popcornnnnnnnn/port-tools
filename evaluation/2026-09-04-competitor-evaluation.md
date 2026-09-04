@@ -96,6 +96,17 @@ lifecycle rather than killing a PID that launchd will immediately restart.
 - While Caddy was running, PortPeek also probed Caddy's local admin endpoint on
   port 2019. This demonstrates discovery breadth but also why the product must
   distinguish “HTTP-speaking” from “user-facing web app.”
+- On the evaluation Mac, the original popover reported `37 open` but rendered
+  no port rows: only the header, filter field, and footer were visible. The
+  count is a non-interactive text label, so clicking it correctly did nothing.
+  Screenshot: [original empty-list state](./screenshots/02-portpeek-empty-list.png).
+- Source inspection found that the populated `ScrollView` only declares
+  `.frame(maxHeight: 380)` inside a window-style `MenuBarExtra`. On this system
+  its ideal height collapsed to zero. No runtime exception was logged.
+- For continued intent-level evaluation, a clearly separate local build named
+  `PortPeek Patched.app` was created with an explicit bounded list height. The
+  untouched original remains installed; observations from the patched build
+  must not be attributed to the released product.
 
 ### Source evidence
 
@@ -111,6 +122,11 @@ An HTTP probe materially improves discovery, but a single GET and title are
 classification inputs, not the classification itself. We should cap response
 size, use staged protocol detection, retain raw evidence, and suppress known
 control/admin endpoints unless explicitly requested.
+
+The empty-list failure also establishes a UI acceptance requirement: the
+scanner count and rendered rows must be cross-checked, including large result
+sets and current macOS releases. A popover that claims results but shows none
+needs an explicit recoverable error rather than silent empty space.
 
 ## Portless
 
