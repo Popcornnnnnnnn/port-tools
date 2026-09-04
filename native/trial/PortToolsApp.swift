@@ -841,6 +841,79 @@ struct AliasView: View {
     }
 }
 
+private let disclosureAnimation = Animation.easeOut(duration: 0.15)
+private let disclosureContentTransition = AnyTransition.asymmetric(
+    insertion: .offset(y: -4).combined(with: .opacity),
+    removal: .opacity
+)
+
+struct DisclosureRow<Content: View>: View {
+    let isExpanded: Bool
+    let isEnabled: Bool
+    let level: Int
+    let contentInsets: EdgeInsets
+    let minimumHeight: CGFloat
+    let action: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    @State private var isHovered = false
+
+    init(
+        isExpanded: Bool,
+        isEnabled: Bool = true,
+        level: Int = 0,
+        contentInsets: EdgeInsets,
+        minimumHeight: CGFloat = 0,
+        action: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.isExpanded = isExpanded
+        self.isEnabled = isEnabled
+        self.level = level
+        self.contentInsets = contentInsets
+        self.minimumHeight = minimumHeight
+        self.action = action
+        self.content = content
+    }
+
+    private var chevronOpacity: Double {
+        if isHovered { return 0.58 }
+        return isExpanded ? 0.34 : 0.14
+    }
+
+    private var hoverOpacity: Double {
+        level == 0 ? 0.055 : 0.04
+    }
+
+    var body: some View {
+        Button {
+            guard isEnabled else { return }
+            withAnimation(disclosureAnimation) { action() }
+        } label: {
+            HStack(spacing: level == 0 ? 7 : 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: level == 0 ? 8.5 : 8, weight: .semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .foregroundStyle(Color.secondary.opacity(chevronOpacity))
+                    .frame(width: level == 0 ? 14 : 12)
+                content()
+            }
+            .contentShape(Rectangle())
+            .padding(contentInsets)
+            .frame(minHeight: minimumHeight)
+            .background(
+                Color.secondary.opacity(isHovered && isEnabled ? hoverOpacity : 0),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
+        .animation(disclosureAnimation, value: isExpanded)
+    }
+}
+
 struct ServiceRow: View {
     let service: ServiceRecord
     let displayName: String
@@ -850,6 +923,8 @@ struct ServiceRow: View {
     let onAlias: () -> Void
     let onEvidence: () -> Void
     let onMessage: (String) -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -888,6 +963,9 @@ struct ServiceRow: View {
                 .padding(.horizontal, 10)
             }
             .buttonStyle(.plain)
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+            }
 
             if selected {
                 VStack(alignment: .leading, spacing: 8) {
@@ -948,13 +1026,18 @@ struct ServiceRow: View {
                 .padding(.bottom, 10)
             }
         }
-        .background(selected ? Color.accentColor.opacity(0.06) : Color.clear)
+        .background(
+            selected ? Color.accentColor.opacity(0.06) : Color.secondary.opacity(isHovered ? 0.04 : 0),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
     }
 }
 
 struct RelatedServiceRow: View {
     let service: ServiceRecord
     let onEvidence: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: onEvidence) {
@@ -998,6 +1081,13 @@ struct RelatedServiceRow: View {
             .padding(.vertical, 8)
         }
         .buttonStyle(.plain)
+        .background(
+            Color.secondary.opacity(isHovered ? 0.035 : 0),
+            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+        )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
         .help("Show detection evidence")
     }
 }
@@ -1005,6 +1095,8 @@ struct RelatedServiceRow: View {
 struct SecondaryServiceRow: View {
     let service: ServiceRecord
     let onDetails: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: onDetails) {
@@ -1041,6 +1133,13 @@ struct SecondaryServiceRow: View {
             .padding(.vertical, 7)
         }
         .buttonStyle(.plain)
+        .background(
+            Color.secondary.opacity(isHovered ? 0.035 : 0),
+            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+        )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
         .help("Show details")
     }
 }
@@ -1349,47 +1448,39 @@ struct InventoryView: View {
         let displayedProjectName = projectNames[project.id] ?? inferredProjectName
 
         VStack(spacing: 0) {
-            Button {
-                guard !searching else { return }
+            DisclosureRow(
+                isExpanded: isOpen,
+                isEnabled: !searching,
+                contentInsets: EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+            ) {
                 if isOpen { expanded.remove(project.id) } else { expanded.insert(project.id) }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 14)
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 6, height: 6)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(displayedProjectName)
-                            .font(.system(size: 15, weight: .semibold))
-                            .lineLimit(1)
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.branch")
-                            Text(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
-                            if let remote = compactRemote(project.project?.remoteUrl) {
-                                Text("·")
-                                Text(remote).lineLimit(1)
-                            }
+            } content: {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 6, height: 6)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayedProjectName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.branch")
+                        Text(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
+                        if let remote = compactRemote(project.project?.remoteUrl) {
+                            Text("·")
+                            Text(remote).lineLimit(1)
                         }
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
                     }
-                    Spacer(minLength: 5)
-                    Text("\(pageServices.count) \(pageServices.count == 1 ? "app" : "apps")")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(Color.secondary.opacity(0.1), in: Capsule())
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
                 }
-                .contentShape(Rectangle())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                Spacer(minLength: 5)
+                Text("\(pageServices.count) \(pageServices.count == 1 ? "app" : "apps")")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.1), in: Capsule())
             }
-            .buttonStyle(.plain)
             .contextMenu {
                 Button("Rename Project…", systemImage: "pencil") {
                     renameTarget = RenameTarget(
@@ -1446,33 +1537,26 @@ struct InventoryView: View {
 
                     if !relatedServices.isEmpty {
                         Spacer(minLength: 4)
-                        Button {
+                        DisclosureRow(
+                            isExpanded: relatedIsOpen,
+                            level: 1,
+                            contentInsets: EdgeInsets(top: 0, leading: 62, bottom: 0, trailing: 12),
+                            minimumHeight: 34
+                        ) {
                             if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
-                        } label: {
-                            HStack(spacing: 7) {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .rotationEffect(.degrees(relatedIsOpen ? 90 : 0))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 12)
-                                Text("Related services")
-                                    .font(.system(size: 10, weight: .semibold))
-                                Text("Not a directly openable page")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.tertiary)
-                                Spacer()
-                                Text(String(relatedServices.count))
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(Color.secondary.opacity(0.1), in: Capsule())
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.leading, 62)
-                            .padding(.trailing, 12)
-                            .frame(height: 34)
+                        } content: {
+                            Text("Related services")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Not a directly openable page")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                            Spacer()
+                            Text(String(relatedServices.count))
+                                .font(.system(size: 9, weight: .semibold))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.secondary.opacity(0.1), in: Capsule())
                         }
-                        .buttonStyle(.plain)
 
                         if relatedIsOpen {
                             VStack(spacing: 2) {
@@ -1481,11 +1565,13 @@ struct InventoryView: View {
                                 }
                             }
                             .padding(.leading, 72)
+                            .transition(disclosureContentTransition)
                         }
                     }
                 }
                 .padding(.top, 2)
                 .padding(.bottom, 5)
+                .transition(disclosureContentTransition)
             }
         }
     }
@@ -1498,31 +1584,26 @@ struct InventoryView: View {
         onToggle: @escaping () -> Void
     ) -> some View {
         VStack(spacing: 2) {
-            Button {
-                guard !isSearching else { return }
+            DisclosureRow(
+                isExpanded: isOpen,
+                isEnabled: !isSearching,
+                level: 1,
+                contentInsets: EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12),
+                minimumHeight: 36
+            ) {
                 onToggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        .frame(width: 12)
-                    Text(label)
-                    Spacer()
-                    Text(String(services.count))
-                        .font(.system(size: 9, weight: .semibold))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.secondary.opacity(0.1), in: Capsule())
-                }
+            } content: {
+                Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .contentShape(Rectangle())
-                .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Spacer()
+                Text(String(services.count))
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.1), in: Capsule())
             }
-            .buttonStyle(.plain)
 
             if isOpen {
                 VStack(spacing: 2) {
@@ -1535,6 +1616,7 @@ struct InventoryView: View {
                 .padding(.leading, 28)
                 .padding(.trailing, 8)
                 .padding(.bottom, 5)
+                .transition(disclosureContentTransition)
             }
         }
         .padding(.horizontal, 8)
