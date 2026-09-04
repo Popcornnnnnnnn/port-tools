@@ -42,6 +42,13 @@ SHARED_RUNTIME_HINTS = (
     "launchd",
     "orbstack helper",
 )
+APPLICATION_MANIFESTS = (
+    "package.json",
+    "pyproject.toml",
+    "Cargo.toml",
+    "go.mod",
+    "Gemfile",
+)
 
 
 def run_text(command: List[str]) -> str:
@@ -130,7 +137,66 @@ def process_metadata(pid: int) -> Dict[str, object]:
             evidence = "ambiguous-command-path"
     metadata["project"] = project
     metadata["projectEvidence"] = evidence
+    metadata["application"] = (
+        application_metadata(cwd, command, project["root"]) if project else None
+    )
     return metadata
+
+
+def application_metadata(
+    cwd: Optional[str], command: str, project_root: str
+) -> Optional[Dict[str, object]]:
+    root = Path(project_root).resolve()
+    candidates = []
+    if cwd:
+        candidates.append(Path(cwd))
+    try:
+        command_parts = shlex.split(command)
+    except ValueError:
+        command_parts = command.split()
+    for part in command_parts:
+        if part.startswith("-"):
+            continue
+        candidate = Path(part)
+        if not candidate.is_absolute() and cwd:
+            candidate = Path(cwd) / candidate
+        if candidate.exists() and "node_modules" not in candidate.parts:
+            candidates.append(candidate if candidate.is_dir() else candidate.parent)
+
+    matches = {}
+    for candidate in candidates:
+        try:
+            current = candidate.resolve()
+            current.relative_to(root)
+        except (OSError, ValueError):
+            continue
+        while True:
+            for manifest_name in APPLICATION_MANIFESTS:
+                manifest = current / manifest_name
+                if manifest.is_file():
+                    matches[str(current)] = manifest
+                    break
+            if current == root:
+                break
+            current = current.parent
+    if not matches:
+        return None
+
+    app_root = max(matches, key=lambda path: len(Path(path).parts))
+    manifest = matches[app_root]
+    name = Path(app_root).name
+    if manifest.name == "package.json":
+        try:
+            package = json.loads(manifest.read_text(encoding="utf-8"))
+            name = package.get("name") or name
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {
+        "root": app_root,
+        "relativePath": str(Path(app_root).relative_to(root)) or ".",
+        "name": name,
+        "manifest": manifest.name,
+    }
 
 
 def process_snapshot() -> Dict[int, Dict[str, object]]:
@@ -173,6 +239,8 @@ def build_stop_plan(
     root_pid = int(target["pid"])
     project = service.get("project") or {}
     project_root = project.get("root")
+    application = service.get("application") or {}
+    application_root = application.get("root")
     management = service.get("management") or {"source": "unmanaged"}
     root_snapshot = processes.get(root_pid)
     reasons = []
@@ -208,15 +276,19 @@ def build_stop_plan(
                     "command": target.get("command"),
                     "cwd": target.get("cwd"),
                     "projectRoot": project_root,
+                    "applicationRoot": application_root,
                 }
             )
         owner = process.get("owner")
         child_project_root = process.get("projectRoot")
+        child_application_root = process.get("applicationRoot")
         exclusion_reason = None
         if owner != current_user:
             exclusion_reason = "different owner"
         elif pid != root_pid and child_project_root != project_root:
             exclusion_reason = "same-project ownership not established"
+        elif pid != root_pid and application_root and child_application_root != application_root:
+            exclusion_reason = "same-application ownership not established"
         if exclusion_reason:
             exclusions.append({**process, "reason": exclusion_reason})
         else:
@@ -246,6 +318,7 @@ def build_stop_plan(
             "id": service["id"],
             "listener": service["listener"],
             "projectRoot": project_root,
+            "applicationRoot": application_root,
             "managementSource": management.get("source", "unknown"),
         },
         "rootProcess": included[0] if included and included[0]["pid"] == root_pid else target,
@@ -279,6 +352,7 @@ def stop_dry_run(service: Dict[str, object]) -> Dict[str, object]:
                 "cwd": metadata.get("cwd"),
                 "started": metadata.get("started"),
                 "projectRoot": (metadata.get("project") or {}).get("root"),
+                "applicationRoot": (metadata.get("application") or {}).get("root"),
             }
         )
     return build_stop_plan(
@@ -297,6 +371,7 @@ def print_stop_plan(plan: Dict[str, object]) -> None:
     print("Decision: {}".format(plan["decision"].upper()))
     print("Service: {} at {}:{}".format(plan["service"]["id"], listener["address"], listener["port"]))
     print("Project: {}".format(plan["service"].get("projectRoot") or "unverified"))
+    print("Application: {}".format(plan["service"].get("applicationRoot") or "project root"))
     print("Owner: {}".format(root.get("owner") or "unknown"))
     print("Root PID: {} ({})".format(root.get("pid"), root.get("name") or "unknown"))
     descendant_text = ", ".join(str(item["pid"]) for item in plan["descendants"]) or "none"
@@ -505,6 +580,25 @@ def docker_port_metadata() -> Dict[int, Dict[str, object]]:
                     "labels": labels,
                 }
     return ports
+
+
+def apply_docker_identity(
+    listener: Dict[str, object], management: Dict[str, object]
+) -> None:
+    listener["hostProcessProject"] = listener.get("project")
+    listener["management"] = management
+    listener["project"] = None
+    listener["application"] = None
+    listener["projectEvidence"] = "docker-unattributed"
+    labels = management.get("labels", {})
+    project_root = labels.get("com.docker.compose.project.working_dir") or labels.get(
+        "dev.port-tools.project-root"
+    )
+    if project_root:
+        docker_project = git_metadata(project_root)
+        if docker_project:
+            listener["project"] = docker_project
+            listener["projectEvidence"] = "docker-compose-working-directory"
 
 
 def receive_response(sock: socket.socket) -> bytes:
@@ -769,14 +863,7 @@ def scan() -> List[Dict[str, object]]:
         listener.update(metadata[pid])
         management = docker_ports.get(int(listener["port"]))
         if management:
-            listener["management"] = management
-            labels = management.get("labels", {})
-            project_root = labels.get("com.docker.compose.project.working_dir") or labels.get(
-                "dev.port-tools.project-root"
-            )
-            if project_root:
-                listener["project"] = git_metadata(project_root)
-                listener["projectEvidence"] = "docker-compose-working-directory"
+            apply_docker_identity(listener, management)
 
     with ThreadPoolExecutor(max_workers=min(24, max(1, len(listeners)))) as executor:
         probes = list(executor.map(probe_listener, listeners))
@@ -800,8 +887,10 @@ def scan() -> List[Dict[str, object]]:
                     "started": listener.get("started"),
                 },
                 "project": listener.get("project"),
+                "application": listener.get("application"),
                 "projectEvidence": listener.get("projectEvidence"),
                 "projectCandidates": listener.get("projectCandidates", []),
+                "hostProcessProject": listener.get("hostProcessProject"),
                 "management": listener.get("management", {"source": "unmanaged"}),
                 "observation": probe,
                 "relevance": relevance(listener),
@@ -811,8 +900,14 @@ def scan() -> List[Dict[str, object]]:
 
 
 def group_id(service: Dict[str, object]) -> str:
+    application = service.get("application") or {}
     project = service.get("project") or {}
-    identity = project.get("root")
+    identity = application.get("root") or project.get("root")
+    management = service.get("management") or {}
+    if not identity and management.get("source") == "docker":
+        identity = "docker:{}".format(
+            management.get("containerName") or management.get("containerId")
+        )
     if not identity:
         identity = "process:{}".format(service["process"]["pid"])
     return hashlib.sha256(str(identity).encode("utf-8")).hexdigest()[:12]
@@ -824,12 +919,21 @@ def group_services(services: List[Dict[str, object]]) -> List[Dict[str, object]]
     for service in services:
         identifier = group_id(service)
         if identifier not in groups:
+            application = service.get("application") or {}
             project = service.get("project") or {}
-            label = project.get("name") or service["process"].get("name") or "unknown"
+            management = service.get("management") or {}
+            label = (
+                application.get("name")
+                or project.get("name")
+                or management.get("containerName")
+                or service["process"].get("name")
+                or "unknown"
+            )
             groups[identifier] = {
                 "id": identifier,
                 "label": label,
                 "project": service.get("project"),
+                "application": service.get("application"),
                 "serviceIds": [],
             }
             order.append(identifier)

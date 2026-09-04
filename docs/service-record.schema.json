@@ -12,11 +12,12 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "label", "project", "serviceIds"],
+        "required": ["id", "label", "project", "application", "serviceIds"],
         "properties": {
           "id": { "type": "string" },
           "label": { "type": "string" },
           "project": { "type": ["object", "null"] },
+          "application": { "type": ["object", "null"] },
           "serviceIds": {
             "type": "array",
             "minItems": 1,
@@ -29,7 +30,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "listener", "process", "management", "observation", "relevance"],
+        "required": ["id", "listener", "process", "application", "management", "observation", "relevance"],
         "properties": {
           "id": { "type": "string" },
           "listener": {
@@ -55,11 +56,21 @@
             }
           },
           "project": { "type": ["object", "null"] },
+          "application": {
+            "type": ["object", "null"],
+            "properties": {
+              "root": { "type": "string" },
+              "relativePath": { "type": "string" },
+              "name": { "type": "string" },
+              "manifest": { "type": "string" }
+            }
+          },
           "projectEvidence": { "type": ["string", "null"] },
           "projectCandidates": {
             "type": "array",
             "items": { "type": "string" }
           },
+          "hostProcessProject": { "type": ["object", "null"] },
           "management": {
             "type": "object",
             "required": ["source"],

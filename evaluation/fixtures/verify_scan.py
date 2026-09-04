@@ -22,7 +22,16 @@ def matches_expected(service: dict, expected: dict) -> bool:
     if service["observation"]["protocol"] != expected["protocol"]:
         return False
     project = service.get("project") or {}
+    application = service.get("application") or {}
     if "projectRoot" in expected and project.get("root") != render(expected["projectRoot"]):
+        return False
+    if expected.get("projectAbsent") and service.get("project") is not None:
+        return False
+    if "projectCandidateCount" in expected and len(service.get("projectCandidates", [])) != expected["projectCandidateCount"]:
+        return False
+    if "applicationRoot" in expected and application.get("root") != render(expected["applicationRoot"]):
+        return False
+    if "applicationName" in expected and application.get("name") != expected["applicationName"]:
         return False
     if "branch" in expected and project.get("branch") != expected["branch"]:
         return False
@@ -60,6 +69,9 @@ def main() -> None:
                 "classification": service["observation"]["classification"],
                 "protocol": service["observation"]["protocol"],
                 "projectRoot": (service.get("project") or {}).get("root"),
+                "applicationRoot": (service.get("application") or {}).get("root"),
+                "applicationName": (service.get("application") or {}).get("name"),
+                "projectCandidateCount": len(service.get("projectCandidates", [])),
                 "branch": (service.get("project") or {}).get("branch"),
                 "projectEvidence": service.get("projectEvidence"),
                 "managementSource": service.get("management", {}).get("source"),

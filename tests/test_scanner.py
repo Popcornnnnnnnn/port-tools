@@ -4,6 +4,8 @@ from tempfile import TemporaryDirectory
 
 from prototype.port_tools import (
     add_alias,
+    application_metadata,
+    apply_docker_identity,
     build_stop_plan,
     descendant_pids,
     detect_framework,
@@ -126,6 +128,35 @@ class ProjectIdentityTests(unittest.TestCase):
         )
         self.assertEqual(len(candidates), 2)
 
+    def test_nearest_application_manifest_below_project_root(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "apps" / "web"
+            app.mkdir(parents=True)
+            (app / "package.json").write_text(
+                '{"name":"@fixture/web"}\n', encoding="utf-8"
+            )
+            application = application_metadata(str(app), "node server.js", str(root))
+            self.assertEqual(application["root"], str(app.resolve()))
+            self.assertEqual(application["relativePath"], "apps/web")
+            self.assertEqual(application["name"], "@fixture/web")
+
+    def test_unlabeled_docker_does_not_inherit_host_process_project(self) -> None:
+        host_project = {"root": "/workspace/unrelated"}
+        listener = {"project": host_project, "projectEvidence": "cwd"}
+        apply_docker_identity(
+            listener,
+            {
+                "source": "docker",
+                "containerId": "abcdef123456",
+                "containerName": "web",
+                "labels": {},
+            },
+        )
+        self.assertIsNone(listener["project"])
+        self.assertEqual(listener["projectEvidence"], "docker-unattributed")
+        self.assertEqual(listener["hostProcessProject"], host_project)
+
 
 class GroupingTests(unittest.TestCase):
     def service(self, service_id: str, port: int, root: str) -> dict:
@@ -160,6 +191,31 @@ class GroupingTests(unittest.TestCase):
         first["process"]["pid"] = 100
         second = self.service("b", 9000, "/workspace/studio")
         second["process"]["pid"] = 200
+        self.assertEqual(group_services([first])[0]["id"], group_services([second])[0]["id"])
+
+    def test_two_apps_in_one_worktree_remain_separate(self) -> None:
+        first = self.service("a", 4317, "/workspace/monorepo")
+        first["application"] = {"root": "/workspace/monorepo/apps/a", "name": "app-a"}
+        second = self.service("b", 4319, "/workspace/monorepo")
+        second["application"] = {"root": "/workspace/monorepo/apps/b", "name": "app-b"}
+        groups = group_services([first, second])
+        self.assertEqual([group["label"] for group in groups], ["app-a", "app-b"])
+
+    def test_unlabeled_docker_name_survives_container_id_change(self) -> None:
+        first = self.service("a", 51753, "/unused")
+        first["project"] = None
+        first["management"] = {
+            "source": "docker",
+            "containerName": "local-web",
+            "containerId": "old-id",
+        }
+        second = self.service("b", 61753, "/unused")
+        second["project"] = None
+        second["management"] = {
+            "source": "docker",
+            "containerName": "local-web",
+            "containerId": "new-id",
+        }
         self.assertEqual(group_services([first])[0]["id"], group_services([second])[0]["id"])
 
 
@@ -270,6 +326,15 @@ class StopPlanTests(unittest.TestCase):
         )
         self.assertEqual({item["pid"] for item in plan["exclusions"]}, {102, 103})
         self.assertFalse(plan["forcePlan"]["allowedInThisAction"])
+
+    def test_sibling_application_child_is_excluded(self) -> None:
+        service = self.service()
+        service["application"] = {"root": "/workspace/app/apps/a"}
+        processes = self.processes()
+        processes[101]["applicationRoot"] = "/workspace/app/apps/b"
+        plan = build_stop_plan(service, processes, [], "forge")
+        exclusion = next(item for item in plan["exclusions"] if item["pid"] == 101)
+        self.assertEqual(exclusion["reason"], "same-application ownership not established")
 
     def test_other_owner_is_refused(self) -> None:
         plan = build_stop_plan(self.service(owner="other"), self.processes(), [], "forge")

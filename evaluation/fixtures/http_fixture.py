@@ -130,6 +130,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=51739)
+    parser.add_argument("--identity-path", action="append", default=[])
     args = parser.parse_args()
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)

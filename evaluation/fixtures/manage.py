@@ -124,6 +124,21 @@ def ensure_git_worktrees() -> None:
     run_checked(["git", "worktree", "add", str(feature_root), "fixture-feature"], cwd=main_root)
 
 
+def ensure_ambiguity_project() -> None:
+    ambiguity_root = RUNTIME_ROOT / "ambiguity-other"
+    if (ambiguity_root / ".git").exists():
+        return
+    if ambiguity_root.exists():
+        shutil.rmtree(ambiguity_root)
+    ambiguity_root.mkdir(parents=True)
+    (ambiguity_root / "README.md").write_text("# identity ambiguity fixture\n", encoding="utf-8")
+    run_checked(["git", "init", "-b", "main"], cwd=ambiguity_root)
+    run_checked(["git", "config", "user.name", "port-tools fixture"], cwd=ambiguity_root)
+    run_checked(["git", "config", "user.email", "fixture@port-tools.local"], cwd=ambiguity_root)
+    run_checked(["git", "add", "README.md"], cwd=ambiguity_root)
+    run_checked(["git", "commit", "-m", "ambiguity fixture"], cwd=ambiguity_root)
+
+
 def ensure_node_modules(cwd: Path) -> None:
     if (cwd / "node_modules").exists():
         return
@@ -256,6 +271,8 @@ def start_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
         ensure_certificate()
     elif fixture.get("prepare") == "git-worktrees":
         ensure_git_worktrees()
+    elif fixture.get("prepare") == "ambiguous-project":
+        ensure_ambiguity_project()
     elif fixture.get("prepare") == "npm-install":
         ensure_node_modules(cwd)
     elif fixture.get("prepare") == "fastapi-venv":

@@ -78,6 +78,8 @@
         "protocol": "http",
         "title": "port-tools Vite fixture",
         "framework": "vite",
+        "applicationRoot": "{repo}/evaluation/fixtures/vite",
+        "applicationName": "port-tools-vite-fixture",
         "requiredEvidence": ["valid-http-response", "html-title", "vite-client", "websocket-upgrade"]
       }
     },
@@ -161,6 +163,8 @@
         "title": "port-tools Next.js fixture",
         "framework": "next",
         "projectRoot": "{repo}",
+        "applicationRoot": "{repo}/evaluation/fixtures/next",
+        "applicationName": "port-tools-next-fixture",
         "requiredEvidence": ["valid-http-response", "html-title", "next-runtime"]
       }
     },
@@ -200,6 +204,64 @@
         "managementSource": "docker",
         "projectEvidence": "docker-compose-working-directory",
         "requiredEvidence": ["redis-response", "docker-published-port"]
+      }
+    },
+    {
+      "id": "monorepo-app",
+      "description": "Web app nested below a Git worktree in a monorepo-style package directory",
+      "port": 51751,
+      "cwd": "evaluation/fixtures/monorepo/apps/web",
+      "command": ["python3", "../../../http_fixture.py", "--host", "127.0.0.1", "--port", "51751"],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "projectRoot": "{repo}",
+        "applicationRoot": "{repo}/evaluation/fixtures/monorepo/apps/web",
+        "applicationName": "@port-tools/monorepo-web",
+        "projectEvidence": "cwd",
+        "requiredEvidence": ["valid-http-response", "git-project", "application-manifest"]
+      }
+    },
+    {
+      "id": "ambiguous-command",
+      "description": "Web process whose command references two different Git projects",
+      "port": 51752,
+      "prepare": "ambiguous-project",
+      "cwd": "/tmp",
+      "command": [
+        "python3",
+        "{repo}/evaluation/fixtures/http_fixture.py",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "51752",
+        "--identity-path",
+        "{runtime}/ambiguity-other/README.md"
+      ],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "projectAbsent": true,
+        "projectCandidateCount": 2,
+        "projectEvidence": "ambiguous-command-path",
+        "requiredEvidence": ["valid-http-response", "ambiguous-command-path"]
+      }
+    },
+    {
+      "id": "docker-http-unlabeled",
+      "description": "Unlabeled Docker-published HTTP service that must not inherit the host runtime cwd",
+      "kind": "docker",
+      "port": 51753,
+      "containerPort": 80,
+      "containerName": "port-tools-fixture-unlabeled",
+      "image": "nginx:alpine",
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "projectAbsent": true,
+        "managementSource": "docker",
+        "projectEvidence": "docker-unattributed",
+        "requiredEvidence": ["valid-http-response", "docker-published-port"]
       }
     }
   ]
