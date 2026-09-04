@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import socket
 import subprocess
@@ -93,8 +94,99 @@ def ensure_certificate() -> None:
     )
 
 
+def run_checked(command: List[str], cwd: Optional[Path] = None) -> None:
+    subprocess.run(
+        command,
+        cwd=str(cwd) if cwd else None,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def ensure_git_worktrees() -> None:
+    main_root = RUNTIME_ROOT / "worktree-main"
+    feature_root = RUNTIME_ROOT / "worktree-feature"
+    if (main_root / ".git").exists() and (feature_root / ".git").exists():
+        return
+    if main_root.exists():
+        shutil.rmtree(main_root)
+    if feature_root.exists():
+        shutil.rmtree(feature_root)
+    main_root.mkdir(parents=True)
+    shutil.copy2(FIXTURE_ROOT / "http_fixture.py", main_root / "http_fixture.py")
+    run_checked(["git", "init", "-b", "main"], cwd=main_root)
+    run_checked(["git", "config", "user.name", "port-tools fixture"], cwd=main_root)
+    run_checked(["git", "config", "user.email", "fixture@port-tools.local"], cwd=main_root)
+    run_checked(["git", "add", "http_fixture.py"], cwd=main_root)
+    run_checked(["git", "commit", "-m", "fixture baseline"], cwd=main_root)
+    run_checked(["git", "branch", "fixture-feature"], cwd=main_root)
+    run_checked(["git", "worktree", "add", str(feature_root), "fixture-feature"], cwd=main_root)
+
+
+def render_value(value: str) -> str:
+    return value.replace("{runtime}", str(RUNTIME_ROOT)).replace("{repo}", str(REPO_ROOT))
+
+
 def render_command(fixture: Dict[str, object]) -> List[str]:
-    return [part.replace("{runtime}", str(RUNTIME_ROOT)) for part in fixture["command"]]
+    return [render_value(part) for part in fixture["command"]]
+
+
+def docker_container_id(fixture: Dict[str, object]) -> Optional[str]:
+    completed = subprocess.run(
+        ["docker", "inspect", "--format", "{{.Id}}", fixture["containerName"]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    return completed.stdout.strip() or None
+
+
+def start_docker_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
+    existing = docker_container_id(fixture)
+    if existing:
+        return {"id": fixture["id"], "status": "already-running", "containerId": existing[:12]}
+    command = [
+        "docker",
+        "run",
+        "--detach",
+        "--rm",
+        "--name",
+        fixture["containerName"],
+        "--publish",
+        "127.0.0.1:{}:{}/tcp".format(fixture["port"], fixture["containerPort"]),
+    ]
+    for key, value in fixture.get("labels", {}).items():
+        command.extend(["--label", "{}={}".format(key, render_value(value))])
+    command.append(fixture["image"])
+    completed = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "docker run failed")
+    if not wait_for_listener(int(fixture["port"]), timeout=20.0):
+        stop_docker_fixture(fixture)
+        raise RuntimeError("{} did not publish its listener".format(fixture["id"]))
+    return {
+        "id": fixture["id"],
+        "status": "started",
+        "containerId": completed.stdout.strip()[:12],
+        "port": fixture["port"],
+    }
+
+
+def stop_docker_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
+    existing = docker_container_id(fixture)
+    if not existing:
+        return {"id": fixture["id"], "status": "not-running"}
+    run_checked(["docker", "stop", "--time", "3", fixture["containerName"]])
+    released = wait_for_release(int(fixture["port"]))
+    return {"id": fixture["id"], "status": "stopped", "listenerReleased": released}
 
 
 def wait_for_listener(port: int, timeout: float = 8.0) -> bool:
@@ -108,7 +200,21 @@ def wait_for_listener(port: int, timeout: float = 8.0) -> bool:
     return False
 
 
+def wait_for_release(port: int, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.15):
+                pass
+        except OSError:
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def start_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
+    if fixture.get("kind") == "docker":
+        return start_docker_fixture(fixture)
     fixture_id = fixture["id"]
     existing_pid = read_pid(fixture_id)
     if process_alive(existing_pid):
@@ -117,9 +223,12 @@ def start_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
     RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
     if fixture.get("prepare") == "self-signed-certificate":
         ensure_certificate()
+    elif fixture.get("prepare") == "git-worktrees":
+        ensure_git_worktrees()
 
     command = render_command(fixture)
-    cwd = REPO_ROOT / fixture.get("cwd", ".")
+    cwd_value = render_value(fixture.get("cwd", "."))
+    cwd = Path(cwd_value) if os.path.isabs(cwd_value) else REPO_ROOT / cwd_value
     log_path = RUNTIME_ROOT / "{}.log".format(fixture_id)
     log_handle = log_path.open("ab", buffering=0)
     process = subprocess.Popen(
@@ -143,6 +252,8 @@ def start_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
 
 
 def stop_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
+    if fixture.get("kind") == "docker":
+        return stop_docker_fixture(fixture)
     fixture_id = fixture["id"]
     path = pid_path(fixture_id)
     pid = read_pid(fixture_id)
@@ -157,11 +268,19 @@ def stop_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
     if process_alive(pid):
         os.killpg(pid, signal.SIGKILL)
     path.unlink(missing_ok=True)
-    released = not wait_for_listener(int(fixture["port"]), timeout=0.4)
+    released = wait_for_release(int(fixture["port"]))
     return {"id": fixture_id, "status": "stopped", "listenerReleased": released}
 
 
 def status_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
+    if fixture.get("kind") == "docker":
+        container_id = docker_container_id(fixture)
+        return {
+            "id": fixture["id"],
+            "status": "running" if container_id else "stopped",
+            "containerId": container_id[:12] if container_id else None,
+            "port": fixture["port"],
+        }
     pid = read_pid(fixture["id"])
     return {
         "id": fixture["id"],
@@ -171,11 +290,29 @@ def status_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
     }
 
 
+def clean_all() -> Dict[str, object]:
+    results = [stop_fixture(fixture) for fixture in selected_fixtures("all")]
+    if RUNTIME_ROOT.exists():
+        shutil.rmtree(RUNTIME_ROOT)
+    return {
+        "status": "clean",
+        "runtimeRemoved": not RUNTIME_ROOT.exists(),
+        "fixtures": results,
+        "note": "Shared Docker image cache is intentionally retained.",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage disposable port-tools fixtures")
-    parser.add_argument("action", choices=("start", "stop", "status"))
+    parser.add_argument("action", choices=("start", "stop", "status", "clean"))
     parser.add_argument("fixture", nargs="?", default="all")
     args = parser.parse_args()
+
+    if args.action == "clean":
+        if args.fixture != "all":
+            raise SystemExit("clean applies to the complete disposable fixture runtime")
+        print(json.dumps(clean_all(), indent=2))
+        return
 
     results = []
     for fixture in selected_fixtures(args.fixture):

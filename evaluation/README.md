@@ -14,18 +14,22 @@ Fixtures must:
 
 ## Managed baseline
 
-The first reproducible batch contains static HTTP, raw TCP echo, self-signed
-HTTPS, and Vite/HMR. Start, verify, and stop it with:
+The managed baseline contains static HTTP, raw TCP echo, self-signed HTTPS,
+Vite/HMR, a shell-wrapper child, two worktrees of one repository, and a real
+Docker-published HTTP port. Start, verify, and stop it with:
 
 ```bash
 python3 evaluation/fixtures/manage.py start all
 python3 evaluation/fixtures/verify_scan.py
-python3 evaluation/fixtures/manage.py stop all
+python3 evaluation/fixtures/verify_identity.py
+python3 evaluation/fixtures/manage.py clean
 ```
 
 Runtime PIDs, logs, and the one-day test certificate stay under the ignored
 `evaluation/fixtures/.runtime/` directory. The expected classifications are in
-`evaluation/fixtures/manifest.json`.
+`evaluation/fixtures/manifest.json`. `clean` removes the exact disposable
+runtime directory and Docker container. It deliberately preserves the shared
+Docker image cache because that image may be used by unrelated projects.
 
 ## Basic HTTP fixture
 

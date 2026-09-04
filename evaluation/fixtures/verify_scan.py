@@ -7,7 +7,30 @@ import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = Path(__file__).resolve().parent / "manifest.json"
+FIXTURE_ROOT = Path(__file__).resolve().parent
+RUNTIME_ROOT = FIXTURE_ROOT / ".runtime"
+MANIFEST_PATH = FIXTURE_ROOT / "manifest.json"
+
+
+def render(value: str) -> str:
+    return value.replace("{repo}", str(REPO_ROOT)).replace("{runtime}", str(RUNTIME_ROOT))
+
+
+def matches_expected(service: dict, expected: dict) -> bool:
+    if service["observation"]["classification"] != expected["classification"]:
+        return False
+    if service["observation"]["protocol"] != expected["protocol"]:
+        return False
+    project = service.get("project") or {}
+    if "projectRoot" in expected and project.get("root") != render(expected["projectRoot"]):
+        return False
+    if "branch" in expected and project.get("branch") != expected["branch"]:
+        return False
+    if "projectEvidence" in expected and service.get("projectEvidence") != expected["projectEvidence"]:
+        return False
+    if "managementSource" in expected and service.get("management", {}).get("source") != expected["managementSource"]:
+        return False
+    return True
 
 
 def main() -> None:
@@ -29,15 +52,15 @@ def main() -> None:
     for fixture in manifest["fixtures"]:
         matches = by_port.get(fixture["port"], [])
         expected = fixture["expected"]
-        passed = any(
-            service["observation"]["classification"] == expected["classification"]
-            and service["observation"]["protocol"] == expected["protocol"]
-            for service in matches
-        )
+        passed = any(matches_expected(service, expected) for service in matches)
         actual = [
             {
                 "classification": service["observation"]["classification"],
                 "protocol": service["observation"]["protocol"],
+                "projectRoot": (service.get("project") or {}).get("root"),
+                "branch": (service.get("project") or {}).get("branch"),
+                "projectEvidence": service.get("projectEvidence"),
+                "managementSource": service.get("management", {}).get("source"),
             }
             for service in matches
         ]

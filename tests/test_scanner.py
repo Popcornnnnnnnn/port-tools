@@ -1,6 +1,7 @@
 import unittest
+from pathlib import Path
 
-from prototype.port_tools import endpoint_summary, group_services, parse_endpoint, parse_http_response, relevance
+from prototype.port_tools import endpoint_summary, group_services, parse_endpoint, parse_http_response, project_candidates_from_command, project_from_command, relevance
 
 
 class EndpointParsingTests(unittest.TestCase):
@@ -51,6 +52,39 @@ class RelevanceTests(unittest.TestCase):
         self.assertFalse(result["developerRelevant"])
         self.assertEqual(result["category"], "unattributed-web-endpoint")
 
+    def test_docker_published_port_is_developer_relevant(self) -> None:
+        result = relevance(
+            {
+                "project": None,
+                "command": "com.docker.backend",
+                "management": {"source": "docker", "containerName": "web"},
+            }
+        )
+        self.assertTrue(result["developerRelevant"])
+        self.assertEqual(result["category"], "developer-container")
+
+
+class ProjectIdentityTests(unittest.TestCase):
+    def test_absolute_script_path_recovers_project(self) -> None:
+        project = project_from_command(
+            "python3 {}/evaluation/fixtures/http_fixture.py".format(
+                Path(__file__).resolve().parents[1]
+            ),
+            "/tmp",
+        )
+        self.assertIsNotNone(project)
+        self.assertEqual(project["name"], "port-tools")
+
+    def test_multiple_project_paths_are_ambiguous(self) -> None:
+        candidates = project_candidates_from_command(
+            "tool {}/README.md {}/AGENTS.md".format(
+                Path(__file__).resolve().parents[1],
+                Path(__file__).resolve().parents[2] / "Boonray",
+            ),
+            "/tmp",
+        )
+        self.assertEqual(len(candidates), 2)
+
 
 class GroupingTests(unittest.TestCase):
     def service(self, service_id: str, port: int, root: str) -> dict:
@@ -79,6 +113,13 @@ class GroupingTests(unittest.TestCase):
             ]
         )
         self.assertEqual(len(groups), 2)
+
+    def test_group_id_survives_pid_and_port_change(self) -> None:
+        first = self.service("a", 4317, "/workspace/studio")
+        first["process"]["pid"] = 100
+        second = self.service("b", 9000, "/workspace/studio")
+        second["process"]["pid"] = 200
+        self.assertEqual(group_services([first])[0]["id"], group_services([second])[0]["id"])
 
 
 class EndpointSummaryTests(unittest.TestCase):

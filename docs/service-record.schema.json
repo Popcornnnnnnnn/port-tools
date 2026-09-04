@@ -29,7 +29,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "listener", "process", "observation", "relevance"],
+        "required": ["id", "listener", "process", "management", "observation", "relevance"],
         "properties": {
           "id": { "type": "string" },
           "listener": {
@@ -55,6 +55,18 @@
             }
           },
           "project": { "type": ["object", "null"] },
+          "projectEvidence": { "type": ["string", "null"] },
+          "projectCandidates": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "management": {
+            "type": "object",
+            "required": ["source"],
+            "properties": {
+              "source": { "enum": ["unmanaged", "docker", "launchd", "homebrew", "port-tools"] }
+            }
+          },
           "observation": {
             "type": "object",
             "required": ["classification", "protocol", "confidence", "evidence"],
@@ -73,7 +85,7 @@
             "required": ["category", "developerRelevant", "confidence", "evidence"],
             "properties": {
               "category": {
-                "enum": ["developer-project", "developer-tool", "unattributed-web-endpoint"]
+                "enum": ["developer-project", "developer-tool", "developer-container", "unattributed-web-endpoint"]
               },
               "developerRelevant": { "type": "boolean" },
               "confidence": { "type": "number", "minimum": 0, "maximum": 1 },

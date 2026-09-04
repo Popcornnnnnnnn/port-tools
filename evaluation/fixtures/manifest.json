@@ -79,6 +79,72 @@
         "framework": "vite",
         "requiredEvidence": ["valid-http-response", "html-title", "vite-client", "websocket-upgrade"]
       }
+    },
+    {
+      "id": "shell-wrapper",
+      "description": "Server launched through a shell from outside its Git working directory",
+      "port": 51743,
+      "command": ["sh", "evaluation/fixtures/shell_wrapper_fixture.sh", "51743"],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "projectRoot": "{repo}",
+        "projectEvidence": "command-path",
+        "requiredEvidence": ["valid-http-response", "command-path"]
+      }
+    },
+    {
+      "id": "worktree-main",
+      "description": "Primary worktree of a disposable repository",
+      "port": 51744,
+      "prepare": "git-worktrees",
+      "cwd": "{runtime}/worktree-main",
+      "command": ["python3", "http_fixture.py", "--host", "127.0.0.1", "--port", "51744"],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "projectRoot": "{runtime}/worktree-main",
+        "branch": "main",
+        "requiredEvidence": ["valid-http-response", "git-project"]
+      }
+    },
+    {
+      "id": "worktree-feature",
+      "description": "Second worktree of the same disposable repository",
+      "port": 51745,
+      "prepare": "git-worktrees",
+      "cwd": "{runtime}/worktree-feature",
+      "command": ["python3", "http_fixture.py", "--host", "127.0.0.1", "--port", "51745"],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "projectRoot": "{runtime}/worktree-feature",
+        "branch": "fixture-feature",
+        "requiredEvidence": ["valid-http-response", "git-project"]
+      }
+    },
+    {
+      "id": "docker-http",
+      "description": "HTTP service published from a Docker container onto loopback",
+      "kind": "docker",
+      "port": 51746,
+      "containerPort": 80,
+      "containerName": "port-tools-fixture-web",
+      "image": "nginx:alpine",
+      "labels": {
+        "com.docker.compose.project": "port-tools",
+        "com.docker.compose.project.working_dir": "{repo}",
+        "com.docker.compose.service": "web",
+        "dev.port-tools.fixture": "docker-http"
+      },
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "projectRoot": "{repo}",
+        "managementSource": "docker",
+        "projectEvidence": "docker-compose-working-directory",
+        "requiredEvidence": ["valid-http-response", "docker-published-port"]
+      }
     }
   ]
 }

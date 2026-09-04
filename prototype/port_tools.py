@@ -32,13 +32,16 @@ WEB_COMMAND_HINTS = (
 
 
 def run_text(command: List[str]) -> str:
-    completed = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
     return completed.stdout.strip()
 
 
@@ -102,9 +105,47 @@ def process_metadata(pid: int) -> Dict[str, object]:
         "started": started or None,
         "cwd": cwd,
     }
-    if cwd:
-        metadata["project"] = git_metadata(cwd)
+    project = git_metadata(cwd) if cwd else None
+    evidence = "cwd" if project else None
+    if project is None:
+        candidates = project_candidates_from_command(command, cwd)
+        if len(candidates) == 1:
+            project = candidates[0]
+            evidence = "command-path"
+        elif len(candidates) > 1:
+            metadata["projectCandidates"] = [candidate["root"] for candidate in candidates]
+            evidence = "ambiguous-command-path"
+    metadata["project"] = project
+    metadata["projectEvidence"] = evidence
     return metadata
+
+
+def project_candidates_from_command(command: str, cwd: Optional[str]) -> List[Dict[str, object]]:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    projects = []
+    seen = set()
+    for part in parts:
+        if part.startswith("-"):
+            continue
+        candidate = Path(part)
+        if not candidate.is_absolute() and cwd:
+            candidate = Path(cwd) / candidate
+        if not candidate.exists():
+            continue
+        search_path = candidate if candidate.is_dir() else candidate.parent
+        project = git_metadata(str(search_path))
+        if project and project["root"] not in seen:
+            seen.add(project["root"])
+            projects.append(project)
+    return projects
+
+
+def project_from_command(command: str, cwd: Optional[str]) -> Optional[Dict[str, object]]:
+    candidates = project_candidates_from_command(command, cwd)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def git_metadata(cwd: str) -> Optional[Dict[str, object]]:
@@ -115,13 +156,54 @@ def git_metadata(cwd: str) -> Optional[Dict[str, object]]:
     common_dir = run_text(["git", "-C", cwd, "rev-parse", "--git-common-dir"])
     if common_dir and not os.path.isabs(common_dir):
         common_dir = str((Path(cwd) / common_dir).resolve())
+    repository_root = str(Path(common_dir).parent) if common_dir else root
+    is_worktree = Path(repository_root) != Path(root)
     return {
         "root": root,
-        "name": Path(root).name,
+        "name": Path(repository_root).name,
+        "repositoryRoot": repository_root,
+        "repositoryName": Path(repository_root).name,
+        "worktreeName": Path(root).name,
         "branch": branch or None,
         "commonGitDirectory": common_dir or None,
-        "isWorktree": bool(common_dir and Path(common_dir).parent != Path(root)),
+        "isWorktree": is_worktree,
     }
+
+
+def docker_port_metadata() -> Dict[int, Dict[str, object]]:
+    container_ids = run_text(["docker", "ps", "-q"]).splitlines()
+    if not container_ids:
+        return {}
+    try:
+        completed = subprocess.run(
+            ["docker", "inspect"] + container_ids,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        containers = json.loads(completed.stdout) if completed.returncode == 0 else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    ports = {}
+    for container in containers:
+        config = container.get("Config") or {}
+        labels = config.get("Labels") or {}
+        for container_port, bindings in (container.get("NetworkSettings", {}).get("Ports") or {}).items():
+            for binding in bindings or []:
+                try:
+                    host_port = int(binding["HostPort"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                ports[host_port] = {
+                    "source": "docker",
+                    "containerId": container.get("Id", "")[:12],
+                    "containerName": str(container.get("Name") or "").lstrip("/"),
+                    "image": config.get("Image"),
+                    "containerPort": container_port,
+                    "labels": labels,
+                }
+    return ports
 
 
 def receive_response(sock: socket.socket) -> bytes:
@@ -262,8 +344,18 @@ def probe_listener(listener: Dict[str, object]) -> Dict[str, object]:
 
 def relevance(listener: Dict[str, object]) -> Dict[str, object]:
     project = listener.get("project")
+    management = listener.get("management") or {}
     command = str(listener.get("command") or "").lower()
     hint = next((candidate for candidate in WEB_COMMAND_HINTS if candidate in command), None)
+    if management.get("source") == "docker":
+        return {
+            "category": "developer-container",
+            "developerRelevant": True,
+            "confidence": 0.9,
+            "evidence": [
+                {"kind": "docker-published-port", "value": management.get("containerName")}
+            ],
+        }
     if project:
         return {
             "category": "developer-project",
@@ -294,11 +386,22 @@ def stable_id(listener: Dict[str, object]) -> str:
 def scan() -> List[Dict[str, object]]:
     listeners = discover_listeners()
     metadata = {}
+    docker_ports = docker_port_metadata()
     for listener in listeners:
         pid = int(listener["pid"])
         if pid not in metadata:
             metadata[pid] = process_metadata(pid)
         listener.update(metadata[pid])
+        management = docker_ports.get(int(listener["port"]))
+        if management:
+            listener["management"] = management
+            labels = management.get("labels", {})
+            project_root = labels.get("com.docker.compose.project.working_dir") or labels.get(
+                "dev.port-tools.project-root"
+            )
+            if project_root:
+                listener["project"] = git_metadata(project_root)
+                listener["projectEvidence"] = "docker-compose-working-directory"
 
     with ThreadPoolExecutor(max_workers=min(24, max(1, len(listeners)))) as executor:
         probes = list(executor.map(probe_listener, listeners))
@@ -322,6 +425,9 @@ def scan() -> List[Dict[str, object]]:
                     "started": listener.get("started"),
                 },
                 "project": listener.get("project"),
+                "projectEvidence": listener.get("projectEvidence"),
+                "projectCandidates": listener.get("projectCandidates", []),
+                "management": listener.get("management", {"source": "unmanaged"}),
                 "observation": probe,
                 "relevance": relevance(listener),
             }
@@ -427,8 +533,13 @@ def print_table(services: List[Dict[str, object]], show_all_web: bool = False) -
     print("DEVELOPMENT APPS" if not show_all_web else "WEB ENDPOINTS")
     for group in group_services(focused):
         project = group.get("project") or {}
-        branch = " [{}]".format(project["branch"]) if project.get("branch") else ""
-        print("\n{}{}".format(group["label"], branch))
+        context = []
+        if project.get("branch"):
+            context.append(project["branch"])
+        if project.get("isWorktree"):
+            context.append(project["worktreeName"])
+        suffix = " [{}]".format(" · ".join(context)) if context else ""
+        print("\n{}{}".format(group["label"], suffix))
         for service_id in group["serviceIds"]:
             service = by_id[service_id]
             observation = service["observation"]
