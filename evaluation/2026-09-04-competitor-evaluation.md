@@ -36,6 +36,25 @@ real HTTP probe, Portless has the strongest named-route lifecycle, and Caddy is
 a capable proxy building block. The product opportunity is their safe,
 evidence-oriented integration rather than another raw port list.
 
+## Evidence scorecard
+
+Scores use `1` (poor) through `5` (strong). `—` means the product does not try
+to solve that problem, not that it failed.
+
+| Dimension | Port Menu | PortPeek | Portless | Caddy |
+|---|---:|---:|---:|---:|
+| Focused developer inventory | 4 | 1 | — | — |
+| Evidence-backed Web classification | 1 | 2 | — | — |
+| Project/process identity | 3 | 1 | 3 for managed apps | — |
+| Stable local naming and routing | — | — | 5 | 4 |
+| HMR/WebSocket compatibility | — | — | 5 | 4 |
+| Missing-upstream experience | — | — | 4 | 2 |
+| Safe defaults and destructive actions | 1 | 2 | 3 | 2 |
+| Clean removal on this Mac | 4 | 4 | 2 | 3 |
+
+The decisive gap is not proxy capability. It is a focused Web inventory with
+explainable identity and lifecycle-safe actions.
+
 ## Port Menu
 
 ### Runtime evidence
@@ -253,7 +272,20 @@ Portless remains installed and currently runs its loopback-only HTTPS proxy on
 443 with the `phone-studio.localhost -> 127.0.0.1:4317` alias for the focused
 experience step. Its state directory remains owned by the normal user.
 
-## Remaining evidence before closing the experience issue
+After the focused experience, `portless clean` reported that it stopped the
+proxy, removed the local CA from the trust store, deleted state files, and
+cleaned hosts entries. Verification found that a `portless Local CA`
+certificate object still remained in the login keychain despite that success
+message. It was deleted explicitly by exact certificate name and absence was
+verified in both login and System keychains. The empty `~/.portless` directory,
+global npm package, and temporary source tree were then removed.
+
+Caddy was uninstalled with Homebrew and its generated Application Support state
+was moved to Trash. Port 443/1355 listeners, related processes, package-manager
+records, route state, hosts/resolver entries, launch jobs, and Caddy state were
+verified absent. The temporary browser experience tab was closed.
+
+## Evidence carried into the technical spike
 
 - Interact with both menu-bar panels and record latency, hover/action states,
   empty/error states, keyboard access, and accidental-action risk. Port Menu's
@@ -262,5 +294,3 @@ experience step. Its state directory remains owned by the normal user.
 - Exercise redirect, cookie, SSE, large upload, upstream HTTPS, and route reload
   cases.
 - Measure idle CPU/memory over a fixed observation window.
-- Remove Portless and Caddy after their remaining evaluations, then verify
-  CA/state/launch-item/package-manager residue.
