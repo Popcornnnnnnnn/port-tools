@@ -373,6 +373,7 @@ func relatedServiceName(_ service: ServiceRecord) -> String {
 
 func relatedServiceDescription(_ service: ServiceRecord) -> String {
     if let status = service.observation.http?.status {
+        if status == 404 { return "No homepage" }
         return "HTTP service · root \(status)"
     }
     if service.observation.classification == "suspected-web" {
@@ -450,6 +451,12 @@ func compactRemote(_ value: String?) -> String? {
     remote = remote.replacingOccurrences(of: "http://", with: "")
     if remote.hasSuffix(".git") { remote.removeLast(4) }
     return remote
+}
+
+func worktreeLabel(_ project: ProjectRecord?) -> String? {
+    guard let project, project.isWorktree == true else { return nil }
+    let parent = URL(fileURLWithPath: project.root).deletingLastPathComponent().lastPathComponent
+    return parent == project.name ? nil : parent
 }
 
 func compactPath(_ value: String) -> String {
@@ -536,17 +543,18 @@ struct StatusPill: View {
     var body: some View {
         let exposed = service.listener.bindScope != "loopback"
         let suspected = service.observation.classification == "suspected-web"
+        let tone = exposed ? Color.secondary : suspected ? Color.orange : Color.green
         Label(
-            exposed ? "LAN exposed" : suspected ? "Likely Web" : "Web verified",
+            exposed ? "LAN access" : suspected ? "Likely Web" : "Web verified",
             systemImage: exposed ? "network" : suspected ? "exclamationmark.triangle.fill" : "checkmark.shield.fill"
         )
         .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(exposed || suspected ? Color.orange : Color.green)
+        .foregroundStyle(tone)
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .background((exposed || suspected ? Color.orange : Color.green).opacity(0.1), in: Capsule())
+        .background(tone.opacity(0.1), in: Capsule())
         .help(exposed
-            ? "Listening beyond 127.0.0.1. Other devices on this LAN may be able to connect."
+            ? "Available beyond 127.0.0.1, so other devices on this LAN may be able to connect."
             : suspected
                 ? "The endpoint looks like Web traffic, but verification is incomplete."
                 : "A local HTTP or HTTPS response was verified."
@@ -554,56 +562,121 @@ struct StatusPill: View {
     }
 }
 
-struct EvidenceView: View {
-    let service: ServiceRecord
-    let onDone: () -> Void
+func serviceTypeDescription(_ service: ServiceRecord) -> String {
+    isOpenablePage(service) ? "Openable Web page" : "Background HTTP service"
+}
+
+func homepageDescription(_ service: ServiceRecord) -> String {
+    guard let status = service.observation.http?.status else { return "Not verified" }
+    if status == 404 { return "Not provided (HTTP 404)" }
+    if (200..<400).contains(status) { return "Available (HTTP \(status))" }
+    return "Returns HTTP \(status)"
+}
+
+func detectionDescription(_ service: ServiceRecord) -> String {
+    if service.observation.evidence.contains(where: { $0.kind == "valid-http-response" }) {
+        return "Responds to HTTP"
+    }
+    if service.observation.classification == "suspected-web" {
+        return "Process resembles a Web service"
+    }
+    return "Active local listener"
+}
+
+struct ServiceDetailRow: View {
+    let label: String
+    let value: String
+    var monospaced = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                Image(systemName: isOpenablePage(service) ? "checkmark.shield.fill" : "point.3.connected.trianglepath.dotted")
-                    .font(.title2)
-                    .foregroundStyle(isOpenablePage(service) ? Color.green : Color.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isOpenablePage(service) ? "Why this is a Web app" : "Why this service was detected").font(.headline)
-                    Text("\(isOpenablePage(service) ? serviceName(service) : relatedServiceName(service)) · port \(service.listener.port)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 82, alignment: .leading)
+            Text(value)
+                .font(monospaced ? .system(size: 11, design: .monospaced) : .system(size: 11))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 11))
+    }
+}
+
+struct ServiceDetailView: View {
+    let service: ServiceRecord
+    let onBack: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: onBack) {
+                    Label("Back", systemImage: "chevron.left")
+                        .font(.system(size: 11, weight: .medium))
                 }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Done", action: onDone)
-                    .keyboardShortcut(.defaultAction)
+                Text("Service details")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Color.clear.frame(width: 42, height: 1)
             }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
 
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(service.observation.evidence.enumerated()), id: \.offset) { _, evidence in
-                    Label(evidence.kind.replacingOccurrences(of: "-", with: " "), systemImage: "checkmark")
-                        .font(.caption)
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(isOpenablePage(service) ? serviceName(service) : relatedServiceName(service))
+                            .font(.system(size: 18, weight: .semibold))
+                        Text(serviceTypeDescription(service))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("OVERVIEW")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        ServiceDetailRow(label: "Homepage", value: homepageDescription(service))
+                        ServiceDetailRow(label: "Shown because", value: detectionDescription(service))
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("ENDPOINT")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        ServiceDetailRow(label: "Local", value: serviceURL(service)?.absoluteString ?? "Unknown", monospaced: true)
+                        ServiceDetailRow(label: "Listening", value: listenerEndpoint(service), monospaced: true)
+                        ServiceDetailRow(
+                            label: "Network",
+                            value: service.listener.bindScope == "loopback" ? "This Mac only" : "Available on your local network"
+                        )
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("PROCESS")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        ServiceDetailRow(label: "Project", value: service.project?.name ?? "Unassigned")
+                        ServiceDetailRow(
+                            label: "Application",
+                            value: service.application?.name ?? commandApplicationName(service) ?? "Project root"
+                        )
+                        ServiceDetailRow(label: "Command", value: service.process.command ?? "Unknown", monospaced: true)
+                    }
                 }
+                .padding(18)
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
-
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                GridRow { Text("Project").foregroundStyle(.secondary); Text(service.project?.name ?? "Unassigned") }
-                GridRow { Text("Application").foregroundStyle(.secondary); Text(service.application?.name ?? commandApplicationName(service) ?? "Project root") }
-                GridRow { Text("Process").foregroundStyle(.secondary); Text(service.process.command ?? "Unknown").lineLimit(3) }
-                GridRow { Text("Role").foregroundStyle(.secondary); Text(isOpenablePage(service) ? "Openable Web page" : relatedServiceDescription(service)) }
-                GridRow { Text(isOpenablePage(service) ? "Open address" : "Local endpoint").foregroundStyle(.secondary); Text(serviceURL(service)?.absoluteString ?? "Unknown") }
-                GridRow { Text("Listening on").foregroundStyle(.secondary); Text(listenerEndpoint(service)) }
-                GridRow { Text("Bind scope").foregroundStyle(.secondary); Text(service.listener.bindScope == "loopback" ? "This Mac only" : "Potentially reachable on this LAN") }
-            }
-            .font(.caption)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.primary.opacity(0.08))
-        }
-        .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -867,12 +940,12 @@ struct RelatedServiceRow: View {
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                     if service.listener.bindScope != "loopback" {
-                        Label("LAN exposed", systemImage: "network")
+                        Label("LAN access", systemImage: "network")
                             .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Color.orange)
+                            .foregroundStyle(Color.secondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
-                            .background(Color.orange.opacity(0.1), in: Capsule())
+                            .background(Color.secondary.opacity(0.1), in: Capsule())
                     }
                     Spacer(minLength: 4)
                     if let age = relativeAge(service.process.started) {
@@ -888,7 +961,6 @@ struct RelatedServiceRow: View {
                     if service.listener.bindScope != "loopback" {
                         Text("→")
                         Text("listens \(listenerEndpoint(service))")
-                            .foregroundStyle(.orange)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "info.circle")
@@ -975,9 +1047,12 @@ struct InventoryView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 7) {
                         Text("Port Tools").font(.title3.weight(.bold))
-                        Label("LIVE", systemImage: "circle.fill")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.green)
+                        HStack(spacing: 5) {
+                            Circle().fill(Color.green).frame(width: 5, height: 5)
+                            Text("LIVE")
+                        }
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.green)
                     }
                     Text(store.document == nil ? "Scanning local Web apps…" : "\(projects.count) projects · \(developmentPages.count) Web apps")
                         .font(.caption2)
@@ -1054,12 +1129,12 @@ struct InventoryView: View {
                     } else {
                         ForEach(filteredProjects) { project in
                             projectSection(project)
-                            Divider().padding(.leading, 14)
+                                .padding(.vertical, 3)
                         }
 
                         if query.isEmpty {
+                            Spacer(minLength: 5)
                             quietCountRow("Other Web endpoints", count: otherWebCount)
-                            Divider().padding(.leading, 30)
                             quietCountRow("Other listeners", count: otherListenerCount)
                         }
                     }
@@ -1094,16 +1169,11 @@ struct InventoryView: View {
         .overlay {
             if let service = evidenceService {
                 ZStack {
-                    Color.black.opacity(0.16)
-                        .contentShape(Rectangle())
-                    EvidenceView(service: service) {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            evidenceService = nil
-                        }
+                    Color(nsColor: .windowBackgroundColor)
+                    ServiceDetailView(service: service) {
+                        evidenceService = nil
                     }
-                    .padding(12)
                 }
-                .transition(.opacity)
                 .zIndex(2)
             }
         }
@@ -1180,9 +1250,8 @@ struct InventoryView: View {
         let relatedServices = project.services.filter { !isOpenablePage($0) }
         let pageApplications = project.applications.filter { $0.services.contains(where: isOpenablePage) }
         let relatedIsOpen = searching || expandedRelated.contains(project.id)
-        let attention = project.services.filter {
-            $0.listener.bindScope != "loopback" || $0.observation.classification == "suspected-web"
-        }.count
+        let inferredProjectName = project.name + (worktreeLabel(project.project).map { " · \($0)" } ?? "")
+        let displayedProjectName = projectNames[project.id] ?? inferredProjectName
 
         VStack(spacing: 0) {
             Button {
@@ -1196,13 +1265,15 @@ struct InventoryView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 14)
                     Circle()
-                        .fill(attention > 0 ? Color.orange : Color.green)
-                        .frame(width: 8, height: 8)
+                        .fill(Color.green)
+                        .frame(width: 6, height: 6)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(projectNames[project.id] ?? project.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        Text(displayedProjectName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.triangle.branch")
-                            Text(project.project?.branch ?? "No Git branch")
+                            Text(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
                             if let remote = compactRemote(project.project?.remoteUrl) {
                                 Text("·")
                                 Text(remote).lineLimit(1)
@@ -1212,12 +1283,12 @@ struct InventoryView: View {
                         .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 5)
-                    Text(attention > 0 ? "\(attention) attention" : "\(pageServices.count) \(pageServices.count == 1 ? "app" : "apps")")
+                    Text("\(pageServices.count) \(pageServices.count == 1 ? "app" : "apps")")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(attention > 0 ? Color.orange : Color.secondary)
+                        .foregroundStyle(Color.secondary)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
-                        .background((attention > 0 ? Color.orange : Color.secondary).opacity(0.1), in: Capsule())
+                        .background(Color.secondary.opacity(0.1), in: Capsule())
                 }
                 .contentShape(Rectangle())
                 .padding(.horizontal, 10)
@@ -1247,12 +1318,12 @@ struct InventoryView: View {
                                     .lineLimit(1)
                                 Spacer()
                             }
-                            .padding(.leading, 42)
+                            .padding(.leading, 72)
                             .padding(.trailing, 10)
                             .padding(.top, 5)
                         }
                         if !applicationPages.isEmpty {
-                            VStack(spacing: 0) {
+                            VStack(spacing: 2) {
                                 ForEach(applicationPages) { service in
                                     ServiceRow(
                                         service: service,
@@ -1272,15 +1343,14 @@ struct InventoryView: View {
                                         onEvidence: { evidenceService = service },
                                         onMessage: showMessage
                                     )
-                                    if service.id != applicationPages.last?.id { Divider() }
                                 }
                             }
-                            .padding(.leading, 32)
+                            .padding(.leading, 70)
                         }
                     }
 
                     if !relatedServices.isEmpty {
-                        Divider().padding(.leading, 32)
+                        Spacer(minLength: 4)
                         Button {
                             if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
                         } label: {
@@ -1303,23 +1373,24 @@ struct InventoryView: View {
                                     .background(Color.secondary.opacity(0.1), in: Capsule())
                             }
                             .contentShape(Rectangle())
-                            .padding(.leading, 38)
+                            .padding(.leading, 62)
                             .padding(.trailing, 12)
                             .frame(height: 34)
                         }
                         .buttonStyle(.plain)
 
                         if relatedIsOpen {
-                            VStack(spacing: 0) {
+                            VStack(spacing: 2) {
                                 ForEach(relatedServices) { service in
                                     RelatedServiceRow(service: service) { evidenceService = service }
-                                    if service.id != relatedServices.last?.id { Divider() }
                                 }
                             }
-                            .padding(.leading, 44)
+                            .padding(.leading, 72)
                         }
                     }
                 }
+                .padding(.top, 2)
+                .padding(.bottom, 5)
             }
         }
     }
@@ -1336,9 +1407,11 @@ struct InventoryView: View {
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
-        .padding(.leading, 30)
-        .padding(.trailing, 12)
+        .padding(.horizontal, 12)
         .frame(height: 36)
+        .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
     }
 
     private func showMessage(_ value: String) {

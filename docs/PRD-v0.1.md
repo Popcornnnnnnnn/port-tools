@@ -58,8 +58,10 @@ are grouped by Git project/worktree. Within a project, the nearest application
 manifest creates an application subgroup, and directly openable HTTP/HTTPS pages
 are app rows beneath it. HTTP-speaking APIs, WebSocket bridges, diagnostic
 servers, and endpoints whose root returns an error remain visible in a collapsed
-`Related services` section of that project. They retain evidence and exposure
-warnings, but do not offer `Open` or stable `.localhost` actions. Single-
+`Related services` section of that project. They retain evidence and neutral
+network-reachability context, but do not offer `Open` or stable `.localhost`
+actions. LAN reachability becomes a warning only when a policy or state change
+requires user review. Single-
 application projects omit the redundant application heading. Different
 worktrees of the same repository remain separate project groups.
 
