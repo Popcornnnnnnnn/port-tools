@@ -11,7 +11,7 @@ A developer remembers a project or app, not a runtime process or arbitrary port.
 
 This direction deliberately inherits Port Menu's compact native panel, restrained decoration, strong project names, and quiet branch/port/age metadata. It differs in four visible ways:
 
-1. repeated repository rows become one worktree group with named app rows;
+1. repeated repository rows become one worktree group with quiet, inset app rows;
 2. the default view contains only development Web apps;
 3. stable local names and exposure/staleness states are visible in place;
 4. destructive actions appear only after selecting an app and reviewing impact.
@@ -30,7 +30,7 @@ The browser prototype is a product-flow artifact, not the shipping runtime. Its 
 ## Experience questions
 
 - Does grouping make the list faster to understand than Port Menu's repeated rows?
-- Is `Web verified` useful at a glance, or should healthy loopback apps be visually quieter?
+- Healthy loopback apps are visually quiet; only exceptions such as LAN exposure and possibly-forgotten state keep persistent labels.
 - Are stable routes prominent enough to replace raw port memory?
 - Does the stop preview feel safe without becoming annoying?
-- Is the 430 px panel width still compact enough for a menu-bar utility?
+- Does the 394 px panel width now feel compact enough for a menu-bar utility?

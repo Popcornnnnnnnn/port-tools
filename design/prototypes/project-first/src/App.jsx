@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   ArrowClockwise, ArrowSquareOut, CaretDown, Check, Code, Copy, DotsThree,
-  FolderOpen, GitBranch, GlobeSimple, Info, LinkSimple, MagnifyingGlass,
-  Network, Power, ShieldCheck, SlidersHorizontal, StopCircle, TerminalWindow,
+  FolderOpen, GitBranch, GlobeSimple, Info, LinkSimple,
+  Network, Power, ShieldCheck, StopCircle, TerminalWindow,
   Warning, X,
 } from "@phosphor-icons/react";
 
@@ -32,7 +32,7 @@ const initialProjects = [
 function StatusPill({ service }) {
   if (service.exposure === "lan") return <span className="pill warning"><Network size={12} weight="bold" />LAN exposed</span>;
   if (service.state === "forgotten") return <span className="pill stale"><Warning size={12} weight="fill" />Possibly forgotten</span>;
-  return <span className="pill verified"><ShieldCheck size={12} weight="fill" />Web verified</span>;
+  return null;
 }
 
 function Modal({ children, onClose, label }) {
@@ -45,18 +45,11 @@ export function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null);
   const [aliasDraft, setAliasDraft] = useState("");
-  const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState("");
 
   const services = projects.flatMap((project) => project.services.map((service) => ({ ...service, project })));
   const selected = services.find((service) => service.id === selectedId) ?? null;
-  const filteredProjects = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return projects;
-    return projects.map((project) => ({ ...project, services: project.services.filter((service) => [project.name, project.branch, service.name, service.alias, String(service.port)].some((value) => value.toLowerCase().includes(query))) })).filter((project) => project.services.length > 0);
-  }, [projects, search]);
-
   const flash = (message) => { setToast(message); window.setTimeout(() => setToast(""), 2200); };
   const toggleProject = (projectId) => setExpanded((current) => { const next = new Set(current); next.has(projectId) ? next.delete(projectId) : next.add(projectId); return next; });
   const refresh = () => { setRefreshing(true); window.setTimeout(() => { setRefreshing(false); flash("Scan complete · 5 development apps found"); }, 750); };
@@ -82,18 +75,14 @@ export function App() {
       <div className="mac-menu-bar" aria-hidden="true"><GlobeSimple size={15} weight="fill" /><span className="menu-title">Port Tools</span><span className="menu-spacer" /><span>Thu Sep 4&nbsp;&nbsp;11:42</span></div>
       <section className="panel" aria-label="Port Tools prototype">
         <header className="panel-header">
-          <div><div className="title-line"><h1>Port Tools</h1><span className="demo-badge">PROTOTYPE DATA</span></div><p>{services.length} development apps across {projects.length} worktrees</p></div>
+          <div><div className="title-line"><h1>Port Tools</h1><span className="demo-badge">DEMO</span></div><p>{services.length} Web apps</p></div>
           <div className="header-actions"><button className="icon-button" aria-label="Refresh services" onClick={refresh}><ArrowClockwise size={18} className={refreshing ? "spin" : ""} /></button><button className="icon-button" aria-label="More options" onClick={() => flash("Settings are outside this prototype")}><DotsThree size={21} weight="bold" /></button></div>
         </header>
-        <div className="toolbar">
-          <label className="search-box"><MagnifyingGlass size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an app, branch, or port" />{search && <button aria-label="Clear search" onClick={() => setSearch("")}><X size={14} /></button>}</label>
-          <button className="scope-button" onClick={() => flash("Default view: confirmed and suspected development Web apps")}><GlobeSimple size={16} weight="fill" /> Web apps <CaretDown size={12} /></button>
-        </div>
         <div className="inventory">
-          {filteredProjects.map((project) => {
+          {projects.map((project) => {
             const isOpen = expanded.has(project.id);
             return <article className="project" key={project.id}>
-              <button className="project-heading" onClick={() => toggleProject(project.id)} aria-expanded={isOpen}><span className="project-status" /><span className="project-copy"><strong>{project.name}</strong><span><GitBranch size={14} />{project.branch}<i>·</i>{project.services.length} {project.services.length === 1 ? "app" : "apps"}</span></span><CaretDown size={16} className={isOpen ? "caret open" : "caret"} /></button>
+              <button className="project-heading" onClick={() => toggleProject(project.id)} aria-expanded={isOpen}><span className="project-status" /><span className="project-copy"><strong>{project.name}</strong><span><GitBranch size={14} />{project.branch}</span></span><small>{project.services.length}</small><CaretDown size={16} className={isOpen ? "caret open" : "caret"} /></button>
               {isOpen && <div className="service-list">{project.services.map((service) => {
                 const isSelected = service.id === selectedId;
                 return <div className={`service ${isSelected ? "selected" : ""}`} key={service.id}>
@@ -103,11 +92,9 @@ export function App() {
               })}</div>}
             </article>;
           })}
-          {filteredProjects.length === 0 && <div className="empty-state"><MagnifyingGlass size={25} /><strong>No matching Web apps</strong><span>Try a project, branch, or port.</span></div>}
           <button className="collapsed-section" onClick={() => flash("2 valid Web endpoints without project evidence")}><CaretDown size={14} className="caret" /><span>Other Web endpoints</span><small>2</small></button>
           <button className="collapsed-section" onClick={() => flash("28 non-Web or unknown listeners stay out of the default view")}><CaretDown size={14} className="caret" /><span>Other listeners</span><small>28</small></button>
         </div>
-        <footer className="panel-footer"><span><span className="live-dot" />Watching for changes</span><button onClick={() => flash("Filters keep infrastructure listeners out of your main view")}><SlidersHorizontal size={15} />Filters</button></footer>
       </section>
       {toast && <div className="toast"><Check size={16} weight="bold" />{toast}</div>}
       {modal === "evidence" && selected && <Modal label="Web classification evidence" onClose={() => setModal(null)}><div className="modal-header"><div className="modal-icon green"><Code size={20} /></div><div><h2>Why this is a Web app</h2><p>{selected.name} · port {selected.port}</p></div><button className="icon-button" aria-label="Close" onClick={() => setModal(null)}><X size={18} /></button></div><div className="evidence-list">{selected.evidence.map((item) => <div key={item}><Check size={16} weight="bold" /><span>{item}</span></div>)}</div><dl className="facts"><div><dt>Page title</dt><dd>{selected.title}</dd></div><div><dt>Process</dt><dd>{selected.command}</dd></div><div><dt>Bind scope</dt><dd>{selected.exposure === "lan" ? "All interfaces · visible on LAN" : "Loopback only · this Mac"}</dd></div></dl><div className="modal-footer"><button className="primary wide" onClick={() => setModal(null)}>Got it</button></div></Modal>}

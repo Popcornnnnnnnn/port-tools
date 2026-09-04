@@ -11,6 +11,7 @@ Before making substantial visual changes, use the Product Design plugin's `get-c
 - Default to development Web apps, not every listening port.
 - Lead with project/worktree and app identity; runtime names such as `node` belong only in evidence.
 - Stable local names, Web-classification evidence, LAN exposure, and exact stop impact must be understandable from the inventory flow.
+- Keep the default inventory quieter: healthy Web status is implicit, while only exceptions such as LAN exposure and possibly-forgotten state receive persistent labels. Search, filters, and detailed actions should not occupy permanent space in the main scan view.
 - All data and mutations in this direction are simulated. Never connect this prototype to real process termination.
 
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
