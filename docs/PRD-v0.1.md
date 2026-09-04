@@ -45,16 +45,20 @@ The product must answer four distinct questions. A listening port alone is insuf
 - Probe likely HTTP and HTTPS endpoints with strict time and response-size limits.
 - Classify each listener as confirmed web, suspected web, non-web, or unknown.
 - Extract safe metadata such as status code, content type, page title, and server header.
-- Associate cwd with Git root, repository name, branch, worktree path, and nearest package/app directory.
+- Associate cwd with Git root, repository name, branch, worktree path, sanitized
+  origin remote, and nearest package/app directory. Remote credentials must
+  never enter the service record or UI.
 - Recognize host-published Docker ports without treating the Docker daemon as the app process.
 
 ### 5.2 Inventory
 
 The default inventory is a focused `Development apps` view containing confirmed
 and suspected Web services that also have project or developer-tool evidence.
-Services are grouped by Git project/worktree; multiple ports from one project
-are child rows inside one project card rather than separate top-level cards.
-Different worktrees of the same repository remain separate groups.
+Services are grouped by Git project/worktree. Within a project, the nearest
+application manifest creates an application subgroup, and live HTTP/HTTPS
+listeners are service rows beneath it. Single-application projects omit the
+redundant application heading. Different worktrees of the same repository
+remain separate project groups.
 
 A collapsed `Other Web endpoints` view contains valid HTTP/HTTPS endpoints with
 no developer-project evidence, such as application-internal control APIs. A

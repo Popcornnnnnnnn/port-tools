@@ -17,10 +17,11 @@ bin/port-tools scan --all-web
 bin/port-tools scan --json --all
 ```
 
-The default view shows only Web endpoints with developer-project evidence and
-groups multiple ports under the nearest application inside a Git worktree.
-Sibling monorepo apps remain separate, while multiple ports from one app stay
-together. Protocol classification
+The default view shows only Web endpoints with developer-project evidence. It
+groups by Git worktree first, then by the nearest application manifest, with
+multiple live ports shown as service rows.
+Sibling monorepo apps remain separate subgroups inside the same project, while
+multiple ports from one app stay together. Protocol classification
 and developer relevance are intentionally separate in the JSON contract; an
 application can expose a valid local HTTP endpoint without being a development
 website the user wants to manage.

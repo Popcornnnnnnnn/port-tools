@@ -16,6 +16,7 @@ from prototype.port_tools import (
     parse_http_response,
     project_candidates_from_command,
     project_from_command,
+    sanitized_remote_url,
     redis_candidate,
     redis_response,
     relevance,
@@ -108,6 +109,12 @@ class RelevanceTests(unittest.TestCase):
 
 
 class ProjectIdentityTests(unittest.TestCase):
+    def test_git_remote_credentials_are_not_exposed(self) -> None:
+        self.assertEqual(
+            sanitized_remote_url("https://user:secret@github.com/acme/app.git"),
+            "https://github.com/acme/app.git",
+        )
+
     def test_absolute_script_path_recovers_project(self) -> None:
         project = project_from_command(
             "python3 {}/evaluation/fixtures/http_fixture.py".format(
@@ -193,13 +200,19 @@ class GroupingTests(unittest.TestCase):
         second["process"]["pid"] = 200
         self.assertEqual(group_services([first])[0]["id"], group_services([second])[0]["id"])
 
-    def test_two_apps_in_one_worktree_remain_separate(self) -> None:
+    def test_two_apps_in_one_worktree_share_project_and_remain_distinct_apps(self) -> None:
         first = self.service("a", 4317, "/workspace/monorepo")
         first["application"] = {"root": "/workspace/monorepo/apps/a", "name": "app-a"}
         second = self.service("b", 4319, "/workspace/monorepo")
         second["application"] = {"root": "/workspace/monorepo/apps/b", "name": "app-b"}
         groups = group_services([first, second])
-        self.assertEqual([group["label"] for group in groups], ["app-a", "app-b"])
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["label"], "studio")
+        self.assertEqual(
+            [application["label"] for application in groups[0]["applications"]],
+            ["app-a", "app-b"],
+        )
+        self.assertEqual(groups[0]["serviceIds"], ["a", "b"])
 
     def test_unlabeled_docker_name_survives_container_id_change(self) -> None:
         first = self.service("a", 51753, "/unused")

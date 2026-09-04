@@ -1,65 +1,63 @@
-# Design QA — Direction 1: Project-first control center
+# Design QA — Live project-first + search prototype
 
 Date: 2026-09-04
-Final result: passed
+final result: passed
 
 ## Comparison target
 
-- Source visual truth: `/Users/forge/Workspace/port-tools/evaluation/screenshots/01-port-menu-inventory.png`
+- Source visual truth: `/Users/forge/Workspace/port-tools/design/prototypes/comparison/source-direction1.jpg` and `/Users/forge/Workspace/port-tools/design/prototypes/search-first/implementation-main.jpg`
 - Implementation: `http://127.0.0.1:45123/`
 - Combined comparison view: `http://127.0.0.1:45123/?qa=1`
-- Browser-rendered capture: Codex in-app browser tab 2, captured from the combined comparison view on 2026-09-04
-- Source pixels: 788 × 1400 at 2× density, normalized to 394 × 700 CSS px
-- Implementation viewport: 394 × 700 CSS px inside the comparison iframe at 1× density
-- State: light appearance, all three project groups expanded, no service detail expanded
-
-The implementation now matches the source's roughly 394 px panel width. Detailed controls remain available only after expanding one app.
+- Browser-rendered implementation screenshot: `/Users/forge/Workspace/port-tools/design/prototypes/project-first/implementation-live.png`
+- Combined comparison screenshot: `/Users/forge/Workspace/port-tools/design/prototypes/project-first/qa-live-comparison.png`
+- Source pixels: 608 × 901 for each selected direction capture
+- Implementation and comparison captures: 1280 × 720 at device scale 1
+- Intended component size: 410 px wide, up to 720 px high
+- State: light appearance; real local scan loaded; project groups partly expanded; search tested both closed and open
 
 ## Full-view comparison evidence
 
-The combined browser view placed the normalized Port Menu source and live implementation side by side. The implementation preserves the source hierarchy: quiet white macOS panel, project name first, branch and age as secondary metadata, green availability indicators, restrained separators, and a vertically scannable inventory. It intentionally replaces repeated top-level project rows with worktree groups and subordinate app rows. The simplification pass removed the persistent search/filter row, footer status bar, bordered service cards, and app-level disclosure icons; explicit healthy-state pills remain because the product owner found them useful.
+The combined browser capture places both selected source directions beside the live implementation. The implementation retains Direction 1's quiet macOS panel, project-first hierarchy, compact rows, explicit healthy/warning states, and subordinate branch/port metadata. Direction 3 contributes the focused search field, but it stays hidden until the header search control or Command-K is used.
 
-No P0, P1, or P2 mismatch remained after comparison. The stop-review command column was widened from 218 px to 239 px after the interaction-state review so realistic commands no longer break into unnecessarily short fragments.
+The selected sources used simulated data, while the implementation intentionally uses the scanner's live project, application, Web classification, Git branch, GitHub remote, listener, and process evidence. That content difference is expected and is the purpose of this trial build. No actionable P0, P1, or P2 visual mismatch remains.
 
 ## Focused-region evidence
 
-- Inventory rows: project/worktree headings, app rows, branch, port, age, stable route, explicit Web-verified state, LAN exposure, and possibly-forgotten state were readable without collision. App rows no longer form a repetitive right-hand column of disclosure symbols.
-- Web evidence modal: three evidence statements, page title, process command, and bind scope were visible in one compact sheet.
-- Stable-name modal: editable slug, resulting `.localhost:4111` address, current raw address, and local-only/no-admin explanation were visible before save.
-- Stop modal: PID, exact command, released listener, unaffected app count, graceful-stop behavior, and explicit destructive action were visible before confirmation.
+- Project disclosure: the repeated right-side arrow column is gone. Each project has one small leading disclosure indicator, the entire header row toggles expansion, and the right side contains only a service/attention summary.
+- Project hierarchy: a Git worktree is the top-level card; multiple application manifests appear as compact subheadings; service rows remain the actionable leaves. Single-application projects omit the redundant middle heading.
+- Search: the header control and Command-K reveal the Direction 3 search field. A `19201` query reduced the inventory to the matching Boonray project and `mine-cloud-proxy` service, with the project temporarily expanded.
+- Runtime naming: an untitled Node service is displayed as `mine-cloud-proxy`, derived from its script path; the generic runtime name `node` remains only in evidence.
+- Service detail: selecting a service revealed Open, Copy, Name, Stop, Web evidence, and project-path controls without turning every row into a permanent toolbar.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: system UI and monospace fallbacks match the native macOS character of the source. Project names remain the strongest type; supporting metadata stays subordinate but readable. Long app names and routes truncate instead of pushing age or disclosure controls off-screen.
-- Spacing and layout rhythm: 48 px project headings and 49 px app rows retain the source's compact scan rhythm. A single inset rule communicates grouping without bordered cards. The panel sizes to content up to a 700 px maximum, then scrolls.
-- Colors and visual tokens: neutral whites and grays follow the source. Green is reserved for verified state; amber communicates LAN exposure and possible staleness with text, so status does not rely on color alone. Red appears only in the reviewed stop action.
-- Image quality and asset fidelity: the source has no product imagery. All UI icons use one consistent Phosphor icon family; no placeholder art, emoji, handcrafted SVG, or raster substitute is present.
-- Copy and content: labels describe user intent (`Name it`, `Why this is a Web app`, `Stop gracefully`) rather than raw process implementation. `5 Web apps` communicates the default scope without a permanent filter control, and prototype data is explicitly labeled.
-- Accessibility: icon-only controls have accessible names, service rows are keyboard reachable, focus is visible, reduced motion is respected, and state pills include text. Desktop targets follow compact macOS control sizing.
-- Responsiveness: the panel fits the 394 × 700 comparison viewport and sizes to its content; shorter viewports keep the inventory scrollable.
+- Fonts and typography: system UI and monospace fallbacks preserve the native macOS character. Project names remain strongest, service names are secondary, and branch, remote, address, and age truncate without displacing status.
+- Spacing and layout rhythm: 51 px project headers and 49 px service rows preserve the compact source rhythm. Insets and one thin rule communicate nesting without card clutter.
+- Colors and visual tokens: neutral white/gray surfaces match both sources. Green is reserved for verified Web state; amber identifies LAN exposure, suspected Web endpoints, or project attention; red appears only inside the stop preview.
+- Image quality and asset fidelity: the product has no imagery. All interface icons use the existing Phosphor family; no placeholder art, handcrafted SVG, emoji, or CSS-drawn icons were introduced.
+- Copy and content: labels describe project, application, listener, and evidence in plain language. `LIVE` distinguishes real inventory from earlier demos. Naming and stopping explicitly state that they remain trial simulations.
+- Accessibility: icon-only controls have accessible names, project and service rows are keyboard focusable, disclosure state is announced, focus styling is visible, reduced motion is supported, and all status colors include text labels.
+- Responsiveness: the panel fits the 410 × 720 target and becomes viewport-width on narrow windows; inventory remains independently scrollable.
 
 ## Primary interactions tested
 
-- Expand an app and reveal Open, Copy, Rename/Name, Stop, evidence, and project-folder actions.
-- Open the Web-classification evidence sheet and close it.
-- Claim `scanner-fixtures.localhost:4111` from an unnamed raw address and observe the updated inventory.
-- Open the safe-stop preview, confirm the simulated graceful stop, observe the app count decrement, and verify the postcondition toast.
-- Trigger Open, Copy, and Refresh feedback.
-- Browser console errors and warnings checked: none.
+- Live `/api/inventory` response loaded and updated the visible project and service counts.
+- Project header row collapsed and persisted its state.
+- Search opened from the header, accepted a port query, filtered project/app/service content, and automatically expanded the match.
+- A service row expanded its action and evidence controls.
+- The Web evidence modal displayed real project, application, command, HTTP, framework, and bind-scope evidence and closed normally.
+- No Vite error overlay, broken asset, failed inventory state, or uncaught error was visible during the interaction pass. The CUA browser surface does not expose a separate console-log API.
 
 ## Comparison history
 
-1. Initial comparison: the stop-review command wrapped into three uneven fragments (P2 typography and spacing).
-2. Fix: reduced the impact-card label column from 93 px to 72 px, giving the exact command more horizontal room.
-3. Post-fix review: the command uses the available width without changing the modal hierarchy; no actionable P0/P1/P2 finding remains.
-4. Product-owner simplification feedback: the default panel felt too busy (P2 density and hierarchy).
-5. Fix: removed the search/filter toolbar and footer, initially hid repetitive healthy-state pills, replaced child cards with a single inset grouping rule, reduced project/app row heights, matched the source's 394 px width, and made the panel size to content.
-6. Post-fix comparison: the main scan view had one primary hierarchy and only exception states drew color. Expanded actions and all safety evidence remained intact.
-7. Product-owner refinement: explicit healthy-state reminders were useful, but the repeated up/down disclosure symbols formed an unattractive right-hand column (P2 affordance and visual rhythm).
-8. Fix: restored compact `Web verified` pills, removed disclosure icons from all app rows, and replaced the project-group up/down chevrons with three subtle right-facing carets that rotate only at group level.
-9. Post-fix comparison: status meaning is explicit without recreating the arrow column; the row itself remains the app-detail hit target. No actionable P0/P1/P2 finding remains.
+1. Initial live comparison showed a broken project-first source image because the QA route referenced a non-existent capture (P1 comparison evidence).
+2. Fix: changed the source to the verified Direction 1 capture used by the three-direction comparison page.
+3. Post-fix comparison displayed both 608 × 901 source captures and the live implementation together; the broken image was gone.
+4. Initial runtime content labeled an untitled command-path service as `node` (P2 information hierarchy).
+5. Fix: derive the display/application fallback from the executable script basename while retaining the raw runtime name in evidence.
+6. Post-fix browser snapshot displayed `mine-cloud-proxy` at both the application and service levels, eliminating runtime-name leakage from the primary inventory.
 
 ## Follow-up polish
 
-- P3: Native SwiftUI implementation should validate the exact material blur and shadow on macOS 14 and 15 because browser backdrop rendering is only an approximation.
-- P3: VoiceOver ordering and Dynamic Type behavior require validation in the eventual native app.
+- P3: Native SwiftUI should validate the exact material blur, shadow, hover behavior, VoiceOver order, and Dynamic Type sizing on supported macOS versions.
+- P3: GitHub remotes currently display as compact text; a later native detail view can make them directly openable without adding noise to the default inventory.

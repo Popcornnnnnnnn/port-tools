@@ -12,8 +12,10 @@ Before making substantial visual changes, use the Product Design plugin's `get-c
 - Lead with project/worktree and app identity; runtime names such as `node` belong only in evidence.
 - Stable local names, Web-classification evidence, LAN exposure, and exact stop impact must be understandable from the inventory flow.
 - Keep the default inventory quiet while retaining an explicit `Web verified` pill for healthy apps. Search, filters, and detailed actions should not occupy permanent space in the main scan view.
-- Avoid repeating disclosure chevrons on every app row. App rows open by clicking the row itself; only project groups keep one subtle right-facing disclosure indicator that rotates when expanded.
-- All data and mutations in this direction are simulated. Never connect this prototype to real process termination.
+- Combine the project-first inventory with search-first discovery. Search opens from the header or with Command-K, matches project, app, port, branch, path, and remote, and temporarily expands matching projects.
+- Group as project/worktree, then application manifest, then live service. Hide the application heading when the project contains only one application.
+- Avoid a repeated right-side disclosure column. The entire project row toggles expansion, with one subtle leading disclosure indicator; the right side contains only a service or attention summary.
+- Read real scanner inventory in local development. Opening and copying real addresses are enabled; naming and stopping remain clearly labeled, persistent browser simulations and must never terminate a real process.
 
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 

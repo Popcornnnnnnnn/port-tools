@@ -524,11 +524,24 @@ def project_from_command(command: str, cwd: Optional[str]) -> Optional[Dict[str,
     return candidates[0] if len(candidates) == 1 else None
 
 
+def sanitized_remote_url(remote_url: str) -> Optional[str]:
+    value = remote_url.strip()
+    if not value:
+        return None
+    if "://" in value:
+        scheme, remainder = value.split("://", 1)
+        if "@" in remainder:
+            remainder = remainder.split("@", 1)[1]
+        return "{}://{}".format(scheme, remainder)
+    return value
+
+
 def git_metadata(cwd: str) -> Optional[Dict[str, object]]:
     root = run_text(["git", "-C", cwd, "rev-parse", "--show-toplevel"])
     if not root:
         return None
     branch = run_text(["git", "-C", cwd, "branch", "--show-current"])
+    remote_url = run_text(["git", "-C", cwd, "config", "--get", "remote.origin.url"])
     common_dir = run_text(["git", "-C", cwd, "rev-parse", "--git-common-dir"])
     if common_dir and not os.path.isabs(common_dir):
         common_dir = str((Path(cwd) / common_dir).resolve())
@@ -541,6 +554,7 @@ def git_metadata(cwd: str) -> Optional[Dict[str, object]]:
         "repositoryName": Path(repository_root).name,
         "worktreeName": Path(root).name,
         "branch": branch or None,
+        "remoteUrl": sanitized_remote_url(remote_url),
         "commonGitDirectory": common_dir or None,
         "isWorktree": is_worktree,
     }
@@ -899,10 +913,10 @@ def scan() -> List[Dict[str, object]]:
     return services
 
 
-def group_id(service: Dict[str, object]) -> str:
-    application = service.get("application") or {}
+def project_group_id(service: Dict[str, object]) -> str:
     project = service.get("project") or {}
-    identity = application.get("root") or project.get("root")
+    application = service.get("application") or {}
+    identity = project.get("root") or application.get("root")
     management = service.get("management") or {}
     if not identity and management.get("source") == "docker":
         identity = "docker:{}".format(
@@ -913,18 +927,38 @@ def group_id(service: Dict[str, object]) -> str:
     return hashlib.sha256(str(identity).encode("utf-8")).hexdigest()[:12]
 
 
+def application_group_id(service: Dict[str, object]) -> str:
+    application = service.get("application") or {}
+    project = service.get("project") or {}
+    management = service.get("management") or {}
+    identity = application.get("root") or project.get("root")
+    if not identity and management.get("source") == "docker":
+        identity = "docker:{}".format(
+            management.get("containerName") or management.get("containerId")
+        )
+    if not identity:
+        identity = "process:{}".format(service["process"]["pid"])
+    return hashlib.sha256(str(identity).encode("utf-8")).hexdigest()[:12]
+
+
+# Kept as the public stable group helper. A group now represents a project/worktree;
+# applications are nested beneath it instead of becoming sibling top-level groups.
+def group_id(service: Dict[str, object]) -> str:
+    return project_group_id(service)
+
+
 def group_services(services: List[Dict[str, object]]) -> List[Dict[str, object]]:
     groups = {}
     order = []
     for service in services:
-        identifier = group_id(service)
+        identifier = project_group_id(service)
         if identifier not in groups:
             application = service.get("application") or {}
             project = service.get("project") or {}
             management = service.get("management") or {}
             label = (
-                application.get("name")
-                or project.get("name")
+                project.get("name")
+                or application.get("name")
                 or management.get("containerName")
                 or service["process"].get("name")
                 or "unknown"
@@ -933,11 +967,30 @@ def group_services(services: List[Dict[str, object]]) -> List[Dict[str, object]]
                 "id": identifier,
                 "label": label,
                 "project": service.get("project"),
-                "application": service.get("application"),
+                "application": None,
                 "serviceIds": [],
+                "applications": [],
+                "_applicationsById": {},
             }
             order.append(identifier)
-        groups[identifier]["serviceIds"].append(service["id"])
+        group = groups[identifier]
+        group["serviceIds"].append(service["id"])
+        app_identifier = application_group_id(service)
+        if app_identifier not in group["_applicationsById"]:
+            application = service.get("application")
+            app_label = (
+                (application or {}).get("name")
+                or group["label"]
+            )
+            app_group = {
+                "id": app_identifier,
+                "label": app_label,
+                "application": application,
+                "serviceIds": [],
+            }
+            group["_applicationsById"][app_identifier] = app_group
+            group["applications"].append(app_group)
+        group["_applicationsById"][app_identifier]["serviceIds"].append(service["id"])
     for group in groups.values():
         group["serviceIds"].sort(
             key=lambda service_id: next(
@@ -946,6 +999,17 @@ def group_services(services: List[Dict[str, object]]) -> List[Dict[str, object]]
                 if service["id"] == service_id
             )
         )
+        for application in group["applications"]:
+            application["serviceIds"].sort(
+                key=lambda service_id: next(
+                    int(service["listener"]["port"])
+                    for service in services
+                    if service["id"] == service_id
+                )
+            )
+        if len(group["applications"]) == 1:
+            group["application"] = group["applications"][0]["application"]
+        del group["_applicationsById"]
     return [groups[identifier] for identifier in order]
 
 
@@ -1021,18 +1085,24 @@ def print_table(services: List[Dict[str, object]], show_all_web: bool = False) -
             context.append(project["worktreeName"])
         suffix = " [{}]".format(" · ".join(context)) if context else ""
         print("\n{}{}".format(group["label"], suffix))
-        for service_id in group["serviceIds"]:
-            service = by_id[service_id]
-            observation = service["observation"]
-            exposure = " · LAN" if service["listener"]["bindScope"] != "loopback" else ""
-            print(
-                "  :{:<5} {:<5} {}{}".format(
-                    service["listener"]["port"],
-                    observation["protocol"],
-                    endpoint_summary(service),
-                    exposure,
+        applications = group.get("applications") or []
+        for application in applications:
+            if len(applications) > 1:
+                print("  {}".format(application["label"]))
+            indent = "    " if len(applications) > 1 else "  "
+            for service_id in application["serviceIds"]:
+                service = by_id[service_id]
+                observation = service["observation"]
+                exposure = " · LAN" if service["listener"]["bindScope"] != "loopback" else ""
+                print(
+                    "{}:{:<5} {:<5} {}{}".format(
+                        indent,
+                        service["listener"]["port"],
+                        observation["protocol"],
+                        endpoint_summary(service),
+                        exposure,
+                    )
                 )
-            )
     web_count = len(web_services(services))
     if show_all_web:
         print("\n{} Web endpoints; {} non-Web/unknown listeners hidden".format(web_count, len(services) - web_count))
