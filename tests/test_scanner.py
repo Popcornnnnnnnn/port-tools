@@ -1,7 +1,8 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from prototype.port_tools import detect_framework, endpoint_summary, group_services, parse_endpoint, parse_http_response, project_candidates_from_command, project_from_command, redis_candidate, redis_response, relevance
+from prototype.port_tools import add_alias, detect_framework, endpoint_summary, group_services, load_route_state, parse_endpoint, parse_http_response, project_candidates_from_command, project_from_command, redis_candidate, redis_response, relevance, remove_alias, validate_alias
 
 
 class EndpointParsingTests(unittest.TestCase):
@@ -157,6 +158,25 @@ class EndpointSummaryTests(unittest.TestCase):
             }
         )
         self.assertEqual(summary, "live-bridge.mjs · HTTP 404")
+
+
+class RouteStateTests(unittest.TestCase):
+    def test_alias_state_is_atomic_and_rejects_collision(self) -> None:
+        with TemporaryDirectory() as directory:
+            state = Path(directory) / "routes.json"
+            added = add_alias(state, "Todo-App", 5173, "rewrite")
+            self.assertEqual(added["alias"], "todo-app")
+            self.assertEqual(load_route_state(state)["routes"]["todo-app"]["port"], 5173)
+            with self.assertRaises(ValueError):
+                add_alias(state, "todo-app", 8000, "rewrite")
+            self.assertTrue(remove_alias(state, "todo-app")["removed"])
+            self.assertEqual(load_route_state(state)["routes"], {})
+
+    def test_alias_validation(self) -> None:
+        self.assertEqual(validate_alias("studio-2"), "studio-2")
+        for invalid in ("-studio", "studio-", "two.words", "space name", ""):
+            with self.assertRaises(ValueError):
+                validate_alias(invalid)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,8 @@ WEB_COMMAND_HINTS = (
     "django",
     "http.server",
 )
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_ROUTE_STATE = REPO_ROOT / ".port-tools-spike" / "routes.json"
 
 
 def run_text(command: List[str]) -> str:
@@ -640,6 +642,70 @@ def print_table(services: List[Dict[str, object]], show_all_web: bool = False) -
         )
 
 
+def validate_alias(alias: str) -> str:
+    normalized = alias.lower()
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", normalized):
+        raise ValueError("alias must use lowercase letters, numbers, and internal hyphens")
+    return normalized
+
+
+def load_route_state(state_path: Path) -> Dict[str, object]:
+    if not state_path.exists():
+        return {"schemaVersion": 1, "routes": {}}
+    with state_path.open(encoding="utf-8") as handle:
+        document = json.load(handle)
+    if document.get("schemaVersion") != 1 or not isinstance(document.get("routes"), dict):
+        raise ValueError("unsupported route state")
+    return document
+
+
+def write_route_state(state_path: Path, document: Dict[str, object]) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = state_path.with_suffix(".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(document, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(str(temporary), str(state_path))
+
+
+def add_alias(state_path: Path, alias: str, port: int, host_mode: str) -> Dict[str, object]:
+    alias = validate_alias(alias)
+    if port < 1 or port > 65535:
+        raise ValueError("port must be between 1 and 65535")
+    document = load_route_state(state_path)
+    existing = document["routes"].get(alias)
+    proposed = {"port": port, "hostMode": host_mode}
+    if existing and existing != proposed:
+        raise ValueError("alias already exists with a different route")
+    document["routes"][alias] = proposed
+    write_route_state(state_path, document)
+    return {"alias": alias, **proposed, "url": "http://{}.localhost:17890".format(alias)}
+
+
+def remove_alias(state_path: Path, alias: str) -> Dict[str, object]:
+    alias = validate_alias(alias)
+    document = load_route_state(state_path)
+    removed = document["routes"].pop(alias, None)
+    if removed is None:
+        raise ValueError("alias does not exist")
+    write_route_state(state_path, document)
+    return {"alias": alias, "removed": True}
+
+
+def run_proxy(listen: str, state_path: Path) -> int:
+    command = [
+        "node",
+        str(Path(__file__).resolve().parent / "proxy.mjs"),
+        "--listen",
+        listen,
+        "--state",
+        str(state_path),
+    ]
+    return subprocess.run(command, check=False).returncode
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="port-tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -649,7 +715,37 @@ def main() -> None:
     scan_parser.add_argument("--all-web", action="store_true")
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("service_id")
+    proxy_parser = subparsers.add_parser("proxy")
+    proxy_parser.add_argument("--listen", default="127.0.0.1:17890")
+    proxy_parser.add_argument("--state", type=Path, default=DEFAULT_ROUTE_STATE)
+    alias_parser = subparsers.add_parser("alias")
+    alias_subparsers = alias_parser.add_subparsers(dest="alias_command", required=True)
+    alias_add = alias_subparsers.add_parser("add")
+    alias_add.add_argument("alias")
+    alias_add.add_argument("port", type=int)
+    alias_add.add_argument("--host-mode", choices=("rewrite", "preserve"), default="rewrite")
+    alias_add.add_argument("--state", type=Path, default=DEFAULT_ROUTE_STATE)
+    alias_list = alias_subparsers.add_parser("list")
+    alias_list.add_argument("--state", type=Path, default=DEFAULT_ROUTE_STATE)
+    alias_remove = alias_subparsers.add_parser("remove")
+    alias_remove.add_argument("alias")
+    alias_remove.add_argument("--state", type=Path, default=DEFAULT_ROUTE_STATE)
     args = parser.parse_args()
+
+    if args.command == "proxy":
+        raise SystemExit(run_proxy(args.listen, args.state))
+    if args.command == "alias":
+        try:
+            if args.alias_command == "add":
+                result = add_alias(args.state, args.alias, args.port, args.host_mode)
+            elif args.alias_command == "remove":
+                result = remove_alias(args.state, args.alias)
+            else:
+                result = load_route_state(args.state)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            raise SystemExit(str(error))
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
 
     services = scan()
     if args.command == "inspect":

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import time
 
 
 HTML = b"""<!doctype html>
@@ -42,7 +44,74 @@ class Handler(BaseHTTPRequestHandler):
         self._respond(include_body=False)
 
     def do_GET(self) -> None:
-        self._respond(include_body=True)
+        if self.path == "/inspect":
+            self._record()
+            response = json.dumps(
+                {
+                    "host": self.headers.get("Host"),
+                    "x_forwarded_host": self.headers.get("X-Forwarded-Host"),
+                    "x_forwarded_proto": self.headers.get("X-Forwarded-Proto"),
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+        elif self.path == "/redirect":
+            self._record()
+            self.send_response(302)
+            self.send_header("Location", "/target")
+            self.end_headers()
+        elif self.path == "/external-redirect":
+            self._record()
+            self.send_response(302)
+            self.send_header("Location", "https://example.invalid/fixture-target")
+            self.end_headers()
+        elif self.path == "/events":
+            self._record()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(b"event: ready\ndata: first\n\n")
+            self.wfile.flush()
+            time.sleep(0.05)
+            self.wfile.write(b"event: complete\ndata: second\n\n")
+            self.wfile.flush()
+        elif self.path == "/stream":
+            self._record()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.end_headers()
+            self.wfile.write(b"chunk-one\n")
+            self.wfile.flush()
+            time.sleep(0.05)
+            self.wfile.write(b"chunk-two\n")
+            self.wfile.flush()
+        elif self.path == "/cookie":
+            self._record()
+            self.send_response(200)
+            self.send_header("Set-Cookie", "fixture=present; Path=/; SameSite=Lax")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        else:
+            self._respond(include_body=True)
+
+    def do_POST(self) -> None:
+        self._record()
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length)
+        response = json.dumps(
+            {"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()},
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
 
     def log_message(self, _format: str, *_args: object) -> None:
         return
