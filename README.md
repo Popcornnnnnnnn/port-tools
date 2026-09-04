@@ -27,13 +27,16 @@ The safe-stop policy can be inspected without terminating anything:
 ```bash
 bin/port-tools stop <service-id> --dry-run
 bin/port-tools stop <service-id> --dry-run --json
+bin/port-tools stop <service-id> --graceful
 ```
 
 The dry run revalidates PID identity and ownership, lists same-project
 descendants and excluded processes, describes the graceful `SIGTERM` order,
 and records which listeners would need to be released. Docker, other-user,
-shared-runtime, and unattributed targets are refused. Omitting `--dry-run` is
-also refused; no real stop action is implemented yet.
+shared-runtime, and unattributed targets are refused. Graceful stop requires the
+separate explicit `--graceful` action, revalidates the complete plan immediately
+before signalling, sends only `SIGTERM`, and reports success only after every
+target listener is actually released. Force stop is not implemented.
 
 The unprivileged route spike is also runnable without ports 80/443 or a local
 certificate authority:
@@ -58,6 +61,11 @@ bodies, HTTPS upstreams, route updates during a long response, and Vite/Next.js
 HMR. The proxy implementation remains a spike, not a final build-versus-reuse
 decision.
 
+The current Python and Node programs are technical-spike implementations, not a
+distribution choice. The production macOS app must be self-contained and must
+not require the user to install Python, Node.js, npm, Homebrew, Docker, or a
+separate proxy. See [`docs/packaging-requirements.md`](docs/packaging-requirements.md).
+
 No privileged helper, trusted certificate authority, background service, or
-real process termination behavior should be introduced until the corresponding
+force-termination behavior should be introduced until the corresponding
 decision gate in the PRD is resolved.

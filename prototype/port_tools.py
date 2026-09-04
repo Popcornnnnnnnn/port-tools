@@ -11,10 +11,12 @@ from pathlib import Path
 import pwd
 import re
 import shlex
+import signal
 import socket
 import ssl
 import subprocess
 import sys
+import time
 from typing import Dict, List, Optional, Tuple
 
 
@@ -314,6 +316,109 @@ def print_stop_plan(plan: Dict[str, object]) -> None:
             print("  - {}".format(reason))
     print("Force plan: unavailable; requires a separate explicit action")
     print("No signal was sent.")
+
+
+def remaining_listener_targets(targets: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    current = discover_listeners()
+    remaining = []
+    for target in targets:
+        matches = [
+            listener
+            for listener in current
+            if listener["address"] == target["address"]
+            and int(listener["port"]) == int(target["port"])
+        ]
+        if matches:
+            remaining.append(
+                {
+                    **target,
+                    "currentPids": sorted({int(listener["pid"]) for listener in matches}),
+                }
+            )
+    return remaining
+
+
+def graceful_stop(service: Dict[str, object], timeout: float = 5.0) -> Dict[str, object]:
+    plan = stop_dry_run(service)
+    result = {
+        "schemaVersion": 1,
+        "mode": "graceful",
+        "service": plan["service"],
+        "decision": plan["decision"],
+        "reasons": list(plan["reasons"]),
+        "signal": "SIGTERM",
+        "signalSent": False,
+        "signaledPids": [],
+        "timeoutSeconds": timeout,
+        "listenersReleased": False,
+        "remainingListeners": plan["gracefulPlan"]["verifyListenersReleased"],
+        "forceStopPerformed": False,
+        "forceStopRequiresSeparateExplicitAction": True,
+        "success": False,
+    }
+    if plan["decision"] != "eligible":
+        return result
+
+    confirmation = stop_dry_run(service)
+    planned_pids = plan["gracefulPlan"]["pids"]
+    if (
+        confirmation["decision"] != "eligible"
+        or confirmation["gracefulPlan"]["pids"] != planned_pids
+        or confirmation["gracefulPlan"]["verifyListenersReleased"]
+        != plan["gracefulPlan"]["verifyListenersReleased"]
+    ):
+        result["decision"] = "refused"
+        result["reasons"].append("target process tree changed during final revalidation")
+        return result
+
+    for pid in planned_pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            result["signalSent"] = True
+            result["signaledPids"].append(pid)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            result["decision"] = "partial"
+            result["reasons"].append("permission denied while signalling PID {}".format(pid))
+            break
+
+    targets = plan["gracefulPlan"]["verifyListenersReleased"]
+    deadline = time.monotonic() + timeout
+    remaining = remaining_listener_targets(targets)
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.1)
+        remaining = remaining_listener_targets(targets)
+    result["remainingListeners"] = remaining
+    result["listenersReleased"] = not remaining
+    result["success"] = not remaining and result["decision"] == "eligible"
+    return result
+
+
+def print_stop_result(result: Dict[str, object]) -> None:
+    listener = result["service"]["listener"]
+    print("SAFE STOP RESULT")
+    print("Decision: {}".format(result["decision"].upper()))
+    print("Service: {} at {}:{}".format(result["service"]["id"], listener["address"], listener["port"]))
+    signaled = ", ".join(str(pid) for pid in result["signaledPids"]) or "none"
+    print("SIGTERM sent to: {}".format(signaled))
+    print("Listeners released: {}".format("yes" if result["listenersReleased"] else "no"))
+    if result["remainingListeners"]:
+        print("Remaining listeners:")
+        for remaining in result["remainingListeners"]:
+            print(
+                "  {}:{} (PIDs {})".format(
+                    remaining["address"],
+                    remaining["port"],
+                    ", ".join(str(pid) for pid in remaining.get("currentPids", [])) or "unknown",
+                )
+            )
+    if result["reasons"]:
+        print("Reasons:")
+        for reason in result["reasons"]:
+            print("  - {}".format(reason))
+    print("Force stop performed: no")
+    print("Success: {}".format("yes" if result["success"] else "no"))
 
 
 def project_candidates_from_command(command: str, cwd: Optional[str]) -> List[Dict[str, object]]:
@@ -925,7 +1030,10 @@ def main() -> None:
     inspect_parser.add_argument("service_id")
     stop_parser = subparsers.add_parser("stop")
     stop_parser.add_argument("service_id")
-    stop_parser.add_argument("--dry-run", action="store_true")
+    stop_mode = stop_parser.add_mutually_exclusive_group()
+    stop_mode.add_argument("--dry-run", action="store_true")
+    stop_mode.add_argument("--graceful", action="store_true")
+    stop_parser.add_argument("--timeout", type=float, default=5.0)
     stop_parser.add_argument("--json", action="store_true")
     proxy_parser = subparsers.add_parser("proxy")
     proxy_parser.add_argument("--listen", default="127.0.0.1:17890")
@@ -968,8 +1076,10 @@ def main() -> None:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return
 
-    if args.command == "stop" and not args.dry_run:
-        raise SystemExit("refusing to stop: only --dry-run is implemented")
+    if args.command == "stop" and not (args.dry_run or args.graceful):
+        raise SystemExit("refusing to stop: choose --dry-run or --graceful explicitly")
+    if args.command == "stop" and args.timeout <= 0:
+        raise SystemExit("timeout must be greater than zero")
 
     services = scan()
     if args.command in ("inspect", "stop"):
@@ -979,11 +1089,15 @@ def main() -> None:
         if args.command == "inspect":
             print(json.dumps(service, indent=2, ensure_ascii=False))
         else:
-            plan = stop_dry_run(service)
+            result = graceful_stop(service, args.timeout) if args.graceful else stop_dry_run(service)
             if args.json:
-                print(json.dumps(plan, indent=2, ensure_ascii=False))
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+            elif args.graceful:
+                print_stop_result(result)
             else:
-                print_stop_plan(plan)
+                print_stop_plan(result)
+            if args.graceful and not result["success"]:
+                raise SystemExit(2)
     elif args.json:
         output = services if args.all else web_services(services) if args.all_web else visible_services(services)
         print(json.dumps(document(output), indent=2, ensure_ascii=False))

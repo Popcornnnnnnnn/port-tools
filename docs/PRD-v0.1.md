@@ -111,6 +111,20 @@ Filtering requirements:
 - Show a diagnostic response when a named upstream is absent instead of an unexplained generic 502.
 - Bind only to IPv4/IPv6 loopback by default.
 
+### 5.5 Distribution and packaging
+
+- Deliver a self-contained macOS `.app` that works after download and drag-copy
+  to Applications, without terminal setup.
+- Require no separately installed Python, Node.js, npm, Homebrew, Docker, proxy,
+  browser extension, or developer tool.
+- Keep the HTTP MVP unprivileged and require no `sudo`, CA trust, hosts edit, or
+  resolver configuration.
+- Treat the current Python and Node prototypes as executable specifications, not
+  production runtime choices.
+- Validate first launch, upgrade/state migration, and clean uninstall on a clean
+  supported macOS account. Detailed constraints are recorded in
+  [`packaging-requirements.md`](packaging-requirements.md).
+
 ## 6. Staleness model
 
 MVP must use the label `possibly forgotten`, never `unused`, because process age does not prove user intent.
@@ -192,11 +206,15 @@ Defaults are proposed so discovery work can continue before these are answered.
 | Initial platform | macOS 14+, Apple Silicon first | Determines UI shell, process APIs, signing, and test matrix |
 | Product surface | Native menu bar + CLI/JSON daemon API | Determines architecture and whether a browser dashboard is needed |
 | Management scope | Discover/open/name/stop existing apps; do not launch apps in MVP | Prevents expansion into a process supervisor |
+| Packaging model | One self-contained macOS app with no external runtime prerequisites | Determines component languages, bundling, signing, updates, and clean-machine tests |
 | HTTPS authority | Prototype unprivileged HTTP first; add trusted local CA only after review | CA trust and ports 80/443 are system-level changes |
 | Distribution intent | Local-first open-source core; monetization deferred | Affects dependencies, license, update channel, and code signing |
 | Data boundary | Store metadata locally; never store response bodies | Defines privacy and security posture |
 
-Only the first three decisions affect the immediate implementation architecture. HTTPS authority affects a later privileged acceptance test, not the initial scanner.
+The product owner confirmed the self-contained, open-box-ready packaging model
+on 2026-09-04. It is now a hard constraint for architecture issue #7. HTTPS
+authority remains a later privileged acceptance test, not an initial packaging
+requirement.
 
 ## 12. Open questions to validate, not debate in advance
 
