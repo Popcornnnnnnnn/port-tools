@@ -33,6 +33,10 @@ Health: good foundation, with important safety and identity gaps.
 - Rows named `T` and `node` show the fallback identity problem. They are
   technically discoverable but not actionable without cwd, command, page title,
   or a confidence explanation.
+- Follow-up inspection identified `node :19201` as the launchd-managed
+  `com.boonray.mine-cloud-proxy` service running a script inside the Boonray
+  repository. Because its cwd is `/`, Port Menu misses the useful script and
+  launchd identity and falls back to the runtime name.
 - All green dots imply the same kind of health. The screen does not distinguish
   “TCP is listening,” “HTTP responded,” “page is healthy,” or “route is
   reachable.”

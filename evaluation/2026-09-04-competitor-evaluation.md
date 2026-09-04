@@ -49,6 +49,15 @@ evidence-oriented integration rather than another raw port list.
   [UI audit](./2026-09-04-port-menu-ui-audit.md).
 - Automated interaction with the menu panel is still pending because the
   available UI automation surface did not expose this `LSUIElement` app.
+- The inventory showed a long-running listener as `node :19201`. Direct
+  inspection recovered the real identity as launchd job
+  `com.boonray.mine-cloud-proxy`, executing
+  `Boonray/local/private/tools/mine-cloud-proxy.mjs`. Its cwd is `/`, so Port
+  Menu could not find a Git root and fell back to the allow-listed process name
+  `node`.
+- The listener on `127.0.0.1:19201` speaks HTTP but currently returns 502 with
+  `Tunnel target unavailable: connect ECONNREFUSED 127.0.0.1:19211`. Port Menu's
+  green listener state does not communicate this degraded upstream state.
 
 ### Source evidence
 
@@ -68,6 +77,13 @@ Project context is valuable, but a fixed port range is an unacceptable proxy
 for “development web service.” Discovery and web classification must be
 separate evidence stages. Destructive actions need a stronger ownership and
 verification contract.
+
+The `node :19201` case also proves that cwd alone is not enough for identity.
+When cwd is unhelpful, `port-tools` should inspect the executable arguments,
+script path, ancestors, and launchd metadata. The desired presentation is
+approximately `Boonray · mine-cloud-proxy`, managed by launchd, with `proxy
+upstream unavailable` as its health state. Stop must target the launchd job
+lifecycle rather than killing a PID that launchd will immediately restart.
 
 ## PortPeek
 
