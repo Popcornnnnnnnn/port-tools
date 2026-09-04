@@ -70,6 +70,25 @@ distribution choice. The production macOS app must be self-contained and must
 not require the user to install Python, Node.js, npm, Homebrew, Docker, or a
 separate proxy. See [`docs/packaging-requirements.md`](docs/packaging-requirements.md).
 
+## Native menu bar trial
+
+The current interaction trial is a real macOS menu bar app:
+
+```bash
+native/trial/build.sh
+open "native/.build/Port Tools.app"
+```
+
+It reads the live scanner, groups development Web services by project, searches
+projects and services, opens or copies local addresses, explains Web-detection
+evidence, and persists custom project and service display names. Stop remains a
+non-destructive preview in this trial.
+
+This trial deliberately reuses the Python scanner through `/usr/bin/python3` so
+the menu interaction can be evaluated now. It is not the distributable product;
+the packaged app boundary remains SwiftUI plus a bundled Go core with no external
+runtime dependency.
+
 No privileged helper, trusted certificate authority, background service, or
 force-termination behavior should be introduced until the corresponding
 decision gate in the PRD is resolved.
