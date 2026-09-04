@@ -30,7 +30,8 @@ The browser prototype is a product-flow artifact, not the shipping runtime. Its 
 ## Experience questions
 
 - Does grouping make the list faster to understand than Port Menu's repeated rows?
-- Healthy loopback apps are visually quiet; only exceptions such as LAN exposure and possibly-forgotten state keep persistent labels.
+- Healthy apps retain a compact `Web verified` label; LAN exposure and possibly-forgotten states remain more prominent exceptions.
+- App rows open directly without a repeated disclosure glyph; only project groups have a subtle rotating caret.
 - Are stable routes prominent enough to replace raw port memory?
 - Does the stop preview feel safe without becoming annoying?
 - Does the 394 px panel width now feel compact enough for a menu-bar utility?

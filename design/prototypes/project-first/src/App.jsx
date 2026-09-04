@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  ArrowClockwise, ArrowSquareOut, CaretDown, Check, Code, Copy, DotsThree,
+  ArrowClockwise, ArrowSquareOut, CaretRight, Check, Code, Copy, DotsThree,
   FolderOpen, GitBranch, GlobeSimple, Info, LinkSimple,
   Network, Power, ShieldCheck, StopCircle, TerminalWindow,
   Warning, X,
@@ -32,7 +32,7 @@ const initialProjects = [
 function StatusPill({ service }) {
   if (service.exposure === "lan") return <span className="pill warning"><Network size={12} weight="bold" />LAN exposed</span>;
   if (service.state === "forgotten") return <span className="pill stale"><Warning size={12} weight="fill" />Possibly forgotten</span>;
-  return null;
+  return <span className="pill verified"><ShieldCheck size={12} weight="fill" />Web verified</span>;
 }
 
 function Modal({ children, onClose, label }) {
@@ -82,18 +82,18 @@ export function App() {
           {projects.map((project) => {
             const isOpen = expanded.has(project.id);
             return <article className="project" key={project.id}>
-              <button className="project-heading" onClick={() => toggleProject(project.id)} aria-expanded={isOpen}><span className="project-status" /><span className="project-copy"><strong>{project.name}</strong><span><GitBranch size={14} />{project.branch}</span></span><small>{project.services.length}</small><CaretDown size={16} className={isOpen ? "caret open" : "caret"} /></button>
+              <button className="project-heading" onClick={() => toggleProject(project.id)} aria-expanded={isOpen}><span className="project-status" /><span className="project-copy"><strong>{project.name}</strong><span><GitBranch size={14} />{project.branch}</span></span><small>{project.services.length}</small><CaretRight size={14} className={isOpen ? "project-caret open" : "project-caret"} /></button>
               {isOpen && <div className="service-list">{project.services.map((service) => {
                 const isSelected = service.id === selectedId;
                 return <div className={`service ${isSelected ? "selected" : ""}`} key={service.id}>
-                  <div className="service-main" role="button" tabIndex="0" onClick={() => setSelectedId(isSelected ? null : service.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedId(isSelected ? null : service.id); }} aria-expanded={isSelected}><span className="service-copy"><span className="service-name-line"><strong>{service.name}</strong><StatusPill service={service} /></span><span className="address-line">{service.alias ? <><LinkSimple size={13} /><b>{service.alias}</b><i>·</i><span>:{service.port}</span></> : <><TerminalWindow size={13} /><b>127.0.0.1:{service.port}</b><i>·</i><button className="inline-link" onClick={(event) => { event.stopPropagation(); beginAlias({ ...service, project }); }}>Name it</button></>}<time>{service.age}</time></span></span><CaretDown size={14} className={isSelected ? "caret open" : "caret"} /></div>
-                  {isSelected && <div className="service-detail"><div className="detail-actions"><button className="primary" onClick={() => flash(`Would open ${service.alias || `127.0.0.1:${service.port}`}`)}><ArrowSquareOut size={15} />Open</button><button onClick={() => flash("Address copied")}><Copy size={15} />Copy</button><button onClick={() => beginAlias({ ...service, project })}><LinkSimple size={15} />{service.alias ? "Rename" : "Name"}</button><button className="danger-quiet" onClick={() => setModal("stop")}><StopCircle size={15} />Stop</button></div><button className="evidence-button" onClick={() => setModal("evidence")}><Info size={15} /><span>Why this is a Web app</span><span>{service.framework} · HTTP 200</span><CaretDown size={13} /></button><button className="path-button" onClick={() => flash(`Would reveal ${project.worktree}`)}><FolderOpen size={14} />{project.worktree}</button></div>}
+                  <div className="service-main" role="button" tabIndex="0" onClick={() => setSelectedId(isSelected ? null : service.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedId(isSelected ? null : service.id); }} aria-expanded={isSelected}><span className="service-copy"><span className="service-name-line"><strong>{service.name}</strong><StatusPill service={service} /></span><span className="address-line">{service.alias ? <><LinkSimple size={13} /><b>{service.alias}</b><i>·</i><span>:{service.port}</span></> : <><TerminalWindow size={13} /><b>127.0.0.1:{service.port}</b><i>·</i><button className="inline-link" onClick={(event) => { event.stopPropagation(); beginAlias({ ...service, project }); }}>Name it</button></>}<time>{service.age}</time></span></span></div>
+                  {isSelected && <div className="service-detail"><div className="detail-actions"><button className="primary" onClick={() => flash(`Would open ${service.alias || `127.0.0.1:${service.port}`}`)}><ArrowSquareOut size={15} />Open</button><button onClick={() => flash("Address copied")}><Copy size={15} />Copy</button><button onClick={() => beginAlias({ ...service, project })}><LinkSimple size={15} />{service.alias ? "Rename" : "Name"}</button><button className="danger-quiet" onClick={() => setModal("stop")}><StopCircle size={15} />Stop</button></div><button className="evidence-button" onClick={() => setModal("evidence")}><Info size={15} /><span>Why this is a Web app</span><span>{service.framework} · HTTP 200</span><CaretRight size={13} /></button><button className="path-button" onClick={() => flash(`Would reveal ${project.worktree}`)}><FolderOpen size={14} />{project.worktree}</button></div>}
                 </div>;
               })}</div>}
             </article>;
           })}
-          <button className="collapsed-section" onClick={() => flash("2 valid Web endpoints without project evidence")}><CaretDown size={14} className="caret" /><span>Other Web endpoints</span><small>2</small></button>
-          <button className="collapsed-section" onClick={() => flash("28 non-Web or unknown listeners stay out of the default view")}><CaretDown size={14} className="caret" /><span>Other listeners</span><small>28</small></button>
+          <button className="collapsed-section" onClick={() => flash("2 valid Web endpoints without project evidence")}><CaretRight size={13} /><span>Other Web endpoints</span><small>2</small></button>
+          <button className="collapsed-section" onClick={() => flash("28 non-Web or unknown listeners stay out of the default view")}><CaretRight size={13} /><span>Other listeners</span><small>28</small></button>
         </div>
       </section>
       {toast && <div className="toast"><Check size={16} weight="bold" />{toast}</div>}

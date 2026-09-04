@@ -17,13 +17,13 @@ The implementation now matches the source's roughly 394 px panel width. Detailed
 
 ## Full-view comparison evidence
 
-The combined browser view placed the normalized Port Menu source and live implementation side by side. The implementation preserves the source hierarchy: quiet white macOS panel, project name first, branch and age as secondary metadata, green availability indicators, restrained separators, and a vertically scannable inventory. It intentionally replaces repeated top-level project rows with worktree groups and subordinate app rows. The product-owner simplification pass removed the persistent search/filter row, footer status bar, bordered service cards, and repeated healthy-state pills.
+The combined browser view placed the normalized Port Menu source and live implementation side by side. The implementation preserves the source hierarchy: quiet white macOS panel, project name first, branch and age as secondary metadata, green availability indicators, restrained separators, and a vertically scannable inventory. It intentionally replaces repeated top-level project rows with worktree groups and subordinate app rows. The simplification pass removed the persistent search/filter row, footer status bar, bordered service cards, and app-level disclosure icons; explicit healthy-state pills remain because the product owner found them useful.
 
 No P0, P1, or P2 mismatch remained after comparison. The stop-review command column was widened from 218 px to 239 px after the interaction-state review so realistic commands no longer break into unnecessarily short fragments.
 
 ## Focused-region evidence
 
-- Inventory rows: project/worktree headings, app rows, branch, port, age, stable route, LAN exposure, and possibly-forgotten state were readable without collision. Healthy Web state is intentionally implicit in the default Web-only inventory.
+- Inventory rows: project/worktree headings, app rows, branch, port, age, stable route, explicit Web-verified state, LAN exposure, and possibly-forgotten state were readable without collision. App rows no longer form a repetitive right-hand column of disclosure symbols.
 - Web evidence modal: three evidence statements, page title, process command, and bind scope were visible in one compact sheet.
 - Stable-name modal: editable slug, resulting `.localhost:4111` address, current raw address, and local-only/no-admin explanation were visible before save.
 - Stop modal: PID, exact command, released listener, unaffected app count, graceful-stop behavior, and explicit destructive action were visible before confirmation.
@@ -53,8 +53,11 @@ No P0, P1, or P2 mismatch remained after comparison. The stop-review command col
 2. Fix: reduced the impact-card label column from 93 px to 72 px, giving the exact command more horizontal room.
 3. Post-fix review: the command uses the available width without changing the modal hierarchy; no actionable P0/P1/P2 finding remains.
 4. Product-owner simplification feedback: the default panel felt too busy (P2 density and hierarchy).
-5. Fix: removed the search/filter toolbar and footer, hid repetitive healthy-state pills, replaced child cards with a single inset grouping rule, reduced project/app row heights, matched the source's 394 px width, and made the panel size to content.
-6. Post-fix comparison: the main scan view now has one primary hierarchy and only exception states draw color. Expanded actions and all safety evidence remain intact; no actionable P0/P1/P2 finding remains.
+5. Fix: removed the search/filter toolbar and footer, initially hid repetitive healthy-state pills, replaced child cards with a single inset grouping rule, reduced project/app row heights, matched the source's 394 px width, and made the panel size to content.
+6. Post-fix comparison: the main scan view had one primary hierarchy and only exception states drew color. Expanded actions and all safety evidence remained intact.
+7. Product-owner refinement: explicit healthy-state reminders were useful, but the repeated up/down disclosure symbols formed an unattractive right-hand column (P2 affordance and visual rhythm).
+8. Fix: restored compact `Web verified` pills, removed disclosure icons from all app rows, and replaced the project-group up/down chevrons with three subtle right-facing carets that rotate only at group level.
+9. Post-fix comparison: status meaning is explicit without recreating the arrow column; the row itself remains the app-detail hit target. No actionable P0/P1/P2 finding remains.
 
 ## Follow-up polish
 
