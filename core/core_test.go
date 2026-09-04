@@ -33,6 +33,27 @@ func TestParseEndpoint(t *testing.T) {
 	}
 }
 
+func TestPresentationRoleSeparatesPagesFromHTTPServices(t *testing.T) {
+	htmlType := "text/html; charset=utf-8"
+	jsonType := "application/json"
+	ok := 200
+	redirect := 302
+	notFound := 404
+	title := "Demo"
+	if role := presentationRole(&HTTPRecord{Status: &ok, ContentType: &htmlType}, nil); role != "page" {
+		t.Fatalf("HTML 200 role = %q", role)
+	}
+	if role := presentationRole(&HTTPRecord{Status: &ok, ContentType: &jsonType}, nil); role != "service" {
+		t.Fatalf("JSON 200 role = %q", role)
+	}
+	if role := presentationRole(&HTTPRecord{Status: &redirect}, nil); role != "page" {
+		t.Fatalf("redirect role = %q", role)
+	}
+	if role := presentationRole(&HTTPRecord{Status: &notFound, Title: &title}, pointer("vite")); role != "service" {
+		t.Fatalf("404 role = %q", role)
+	}
+}
+
 func TestProjectAndApplicationWithoutGitExecutable(t *testing.T) {
 	root := t.TempDir()
 	gitDirectory := filepath.Join(root, ".git")

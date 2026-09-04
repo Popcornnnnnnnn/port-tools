@@ -443,6 +443,38 @@ func detectFramework(command string, body []byte) *string {
 	return &framework
 }
 
+func presentationRole(response *HTTPRecord, framework *string) string {
+	if response == nil || response.Status == nil {
+		return "service"
+	}
+	status := *response.Status
+	if status >= 300 && status < 400 {
+		return "page"
+	}
+	if status < 200 || status >= 300 {
+		return "service"
+	}
+	if response.Title != nil || framework != nil {
+		return "page"
+	}
+	if response.ContentType != nil {
+		contentType := strings.ToLower(*response.ContentType)
+		if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml+xml") {
+			return "page"
+		}
+	}
+	return "service"
+}
+
+func suspectedRole(hint string) string {
+	switch hint {
+	case "vite", "next dev", "next-server", "webpack-dev-server":
+		return "page"
+	default:
+		return "service"
+	}
+}
+
 func observe(listener discoveredListener, process ProcessRecord) ObservationRecord {
 	command := ""
 	if process.Command != nil {
@@ -454,7 +486,7 @@ func observe(listener discoveredListener, process ProcessRecord) ObservationReco
 		if framework != nil {
 			evidence = append(evidence, EvidenceRecord{Kind: "framework-marker", Value: *framework})
 		}
-		return ObservationRecord{Classification: "confirmed-web", Protocol: "http", Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
+		return ObservationRecord{Classification: "confirmed-web", Protocol: "http", Role: presentationRole(response, framework), Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
 	}
 	if response, body, err := probeURL(listener, "https"); err == nil {
 		framework := detectFramework(command, body)
@@ -462,12 +494,12 @@ func observe(listener discoveredListener, process ProcessRecord) ObservationReco
 		if framework != nil {
 			evidence = append(evidence, EvidenceRecord{Kind: "framework-marker", Value: *framework})
 		}
-		return ObservationRecord{Classification: "confirmed-web", Protocol: "https", Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
+		return ObservationRecord{Classification: "confirmed-web", Protocol: "https", Role: presentationRole(response, framework), Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
 	}
 	if hint, ok := stringContainsAny(command, webCommandHints); ok {
-		return ObservationRecord{Classification: "suspected-web", Protocol: "unknown", Confidence: 0.55, Evidence: []EvidenceRecord{{Kind: "command-hint", Value: hint}, {Kind: "probe-failed", Value: "no valid HTTP response"}}}
+		return ObservationRecord{Classification: "suspected-web", Protocol: "unknown", Role: suspectedRole(hint), Confidence: 0.55, Evidence: []EvidenceRecord{{Kind: "command-hint", Value: hint}, {Kind: "probe-failed", Value: "no valid HTTP response"}}}
 	}
-	return ObservationRecord{Classification: "unknown", Protocol: "tcp", Confidence: 0.2, Evidence: []EvidenceRecord{{Kind: "no-valid-http-response", Value: "no response"}}}
+	return ObservationRecord{Classification: "unknown", Protocol: "tcp", Role: "service", Confidence: 0.2, Evidence: []EvidenceRecord{{Kind: "no-valid-http-response", Value: "no response"}}}
 }
 
 func classifyRelevance(process ProcessRecord, project *ProjectRecord) RelevanceRecord {

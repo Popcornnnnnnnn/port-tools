@@ -47,6 +47,7 @@ struct EvidenceRecord: Codable, Identifiable, Sendable {
 struct ObservationRecord: Codable, Sendable {
     let classification: String
     let `protocol`: String
+    let role: String?
     let framework: String?
     let http: HTTPRecord?
     let evidence: [EvidenceRecord]
@@ -155,7 +156,19 @@ final class CoreRuntime: @unchecked Sendable {
     func start() throws {
         lock.lock()
         defer { lock.unlock() }
-        try startLocked()
+        var lastError: Error = CoreError.failed("Port Tools core could not start.")
+        for attempt in 0..<8 {
+            do {
+                try startLocked()
+                return
+            } catch CoreError.missingResource {
+                throw CoreError.missingResource
+            } catch {
+                lastError = error
+                if attempt < 7 { Thread.sleep(forTimeInterval: 0.35) }
+            }
+        }
+        throw lastError
     }
 
     private func startLocked() throws {
@@ -189,12 +202,18 @@ final class CoreRuntime: @unchecked Sendable {
 
         for _ in 0..<80 {
             if !task.isRunning {
+                process = nil
+                try? logHandle.close()
+                self.logHandle = nil
                 throw CoreError.failed("Port Tools core exited during startup. See \(logURL.path).")
             }
             if FileManager.default.fileExists(atPath: socketURL.path) { return }
             Thread.sleep(forTimeInterval: 0.05)
         }
         task.terminate()
+        process = nil
+        try? logHandle.close()
+        self.logHandle = nil
         throw CoreError.failed("Port Tools core did not become ready.")
     }
 
@@ -337,6 +356,31 @@ func serviceName(_ service: ServiceRecord) -> String {
     return service.process.name ?? "Web service :\(service.listener.port)"
 }
 
+func isOpenablePage(_ service: ServiceRecord) -> Bool {
+    if let role = service.observation.role { return role == "page" }
+    guard let status = service.observation.http?.status else {
+        return service.observation.classification == "suspected-web"
+    }
+    return (200..<400).contains(status)
+}
+
+func relatedServiceName(_ service: ServiceRecord) -> String {
+    if let title = service.observation.http?.title, !title.isEmpty { return title }
+    if let commandName = commandApplicationName(service), !commandName.isEmpty { return commandName }
+    if let framework = service.observation.framework, !framework.isEmpty { return framework }
+    return service.process.name ?? "service :\(service.listener.port)"
+}
+
+func relatedServiceDescription(_ service: ServiceRecord) -> String {
+    if let status = service.observation.http?.status {
+        return "HTTP service · root \(status)"
+    }
+    if service.observation.classification == "suspected-web" {
+        return "Likely Web service"
+    }
+    return "\(service.observation.protocol.uppercased()) service"
+}
+
 func serviceRenameKey(_ service: ServiceRecord) -> String {
     [
         service.project?.root,
@@ -431,6 +475,11 @@ func compactServiceAddress(_ service: ServiceRecord) -> String {
     return value.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
 }
 
+func compactRawServiceAddress(_ service: ServiceRecord) -> String {
+    let value = serviceURL(service)?.absoluteString ?? ":\(service.listener.port)"
+    return value.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
+}
+
 func suggestedAlias(_ service: ServiceRecord) -> String {
     let source = service.application?.name ?? service.project?.name ?? serviceName(service)
     let latin = source.applyingTransform(.toLatin, reverse: false)?
@@ -512,12 +561,12 @@ struct EvidenceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
-                Image(systemName: "checkmark.shield.fill")
+                Image(systemName: isOpenablePage(service) ? "checkmark.shield.fill" : "point.3.connected.trianglepath.dotted")
                     .font(.title2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(isOpenablePage(service) ? Color.green : Color.orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Why this is a Web app").font(.headline)
-                    Text("\(serviceName(service)) · port \(service.listener.port)")
+                    Text(isOpenablePage(service) ? "Why this is a Web app" : "Why this service was detected").font(.headline)
+                    Text("\(isOpenablePage(service) ? serviceName(service) : relatedServiceName(service)) · port \(service.listener.port)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -539,7 +588,8 @@ struct EvidenceView: View {
                 GridRow { Text("Project").foregroundStyle(.secondary); Text(service.project?.name ?? "Unassigned") }
                 GridRow { Text("Application").foregroundStyle(.secondary); Text(service.application?.name ?? commandApplicationName(service) ?? "Project root") }
                 GridRow { Text("Process").foregroundStyle(.secondary); Text(service.process.command ?? "Unknown").lineLimit(3) }
-                GridRow { Text("Open address").foregroundStyle(.secondary); Text(serviceURL(service)?.absoluteString ?? "Unknown") }
+                GridRow { Text("Role").foregroundStyle(.secondary); Text(isOpenablePage(service) ? "Openable Web page" : relatedServiceDescription(service)) }
+                GridRow { Text(isOpenablePage(service) ? "Open address" : "Local endpoint").foregroundStyle(.secondary); Text(serviceURL(service)?.absoluteString ?? "Unknown") }
                 GridRow { Text("Listening on").foregroundStyle(.secondary); Text(listenerEndpoint(service)) }
                 GridRow { Text("Bind scope").foregroundStyle(.secondary); Text(service.listener.bindScope == "loopback" ? "This Mac only" : "Potentially reachable on this LAN") }
             }
@@ -798,9 +848,61 @@ struct ServiceRow: View {
     }
 }
 
+struct RelatedServiceRow: View {
+    let service: ServiceRecord
+    let onEvidence: () -> Void
+
+    var body: some View {
+        Button(action: onEvidence) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Text(relatedServiceName(service))
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                    if service.listener.bindScope != "loopback" {
+                        Label("LAN exposed", systemImage: "network")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.orange.opacity(0.1), in: Capsule())
+                    }
+                    Spacer(minLength: 4)
+                    if let age = relativeAge(service.process.started) {
+                        Text(age).font(.system(size: 9)).foregroundStyle(.tertiary)
+                    }
+                }
+                HStack(spacing: 5) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                    Text(relatedServiceDescription(service))
+                    Text("·")
+                    Text(compactRawServiceAddress(service))
+                        .font(.system(size: 9, design: .monospaced))
+                    if service.listener.bindScope != "loopback" {
+                        Text("→")
+                        Text("listens \(listenerEndpoint(service))")
+                            .foregroundStyle(.orange)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "info.circle")
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
+        .help("Show detection evidence")
+    }
+}
+
 struct InventoryView: View {
     @ObservedObject var store: InventoryStore
     @State private var expanded = Set<String>()
+    @State private var expandedRelated = Set<String>()
     @State private var initializedExpansion = false
     @State private var selectedServiceID: String?
     @State private var evidenceService: ServiceRecord?
@@ -822,8 +924,18 @@ struct InventoryView: View {
     private var developmentServices: [ServiceRecord] {
         webServices.filter(\.relevance.developerRelevant)
     }
-    private var projects: [ProjectGroup] { groupServices(developmentServices) }
-    private var otherWebCount: Int { webServices.count - developmentServices.count }
+    private var developmentPages: [ServiceRecord] {
+        developmentServices.filter(isOpenablePage)
+    }
+    private var projects: [ProjectGroup] {
+        groupServices(developmentServices).filter { $0.services.contains(where: isOpenablePage) }
+    }
+    private var displayedProjectServiceIDs: Set<String> {
+        Set(projects.flatMap(\.services).map(\.id))
+    }
+    private var otherWebCount: Int {
+        webServices.filter { !displayedProjectServiceIDs.contains($0.id) }.count
+    }
     private var otherListenerCount: Int { allServices.count - webServices.count }
 
     private var filteredProjects: [ProjectGroup] {
@@ -860,7 +972,7 @@ struct InventoryView: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.green)
                     }
-                    Text(store.document == nil ? "Scanning local Web apps…" : "\(projects.count) projects · \(developmentServices.count) Web apps")
+                    Text(store.document == nil ? "Scanning local Web apps…" : "\(projects.count) projects · \(developmentPages.count) Web apps")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -1042,6 +1154,10 @@ struct InventoryView: View {
     private func projectSection(_ project: ProjectGroup) -> some View {
         let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let isOpen = searching || expanded.contains(project.id)
+        let pageServices = project.services.filter(isOpenablePage)
+        let relatedServices = project.services.filter { !isOpenablePage($0) }
+        let pageApplications = project.applications.filter { $0.services.contains(where: isOpenablePage) }
+        let relatedIsOpen = searching || expandedRelated.contains(project.id)
         let attention = project.services.filter {
             $0.listener.bindScope != "loopback" || $0.observation.classification == "suspected-web"
         }.count
@@ -1074,7 +1190,7 @@ struct InventoryView: View {
                         .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 5)
-                    Text(attention > 0 ? "\(attention) attention" : "\(project.services.count) \(project.services.count == 1 ? "service" : "services")")
+                    Text(attention > 0 ? "\(attention) attention" : "\(pageServices.count) \(pageServices.count == 1 ? "app" : "apps")")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(attention > 0 ? Color.orange : Color.secondary)
                         .padding(.horizontal, 7)
@@ -1099,7 +1215,8 @@ struct InventoryView: View {
             if isOpen {
                 VStack(spacing: 0) {
                     ForEach(project.applications) { application in
-                        if project.applications.count > 1 {
+                        let applicationPages = application.services.filter(isOpenablePage)
+                        if !applicationPages.isEmpty && pageApplications.count > 1 {
                             HStack(spacing: 6) {
                                 Text(application.name).font(.system(size: 10, weight: .semibold))
                                 Text(application.application.map { "\($0.manifest) · \($0.relativePath)" } ?? "command path")
@@ -1112,30 +1229,73 @@ struct InventoryView: View {
                             .padding(.trailing, 10)
                             .padding(.top, 5)
                         }
-                        VStack(spacing: 0) {
-                            ForEach(application.services) { service in
-                                ServiceRow(
-                                    service: service,
-                                    displayName: serviceNames[serviceRenameKey(service)] ?? serviceName(service),
-                                    selected: selectedServiceID == service.id,
-                                    onSelect: {
-                                        selectedServiceID = selectedServiceID == service.id ? nil : service.id
-                                    },
-                                    onRename: {
-                                        renameTarget = RenameTarget(
-                                            key: serviceRenameKey(service),
-                                            kind: .service,
-                                            currentName: serviceNames[serviceRenameKey(service)] ?? serviceName(service)
-                                        )
-                                    },
-                                    onAlias: { aliasTarget = AliasTarget(service: service) },
-                                    onEvidence: { evidenceService = service },
-                                    onMessage: showMessage
-                                )
-                                if service.id != application.services.last?.id { Divider() }
+                        if !applicationPages.isEmpty {
+                            VStack(spacing: 0) {
+                                ForEach(applicationPages) { service in
+                                    ServiceRow(
+                                        service: service,
+                                        displayName: serviceNames[serviceRenameKey(service)] ?? serviceName(service),
+                                        selected: selectedServiceID == service.id,
+                                        onSelect: {
+                                            selectedServiceID = selectedServiceID == service.id ? nil : service.id
+                                        },
+                                        onRename: {
+                                            renameTarget = RenameTarget(
+                                                key: serviceRenameKey(service),
+                                                kind: .service,
+                                                currentName: serviceNames[serviceRenameKey(service)] ?? serviceName(service)
+                                            )
+                                        },
+                                        onAlias: { aliasTarget = AliasTarget(service: service) },
+                                        onEvidence: { evidenceService = service },
+                                        onMessage: showMessage
+                                    )
+                                    if service.id != applicationPages.last?.id { Divider() }
+                                }
                             }
+                            .padding(.leading, 32)
                         }
-                        .padding(.leading, 32)
+                    }
+
+                    if !relatedServices.isEmpty {
+                        Divider().padding(.leading, 32)
+                        Button {
+                            if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
+                        } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .rotationEffect(.degrees(relatedIsOpen ? 90 : 0))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 12)
+                                Text("Related services")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("Not a directly openable page")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.tertiary)
+                                Spacer()
+                                Text(String(relatedServices.count))
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(Color.secondary.opacity(0.1), in: Capsule())
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.leading, 38)
+                            .padding(.trailing, 12)
+                            .frame(height: 34)
+                        }
+                        .buttonStyle(.plain)
+
+                        if relatedIsOpen {
+                            VStack(spacing: 0) {
+                                ForEach(relatedServices) { service in
+                                    RelatedServiceRow(service: service) { evidenceService = service }
+                                    if service.id != relatedServices.last?.id { Divider() }
+                                }
+                            }
+                            .padding(.leading, 44)
+                        }
                     }
                 }
             }

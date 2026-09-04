@@ -52,13 +52,16 @@ The product must answer four distinct questions. A listening port alone is insuf
 
 ### 5.2 Inventory
 
-The default inventory is a focused `Development apps` view containing confirmed
-and suspected Web services that also have project or developer-tool evidence.
-Services are grouped by Git project/worktree. Within a project, the nearest
-application manifest creates an application subgroup, and live HTTP/HTTPS
-listeners are service rows beneath it. Single-application projects omit the
-redundant application heading. Different worktrees of the same repository
-remain separate project groups.
+The default inventory is a focused `Development apps` view containing directly
+openable Web pages that also have project or developer-tool evidence. Services
+are grouped by Git project/worktree. Within a project, the nearest application
+manifest creates an application subgroup, and directly openable HTTP/HTTPS pages
+are app rows beneath it. HTTP-speaking APIs, WebSocket bridges, diagnostic
+servers, and endpoints whose root returns an error remain visible in a collapsed
+`Related services` section of that project. They retain evidence and exposure
+warnings, but do not offer `Open` or stable `.localhost` actions. Single-
+application projects omit the redundant application heading. Different
+worktrees of the same repository remain separate project groups.
 
 A collapsed `Other Web endpoints` view contains valid HTTP/HTTPS endpoints with
 no developer-project evidence, such as application-internal control APIs. A

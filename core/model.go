@@ -51,6 +51,7 @@ type EvidenceRecord struct {
 type ObservationRecord struct {
 	Classification string           `json:"classification"`
 	Protocol       string           `json:"protocol"`
+	Role           string           `json:"role"`
 	Confidence     float64          `json:"confidence"`
 	Framework      *string          `json:"framework,omitempty"`
 	HTTP           *HTTPRecord      `json:"http,omitempty"`
