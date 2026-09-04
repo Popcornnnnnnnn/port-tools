@@ -556,7 +556,7 @@ struct StatusPill: View {
 
 struct EvidenceView: View {
     let service: ServiceRecord
-    @Environment(\.dismiss) private var dismiss
+    let onDone: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -571,7 +571,8 @@ struct EvidenceView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Done") { dismiss() }
+                Button("Done", action: onDone)
+                    .keyboardShortcut(.defaultAction)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -596,7 +597,13 @@ struct EvidenceView: View {
             .font(.caption)
         }
         .padding(18)
-        .frame(width: 410)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.primary.opacity(0.08))
+        }
+        .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
     }
 }
 
@@ -1084,7 +1091,22 @@ struct InventoryView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .sheet(item: $evidenceService) { EvidenceView(service: $0) }
+        .overlay {
+            if let service = evidenceService {
+                ZStack {
+                    Color.black.opacity(0.16)
+                        .contentShape(Rectangle())
+                    EvidenceView(service: service) {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            evidenceService = nil
+                        }
+                    }
+                    .padding(12)
+                }
+                .transition(.opacity)
+                .zIndex(2)
+            }
+        }
         .sheet(item: $renameTarget) { target in
             RenameView(target: target) { value in
                 switch target.kind {
