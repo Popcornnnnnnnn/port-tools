@@ -128,7 +128,12 @@ Do not decide the final stack merely from preference. Compare these paths agains
 2. Tauri/Rust application with menu-bar surface.
 3. Native SwiftUI application wrapping Portless or Caddy as the proxy engine.
 
-Initial bias: keep process discovery, route state, and stop policy in one daemon with a versioned local JSON API; keep the UI replaceable. Reuse a proven proxy engine unless the compatibility matrix demonstrates that a small purpose-built proxy is safer to package and maintain.
+Decision after the completed spikes: use a native SwiftUI menu-bar app with a
+bundled self-contained Go core and a versioned local JSON API over a private
+Unix socket. The first proxy implementation uses Go's standard reverse proxy
+behind a replaceable route-engine interface; bundled Caddy is the fallback if
+the Go port cannot pass the existing compatibility and endurance suite. See
+[`ADR-0001-production-architecture.md`](ADR-0001-production-architecture.md).
 
 ## 6. Suggested execution order
 

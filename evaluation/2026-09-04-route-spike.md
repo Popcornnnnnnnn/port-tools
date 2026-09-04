@@ -64,11 +64,12 @@ changes do not restart or disconnect unrelated applications.
 The spike uses Node's built-in HTTP, HTTPS, and TCP modules so request/response streams
 and WebSocket bytes can be observed directly without introducing another proxy
 dependency. This is not yet a recommendation to ship a custom proxy. The
-passing results establish the minimum compatibility contract for comparison
-with the already measured Portless/Caddy behavior before the architecture
-decision.
+passing results establish the minimum compatibility contract. ADR-0001 selects
+a bundled Go standard-library proxy for the first production port, with Caddy
+kept behind a route-engine boundary as the fallback if that port cannot pass the
+same suite.
 
-## Remaining architecture decision
+## Architecture follow-through
 
 The accepted spike deliberately binds only `127.0.0.1`; LAN reachability is
 therefore excluded by construction and by the observed listener. A production

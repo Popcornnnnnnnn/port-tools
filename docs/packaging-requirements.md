@@ -31,11 +31,11 @@ reviewed graceful-stop behavior must work without terminal setup.
 
 ## Architecture consequences
 
-The current Python scanner and Node proxy are executable specifications used to
-measure behavior. They do not imply that either runtime is acceptable as an end
-user prerequisite. Architecture issue #7 must choose either self-contained
-native implementations or bundle every required runtime/component while meeting
-size, signing, update, idle-resource, and clean-uninstall targets.
+ADR-0001 selects a native SwiftUI menu-bar app plus a bundled self-contained Go
+core. The current Python scanner and Node proxy remain executable specifications
+used to measure behavior; neither runtime is an end-user prerequisite. The Go
+production port must meet size, signing, update, idle-resource, and
+clean-uninstall targets before release.
 
 The menu-bar UI must call a local versioned API for discovery, routing, and
 process control. It must not construct shell commands or perform independent

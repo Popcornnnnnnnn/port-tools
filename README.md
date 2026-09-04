@@ -6,6 +6,7 @@ The project is currently in discovery and technical-spike stage. Product scope a
 
 - [`docs/PRD-v0.1.md`](docs/PRD-v0.1.md)
 - [`docs/technical-spike.md`](docs/technical-spike.md)
+- [`docs/ADR-0001-production-architecture.md`](docs/ADR-0001-production-architecture.md)
 
 The first read-only scanner prototype is runnable now:
 

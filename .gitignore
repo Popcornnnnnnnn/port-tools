@@ -2,4 +2,5 @@
 node_modules/
 .next/
 evaluation/fixtures/.runtime/
+architecture/.build/
 .port-tools-spike/
