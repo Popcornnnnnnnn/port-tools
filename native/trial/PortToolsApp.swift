@@ -278,6 +278,12 @@ func serviceURL(_ service: ServiceRecord) -> URL? {
     return URL(string: "\(scheme)://\(host):\(service.listener.port)")
 }
 
+func listenerEndpoint(_ service: ServiceRecord) -> String {
+    let address = service.listener.address
+    let host = address.contains(":") && address != "::" ? "[\(address)]" : address
+    return "\(host):\(service.listener.port)"
+}
+
 func relativeAge(_ value: String?) -> String? {
     guard let value else { return nil }
     let formatter = DateFormatter()
@@ -322,6 +328,12 @@ struct StatusPill: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background((exposed || suspected ? Color.orange : Color.green).opacity(0.1), in: Capsule())
+        .help(exposed
+            ? "Listening beyond 127.0.0.1. Other devices on this LAN may be able to connect."
+            : suspected
+                ? "The endpoint looks like Web traffic, but verification is incomplete."
+                : "A local HTTP or HTTPS response was verified."
+        )
     }
 }
 
@@ -359,7 +371,9 @@ struct EvidenceView: View {
                 GridRow { Text("Project").foregroundStyle(.secondary); Text(service.project?.name ?? "Unassigned") }
                 GridRow { Text("Application").foregroundStyle(.secondary); Text(service.application?.name ?? commandApplicationName(service) ?? "Project root") }
                 GridRow { Text("Process").foregroundStyle(.secondary); Text(service.process.command ?? "Unknown").lineLimit(3) }
-                GridRow { Text("Bind scope").foregroundStyle(.secondary); Text(service.listener.bindScope == "loopback" ? "This Mac only" : "Visible beyond loopback") }
+                GridRow { Text("Open address").foregroundStyle(.secondary); Text(serviceURL(service)?.absoluteString ?? "Unknown") }
+                GridRow { Text("Listening on").foregroundStyle(.secondary); Text(listenerEndpoint(service)) }
+                GridRow { Text("Bind scope").foregroundStyle(.secondary); Text(service.listener.bindScope == "loopback" ? "This Mac only" : "Potentially reachable on this LAN") }
             }
             .font(.caption)
         }
@@ -452,6 +466,13 @@ struct ServiceRow: View {
                         Text(serviceURL(service)?.absoluteString.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "") ?? ":\(service.listener.port)")
                             .font(.system(size: 10, design: .monospaced))
                             .lineLimit(1)
+                        if service.listener.bindScope != "loopback" {
+                            Text("→")
+                            Text("listens \(listenerEndpoint(service))")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(.orange)
+                                .lineLimit(1)
+                        }
                         Spacer()
                         if let age = relativeAge(service.process.started) {
                             Text(age)
