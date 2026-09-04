@@ -156,6 +156,9 @@ needs an explicit recoverable error rather than silent empty space.
 - The first background proxy start could not elevate to privileged port 443,
   so it fell back to HTTPS on port 1355. It bound only `127.0.0.1:1355` and
   `[::1]:1355`.
+- A later native macOS administrator authorization succeeded. Portless then
+  served the clean URL `https://phone-studio.localhost` on port 443, with
+  sockets verified on `127.0.0.1:443` and `[::1]:443` only.
 - `portless doctor` reported the proxy healthy and the generated local CA as
   trusted. HTTPS verification succeeded with `ssl_verify_result=0`.
 - An alias routed `https://spike.localhost:1355` to the existing fixture on
@@ -164,6 +167,11 @@ needs an explicit recoverable error rather than silent empty space.
   `https://vite-fixture.localhost:1355`.
 - A valid Vite HMR WebSocket handshake returned `101 Switching Protocols`,
   negotiated `vite-hmr`, and delivered `{"type":"connected"}`.
+- The real Phone 3D UI Studio service on 4317 was also mapped to
+  `https://phone-studio.localhost`; HTTPS returned 200 with a trusted
+  certificate, the browser rendered the expected application, and its Vite HMR
+  connection again returned 101 plus the connected frame without a port in the
+  public URL.
 - A route pointed at unused port 41732 produced Portless's branded HTTP 404
   diagnostic page, including the missing hostname and links to active apps.
 - Re-registering an alias-owned hostname silently replaced its target. A
@@ -229,27 +237,30 @@ layer around it.
 
 Normal product testing made the following local changes:
 
-- installed Port Menu and PortPeek in `/Applications`;
 - installed Portless globally with npm;
 - installed Caddy with Homebrew;
 - created Portless state under `~/.portless` and trusted its local CA;
-- launched disposable loopback HTTP/Vite fixtures and the Portless proxy.
+- launched disposable loopback HTTP/Vite fixtures and the Portless proxy;
+- temporarily installed Port Menu, original PortPeek, and a clearly named
+  patched PortPeek build.
 
-Caddy has been stopped. Fixture and Portless processes remain running while the
-evaluation continues. A visible Ghostty window is waiting at `sudo -v` for the
-operator to type the macOS password before a true default-port 443 test; no
-password is or will be handled by this repository or agent.
+Caddy and all disposable fixtures have been stopped. Port Menu, original
+PortPeek, the patched PortPeek build, their preference files, and their temporary
+source trees were moved to Trash after evaluation; no related process or launch
+job remained. These removals are recoverable until Trash is emptied.
+
+Portless remains installed and currently runs its loopback-only HTTPS proxy on
+443 with the `phone-studio.localhost -> 127.0.0.1:4317` alias for the focused
+experience step. Its state directory remains owned by the normal user.
 
 ## Remaining evidence before closing the experience issue
 
 - Interact with both menu-bar panels and record latency, hover/action states,
   empty/error states, keyboard access, and accidental-action risk. Port Menu's
   normal inventory state is now captured.
-- Complete the real `https://<alias>.localhost` port-443 test after local
-  operator authorization in Ghostty.
 - Add Next.js, FastAPI, non-HTTP TCP, duplicate-worktree, and Docker fixtures.
 - Exercise redirect, cookie, SSE, large upload, upstream HTTPS, and route reload
   cases.
 - Measure idle CPU/memory over a fixed observation window.
-- Remove the installed competitors and verify CA/state/launch-item residue when
-  the evaluation is complete.
+- Remove Portless and Caddy after their remaining evaluations, then verify
+  CA/state/launch-item/package-manager residue.
