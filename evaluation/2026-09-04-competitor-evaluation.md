@@ -107,12 +107,21 @@ lifecycle rather than killing a PID that launchd will immediately restart.
   `PortPeek Patched.app` was created with an explicit bounded list height. The
   untouched original remains installed; observations from the patched build
   must not be attributed to the released product.
+- The patched build then rendered the intended 37-row inventory, confirming the
+  layout diagnosis. [Patched-list screenshot](./screenshots/03-portpeek-patched-list.png).
+- That inventory exposed unsafe semantic shortcuts in the underlying product:
+  a real Vite app on 4317 was tagged `OpenTelemetry`; macOS Control Center's
+  AirTunes listener on 5000 was tagged `Flask / Python`; and QEMU's listener on
+  5555 was tagged `Prisma Studio`.
 
 ### Source evidence
 
 - It scans TCP listeners with `lsof` and issues an ephemeral URLSession GET to
   `http://localhost:<port>` with a two-second timeout.
 - It extracts an HTML title and falls back to the Server response header.
+- Its label function checks a hard-coded known-port dictionary before process
+  evidence. The observed incorrect labels exactly match entries for ports 4317,
+  5000, and 5555 in that dictionary.
 - The UI asks for a second click with `Kill?`, then the backend runs
   `kill <pid>`, waits 500 ms, and rescans.
 
@@ -122,6 +131,11 @@ An HTTP probe materially improves discovery, but a single GET and title are
 classification inputs, not the classification itself. We should cap response
 size, use staged protocol detection, retain raw evidence, and suppress known
 control/admin endpoints unless explicitly requested.
+
+Known-port data may be displayed only as a low-confidence hint. It must never
+override contradictory process, HTTP-title, bind-scope, or project evidence.
+For example, `Phone 3D UI Studio` is stronger evidence than the conventional
+meaning of port 4317.
 
 The empty-list failure also establishes a UI acceptance requirement: the
 scanner count and rendered rows must be cross-checked, including large result
