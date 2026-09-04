@@ -12,6 +12,21 @@ Fixtures must:
 - avoid serving arbitrary local directories or files;
 - support explicit shutdown and listener-release verification.
 
+## Managed baseline
+
+The first reproducible batch contains static HTTP, raw TCP echo, self-signed
+HTTPS, and Vite/HMR. Start, verify, and stop it with:
+
+```bash
+python3 evaluation/fixtures/manage.py start all
+python3 evaluation/fixtures/verify_scan.py
+python3 evaluation/fixtures/manage.py stop all
+```
+
+Runtime PIDs, logs, and the one-day test certificate stay under the ignored
+`evaluation/fixtures/.runtime/` directory. The expected classifications are in
+`evaluation/fixtures/manifest.json`.
+
 ## Basic HTTP fixture
 
 ```bash

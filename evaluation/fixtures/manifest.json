@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "bind": "127.0.0.1",
+    "ownership": "disposable-fixture"
+  },
+  "fixtures": [
+    {
+      "id": "static-http",
+      "description": "Deterministic HTML response with a title",
+      "port": 51739,
+      "command": [
+        "python3",
+        "evaluation/fixtures/http_fixture.py",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "51739"
+      ],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "title": "port-tools fixture",
+        "requiredEvidence": ["valid-http-response", "html-title"]
+      }
+    },
+    {
+      "id": "tcp-echo",
+      "description": "Raw TCP listener that echoes bytes and must not appear as Web",
+      "port": 51740,
+      "command": [
+        "python3",
+        "evaluation/fixtures/tcp_echo_fixture.py",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "51740"
+      ],
+      "expected": {
+        "classification": "non-web",
+        "protocol": "tcp",
+        "requiredEvidence": ["invalid-http-response"]
+      }
+    },
+    {
+      "id": "self-signed-https",
+      "description": "HTTPS service whose local certificate is intentionally untrusted",
+      "port": 51741,
+      "prepare": "self-signed-certificate",
+      "command": [
+        "python3",
+        "evaluation/fixtures/https_fixture.py",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "51741",
+        "--cert",
+        "{runtime}/localhost.crt",
+        "--key",
+        "{runtime}/localhost.key"
+      ],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "https",
+        "title": "port-tools fixture",
+        "requiredEvidence": ["tls-handshake", "valid-http-response", "untrusted-certificate"]
+      }
+    },
+    {
+      "id": "vite-hmr",
+      "description": "Vite development server with HMR WebSocket",
+      "port": 51742,
+      "cwd": "evaluation/fixtures/vite",
+      "command": ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "51742", "--strictPort"],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "title": "port-tools Vite fixture",
+        "framework": "vite",
+        "requiredEvidence": ["valid-http-response", "html-title", "vite-client", "websocket-upgrade"]
+      }
+    }
+  ]
+}
