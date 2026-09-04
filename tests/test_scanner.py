@@ -1,6 +1,6 @@
 import unittest
 
-from prototype.port_tools import parse_endpoint, parse_http_response, relevance
+from prototype.port_tools import endpoint_summary, group_services, parse_endpoint, parse_http_response, relevance
 
 
 class EndpointParsingTests(unittest.TestCase):
@@ -50,6 +50,49 @@ class RelevanceTests(unittest.TestCase):
         result = relevance({"project": None, "command": "/System/App/internal-service"})
         self.assertFalse(result["developerRelevant"])
         self.assertEqual(result["category"], "unattributed-web-endpoint")
+
+
+class GroupingTests(unittest.TestCase):
+    def service(self, service_id: str, port: int, root: str) -> dict:
+        return {
+            "id": service_id,
+            "listener": {"port": port},
+            "process": {"pid": port, "name": "node"},
+            "project": {"root": root, "name": "studio", "branch": "main"},
+        }
+
+    def test_two_ports_in_one_worktree_share_one_group(self) -> None:
+        groups = group_services(
+            [
+                self.service("a", 4317, "/workspace/studio"),
+                self.service("b", 4319, "/workspace/studio"),
+            ]
+        )
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["serviceIds"], ["a", "b"])
+
+    def test_two_worktrees_remain_separate(self) -> None:
+        groups = group_services(
+            [
+                self.service("a", 4317, "/workspace/studio"),
+                self.service("b", 4319, "/workspace/studio-feature"),
+            ]
+        )
+        self.assertEqual(len(groups), 2)
+
+
+class EndpointSummaryTests(unittest.TestCase):
+    def test_script_explains_untitled_endpoint(self) -> None:
+        summary = endpoint_summary(
+            {
+                "process": {"command": "node scripts/live-bridge.mjs"},
+                "observation": {
+                    "http": {"status": 404, "contentType": None, "title": None},
+                    "evidence": [{"kind": "valid-http-response"}],
+                },
+            }
+        )
+        self.assertEqual(summary, "live-bridge.mjs · HTTP 404")
 
 
 if __name__ == "__main__":

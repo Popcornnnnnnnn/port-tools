@@ -4,10 +4,12 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import socket
 import ssl
 import subprocess
@@ -327,12 +329,48 @@ def scan() -> List[Dict[str, object]]:
     return services
 
 
+def group_id(service: Dict[str, object]) -> str:
+    project = service.get("project") or {}
+    identity = project.get("root")
+    if not identity:
+        identity = "process:{}".format(service["process"]["pid"])
+    return hashlib.sha256(str(identity).encode("utf-8")).hexdigest()[:12]
+
+
+def group_services(services: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    groups = {}
+    order = []
+    for service in services:
+        identifier = group_id(service)
+        if identifier not in groups:
+            project = service.get("project") or {}
+            label = project.get("name") or service["process"].get("name") or "unknown"
+            groups[identifier] = {
+                "id": identifier,
+                "label": label,
+                "project": service.get("project"),
+                "serviceIds": [],
+            }
+            order.append(identifier)
+        groups[identifier]["serviceIds"].append(service["id"])
+    for group in groups.values():
+        group["serviceIds"].sort(
+            key=lambda service_id: next(
+                int(service["listener"]["port"])
+                for service in services
+                if service["id"] == service_id
+            )
+        )
+    return [groups[identifier] for identifier in order]
+
+
 def document(services: List[Dict[str, object]]) -> Dict[str, object]:
     return {
         "schemaVersion": 1,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "host": socket.gethostname(),
         "services": services,
+        "groups": group_services(services),
     }
 
 
@@ -353,29 +391,63 @@ def web_services(services: List[Dict[str, object]]) -> List[Dict[str, object]]:
     ]
 
 
+def endpoint_summary(service: Dict[str, object]) -> str:
+    observation = service["observation"]
+    response = observation.get("http") or {}
+    if response.get("title"):
+        return html.unescape(response["title"])
+    parts = []
+    command = service["process"].get("command") or ""
+    try:
+        command_parts = shlex.split(command)
+    except ValueError:
+        command_parts = command.split()
+    script = next(
+        (
+            Path(part).name
+            for part in reversed(command_parts)
+            if Path(part).suffix.lower() in (".js", ".mjs", ".cjs", ".ts", ".py", ".rb")
+        ),
+        None,
+    )
+    if script:
+        parts.append(script)
+    if response.get("status"):
+        parts.append("HTTP {}".format(response["status"]))
+    if response.get("contentType"):
+        parts.append(response["contentType"].split(";", 1)[0])
+    if parts:
+        return " · ".join(parts)
+    return ", ".join(item["kind"] for item in observation["evidence"])
+
+
 def print_table(services: List[Dict[str, object]], show_all_web: bool = False) -> None:
     focused = web_services(services) if show_all_web else visible_services(services)
-    print("WEB  PORT   PROJECT / PROCESS             EVIDENCE")
-    for service in focused:
-        observation = service["observation"]
-        project = service.get("project") or {}
-        label = project.get("name") or service["process"]["name"] or "unknown"
-        evidence = ", ".join(item["kind"] for item in observation["evidence"])
-        print(
-            "{:<4} {:<6} {:<29} {}".format(
-                observation["protocol"],
-                service["listener"]["port"],
-                label[:29],
-                evidence,
+    by_id = {service["id"]: service for service in focused}
+    print("DEVELOPMENT APPS" if not show_all_web else "WEB ENDPOINTS")
+    for group in group_services(focused):
+        project = group.get("project") or {}
+        branch = " [{}]".format(project["branch"]) if project.get("branch") else ""
+        print("\n{}{}".format(group["label"], branch))
+        for service_id in group["serviceIds"]:
+            service = by_id[service_id]
+            observation = service["observation"]
+            exposure = " · LAN" if service["listener"]["bindScope"] != "loopback" else ""
+            print(
+                "  :{:<5} {:<5} {}{}".format(
+                    service["listener"]["port"],
+                    observation["protocol"],
+                    endpoint_summary(service),
+                    exposure,
+                )
             )
-        )
     web_count = len(web_services(services))
     if show_all_web:
         print("\n{} Web endpoints; {} non-Web/unknown listeners hidden".format(web_count, len(services) - web_count))
     else:
         print(
-            "\n{} developer Web services; {} unattributed Web endpoints and {} other listeners hidden".format(
-                len(focused), web_count - len(focused), len(services) - web_count
+            "\n{} projects · {} services; {} unattributed Web endpoints and {} other listeners hidden".format(
+                len(group_services(focused)), len(focused), web_count - len(focused), len(services) - web_count
             )
         )
 

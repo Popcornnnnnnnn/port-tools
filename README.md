@@ -16,9 +16,10 @@ bin/port-tools scan --all-web
 bin/port-tools scan --json --all
 ```
 
-The default view shows only Web endpoints with developer-project evidence.
-Protocol classification and developer relevance are intentionally separate in
-the JSON contract; an application can expose a valid local HTTP endpoint
-without being a development website the user wants to manage.
+The default view shows only Web endpoints with developer-project evidence and
+groups multiple ports under one Git project/worktree. Protocol classification
+and developer relevance are intentionally separate in the JSON contract; an
+application can expose a valid local HTTP endpoint without being a development
+website the user wants to manage.
 
 No privileged helper, trusted certificate authority, background service, or process termination behavior should be introduced until the corresponding decision gate in the PRD is resolved.

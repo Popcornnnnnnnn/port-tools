@@ -50,12 +50,18 @@ The product must answer four distinct questions. A listening port alone is insuf
 
 ### 5.2 Inventory
 
-The default inventory is a focused `Web apps` view containing confirmed and
-suspected Web services. A separate, collapsed `Other listeners` view exposes
-the complete TCP inventory for diagnosis without overwhelming the primary
-workflow. Users may switch to `All listeners`, but the product must never claim
-that a listener is Web merely because its process or port is common in
-development.
+The default inventory is a focused `Development apps` view containing confirmed
+and suspected Web services that also have project or developer-tool evidence.
+Services are grouped by Git project/worktree; multiple ports from one project
+are child rows inside one project card rather than separate top-level cards.
+Different worktrees of the same repository remain separate groups.
+
+A collapsed `Other Web endpoints` view contains valid HTTP/HTTPS endpoints with
+no developer-project evidence, such as application-internal control APIs. A
+second collapsed `Other listeners` view exposes non-Web and unknown TCP
+listeners. Users may switch to `All listeners`, but the product must never
+claim that a listener is a development app merely because it speaks HTTP or
+uses a port common in development.
 
 Each service record should show:
 
@@ -195,7 +201,8 @@ Only the first three decisions affect the immediate implementation architecture.
 ## 12. Open questions to validate, not debate in advance
 
 - How often do real users need to distinguish multiple worktrees of the same repository?
-- Do users prefer services grouped by project, by recency, or by status?
+- Should project cards be ordered primarily by recent activity, process age, or
+  a user-controlled pinned order?
 - Is automatic alias suggestion trusted, or should every alias be explicitly claimed?
 - Which frameworks reject the proxy Host header and what default produces the fewest failures?
 - Can project identity be recovered reliably when the server was started through an AI agent, package runner, shell wrapper, or Docker?
