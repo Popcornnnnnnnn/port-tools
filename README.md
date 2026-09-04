@@ -22,6 +22,19 @@ and developer relevance are intentionally separate in the JSON contract; an
 application can expose a valid local HTTP endpoint without being a development
 website the user wants to manage.
 
+The safe-stop policy can be inspected without terminating anything:
+
+```bash
+bin/port-tools stop <service-id> --dry-run
+bin/port-tools stop <service-id> --dry-run --json
+```
+
+The dry run revalidates PID identity and ownership, lists same-project
+descendants and excluded processes, describes the graceful `SIGTERM` order,
+and records which listeners would need to be released. Docker, other-user,
+shared-runtime, and unattributed targets are refused. Omitting `--dry-run` is
+also refused; no real stop action is implemented yet.
+
 The unprivileged route spike is also runnable without ports 80/443 or a local
 certificate authority:
 
@@ -45,4 +58,6 @@ bodies, HTTPS upstreams, route updates during a long response, and Vite/Next.js
 HMR. The proxy implementation remains a spike, not a final build-versus-reuse
 decision.
 
-No privileged helper, trusted certificate authority, background service, or process termination behavior should be introduced until the corresponding decision gate in the PRD is resolved.
+No privileged helper, trusted certificate authority, background service, or
+real process termination behavior should be introduced until the corresponding
+decision gate in the PRD is resolved.

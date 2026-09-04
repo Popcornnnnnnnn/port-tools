@@ -8,6 +8,7 @@ import html
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import shlex
 import socket
@@ -32,6 +33,13 @@ WEB_COMMAND_HINTS = (
 )
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ROUTE_STATE = REPO_ROOT / ".port-tools-spike" / "routes.json"
+SHARED_RUNTIME_HINTS = (
+    "com.docker.backend",
+    "docker daemon",
+    "dockerd",
+    "launchd",
+    "orbstack helper",
+)
 
 
 def run_text(command: List[str]) -> str:
@@ -121,6 +129,191 @@ def process_metadata(pid: int) -> Dict[str, object]:
     metadata["project"] = project
     metadata["projectEvidence"] = evidence
     return metadata
+
+
+def process_snapshot() -> Dict[int, Dict[str, object]]:
+    output = run_text(["ps", "-axo", "pid=,ppid=,user=,comm="])
+    processes = {}
+    for line in output.splitlines():
+        parts = line.strip().split(None, 3)
+        if len(parts) != 4 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        pid, parent_pid = int(parts[0]), int(parts[1])
+        processes[pid] = {
+            "pid": pid,
+            "parentPid": parent_pid,
+            "owner": parts[2],
+            "name": Path(parts[3]).name,
+        }
+    return processes
+
+
+def descendant_pids(root_pid: int, processes: Dict[int, Dict[str, object]]) -> List[int]:
+    children = {}
+    for process in processes.values():
+        children.setdefault(process.get("parentPid"), []).append(int(process["pid"]))
+    descendants = []
+    pending = list(children.get(root_pid, []))
+    while pending:
+        pid = pending.pop(0)
+        descendants.append(pid)
+        pending.extend(children.get(pid, []))
+    return descendants
+
+
+def build_stop_plan(
+    service: Dict[str, object],
+    processes: Dict[int, Dict[str, object]],
+    listeners: List[Dict[str, object]],
+    current_user: str,
+) -> Dict[str, object]:
+    target = service["process"]
+    root_pid = int(target["pid"])
+    project = service.get("project") or {}
+    project_root = project.get("root")
+    management = service.get("management") or {"source": "unmanaged"}
+    root_snapshot = processes.get(root_pid)
+    reasons = []
+
+    if target.get("owner") != current_user:
+        reasons.append("target is not owned by the current user")
+    if root_snapshot is None:
+        reasons.append("target PID no longer exists")
+    elif root_snapshot.get("owner") != current_user:
+        reasons.append("current PID owner does not match the scanned owner")
+    elif target.get("started") and root_snapshot.get("started") != target.get("started"):
+        reasons.append("PID identity changed since the service was scanned")
+    elif target.get("command") and root_snapshot.get("command") != target.get("command"):
+        reasons.append("process command changed since the service was scanned")
+    if management.get("source") == "docker":
+        reasons.append("Docker-published services must be managed through the container, not its daemon")
+    if not project_root:
+        reasons.append("target has no unambiguous Git-project ownership evidence")
+    identity_text = "{} {}".format(target.get("name") or "", target.get("command") or "").lower()
+    if any(hint in identity_text for hint in SHARED_RUNTIME_HINTS):
+        reasons.append("target appears to be a shared or system runtime")
+
+    descendants = descendant_pids(root_pid, processes) if root_snapshot else []
+    included = []
+    exclusions = []
+    for pid in [root_pid] + descendants:
+        process = dict(processes.get(pid) or {"pid": pid})
+        if pid == root_pid:
+            process.update(
+                {
+                    "owner": target.get("owner"),
+                    "name": target.get("name"),
+                    "command": target.get("command"),
+                    "cwd": target.get("cwd"),
+                    "projectRoot": project_root,
+                }
+            )
+        owner = process.get("owner")
+        child_project_root = process.get("projectRoot")
+        exclusion_reason = None
+        if owner != current_user:
+            exclusion_reason = "different owner"
+        elif pid != root_pid and child_project_root != project_root:
+            exclusion_reason = "same-project ownership not established"
+        if exclusion_reason:
+            exclusions.append({**process, "reason": exclusion_reason})
+        else:
+            included.append(process)
+
+    included_pids = {int(process["pid"]) for process in included}
+    expected_listeners = [
+        {
+            "pid": int(listener["pid"]),
+            "address": listener["address"],
+            "port": int(listener["port"]),
+        }
+        for listener in listeners
+        if int(listener["pid"]) in included_pids
+    ]
+    signal_order = [pid for pid in reversed(descendants) if pid in included_pids]
+    if root_pid in included_pids:
+        signal_order.append(root_pid)
+
+    return {
+        "schemaVersion": 1,
+        "mode": "dry-run",
+        "signalSent": False,
+        "decision": "refused" if reasons else "eligible",
+        "reasons": reasons,
+        "service": {
+            "id": service["id"],
+            "listener": service["listener"],
+            "projectRoot": project_root,
+            "managementSource": management.get("source", "unknown"),
+        },
+        "rootProcess": included[0] if included and included[0]["pid"] == root_pid else target,
+        "descendants": [process for process in included if process["pid"] != root_pid],
+        "exclusions": exclusions,
+        "gracefulPlan": {
+            "signal": "SIGTERM",
+            "pids": signal_order if not reasons else [],
+            "verifyListenersReleased": expected_listeners,
+        },
+        "forcePlan": {
+            "signal": "SIGKILL",
+            "allowedInThisAction": False,
+            "requiresSeparateExplicitAction": True,
+        },
+    }
+
+
+def stop_dry_run(service: Dict[str, object]) -> Dict[str, object]:
+    processes = process_snapshot()
+    root_pid = int(service["process"]["pid"])
+    tree_pids = [root_pid] + descendant_pids(root_pid, processes)
+    for pid in tree_pids:
+        process = processes.get(pid)
+        if process is None:
+            continue
+        metadata = process_metadata(pid)
+        process.update(
+            {
+                "command": metadata.get("command"),
+                "cwd": metadata.get("cwd"),
+                "started": metadata.get("started"),
+                "projectRoot": (metadata.get("project") or {}).get("root"),
+            }
+        )
+    return build_stop_plan(
+        service,
+        processes,
+        discover_listeners(),
+        pwd.getpwuid(os.getuid()).pw_name,
+    )
+
+
+def print_stop_plan(plan: Dict[str, object]) -> None:
+    root = plan["rootProcess"]
+    listener = plan["service"]["listener"]
+    graceful = plan["gracefulPlan"]
+    print("SAFE STOP DRY RUN")
+    print("Decision: {}".format(plan["decision"].upper()))
+    print("Service: {} at {}:{}".format(plan["service"]["id"], listener["address"], listener["port"]))
+    print("Project: {}".format(plan["service"].get("projectRoot") or "unverified"))
+    print("Owner: {}".format(root.get("owner") or "unknown"))
+    print("Root PID: {} ({})".format(root.get("pid"), root.get("name") or "unknown"))
+    descendant_text = ", ".join(str(item["pid"]) for item in plan["descendants"]) or "none"
+    print("Owned descendants: {}".format(descendant_text))
+    signal_text = ", ".join(str(pid) for pid in graceful["pids"]) or "none"
+    print("Graceful plan: SIGTERM -> {}".format(signal_text))
+    listeners = graceful["verifyListenersReleased"]
+    listener_text = ", ".join("{}:{}".format(item["address"], item["port"]) for item in listeners) or "none"
+    print("Verify released: {}".format(listener_text))
+    if plan["exclusions"]:
+        print("Exclusions:")
+        for exclusion in plan["exclusions"]:
+            print("  PID {}: {}".format(exclusion["pid"], exclusion["reason"]))
+    if plan["reasons"]:
+        print("Refusal reasons:")
+        for reason in plan["reasons"]:
+            print("  - {}".format(reason))
+    print("Force plan: unavailable; requires a separate explicit action")
+    print("No signal was sent.")
 
 
 def project_candidates_from_command(command: str, cwd: Optional[str]) -> List[Dict[str, object]]:
@@ -730,6 +923,10 @@ def main() -> None:
     scan_parser.add_argument("--all-web", action="store_true")
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("service_id")
+    stop_parser = subparsers.add_parser("stop")
+    stop_parser.add_argument("service_id")
+    stop_parser.add_argument("--dry-run", action="store_true")
+    stop_parser.add_argument("--json", action="store_true")
     proxy_parser = subparsers.add_parser("proxy")
     proxy_parser.add_argument("--listen", default="127.0.0.1:17890")
     proxy_parser.add_argument("--state", type=Path, default=DEFAULT_ROUTE_STATE)
@@ -771,12 +968,22 @@ def main() -> None:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return
 
+    if args.command == "stop" and not args.dry_run:
+        raise SystemExit("refusing to stop: only --dry-run is implemented")
+
     services = scan()
-    if args.command == "inspect":
+    if args.command in ("inspect", "stop"):
         service = next((item for item in services if item["id"] == args.service_id), None)
         if service is None:
             raise SystemExit("service not found in current scan: {}".format(args.service_id))
-        print(json.dumps(service, indent=2, ensure_ascii=False))
+        if args.command == "inspect":
+            print(json.dumps(service, indent=2, ensure_ascii=False))
+        else:
+            plan = stop_dry_run(service)
+            if args.json:
+                print(json.dumps(plan, indent=2, ensure_ascii=False))
+            else:
+                print_stop_plan(plan)
     elif args.json:
         output = services if args.all else web_services(services) if args.all_web else visible_services(services)
         print(json.dumps(document(output), indent=2, ensure_ascii=False))
