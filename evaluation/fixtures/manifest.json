@@ -70,6 +70,7 @@
       "id": "vite-hmr",
       "description": "Vite development server with HMR WebSocket",
       "port": 51742,
+      "prepare": "npm-install",
       "cwd": "evaluation/fixtures/vite",
       "command": ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "51742", "--strictPort"],
       "expected": {
@@ -144,6 +145,61 @@
         "managementSource": "docker",
         "projectEvidence": "docker-compose-working-directory",
         "requiredEvidence": ["valid-http-response", "docker-published-port"]
+      }
+    },
+    {
+      "id": "next-hmr",
+      "description": "Next.js development server with framework HMR",
+      "port": 51748,
+      "prepare": "npm-install",
+      "cwd": "evaluation/fixtures/next",
+      "environment": {"NEXT_TELEMETRY_DISABLED": "1"},
+      "command": ["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "51748"],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "title": "port-tools Next.js fixture",
+        "framework": "next",
+        "projectRoot": "{repo}",
+        "requiredEvidence": ["valid-http-response", "html-title", "next-runtime"]
+      }
+    },
+    {
+      "id": "fastapi",
+      "description": "FastAPI JSON application served by uvicorn",
+      "port": 51749,
+      "prepare": "fastapi-venv",
+      "cwd": "evaluation/fixtures/fastapi",
+      "command": ["{fastapi_python}", "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "51749"],
+      "expected": {
+        "classification": "confirmed-web",
+        "protocol": "http",
+        "framework": "fastapi",
+        "projectRoot": "{repo}",
+        "requiredEvidence": ["valid-http-response", "json-content-type", "uvicorn-command"]
+      }
+    },
+    {
+      "id": "redis",
+      "description": "Redis database protocol published onto loopback",
+      "kind": "docker",
+      "port": 51750,
+      "containerPort": 6379,
+      "containerName": "port-tools-fixture-redis",
+      "image": "redis:7-alpine",
+      "labels": {
+        "com.docker.compose.project": "port-tools",
+        "com.docker.compose.project.working_dir": "{repo}",
+        "com.docker.compose.service": "redis",
+        "dev.port-tools.fixture": "redis"
+      },
+      "expected": {
+        "classification": "non-web",
+        "protocol": "redis",
+        "projectRoot": "{repo}",
+        "managementSource": "docker",
+        "projectEvidence": "docker-compose-working-directory",
+        "requiredEvidence": ["redis-response", "docker-published-port"]
       }
     }
   ]

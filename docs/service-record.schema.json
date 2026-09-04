@@ -74,8 +74,9 @@
               "classification": {
                 "enum": ["confirmed-web", "suspected-web", "non-web", "unknown"]
               },
-              "protocol": { "enum": ["http", "https", "tcp", "unknown"] },
+              "protocol": { "enum": ["http", "https", "redis", "tcp", "unknown"] },
               "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "framework": { "type": ["string", "null"] },
               "http": { "type": "object" },
               "evidence": { "type": "array", "minItems": 1 }
             }

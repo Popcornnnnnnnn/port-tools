@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from prototype.port_tools import endpoint_summary, group_services, parse_endpoint, parse_http_response, project_candidates_from_command, project_from_command, relevance
+from prototype.port_tools import detect_framework, endpoint_summary, group_services, parse_endpoint, parse_http_response, project_candidates_from_command, project_from_command, redis_candidate, redis_response, relevance
 
 
 class EndpointParsingTests(unittest.TestCase):
@@ -33,6 +33,29 @@ class HTTPParsingTests(unittest.TestCase):
     def test_echoed_request_is_not_http_response(self) -> None:
         self.assertIsNone(
             parse_http_response(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        )
+
+    def test_redis_error_is_detected_as_database_protocol(self) -> None:
+        self.assertTrue(redis_response(b"-ERR wrong number of arguments for 'get' command\r\n"))
+
+    def test_redis_probe_requires_process_or_container_evidence(self) -> None:
+        self.assertTrue(
+            redis_candidate(
+                {
+                    "processName": "OrbStack Helper",
+                    "management": {"image": "redis:7-alpine"},
+                }
+            )
+        )
+        self.assertFalse(redis_candidate({"processName": "node", "command": "vite"}))
+
+    def test_next_body_marker(self) -> None:
+        self.assertEqual(
+            detect_framework(
+                {"command": "node server"},
+                b"HTTP/1.1 200 OK\r\n\r\n<script src='/_next/static/chunks/app.js'>",
+            ),
+            "next",
         )
 
 

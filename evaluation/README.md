@@ -15,8 +15,9 @@ Fixtures must:
 ## Managed baseline
 
 The managed baseline contains static HTTP, raw TCP echo, self-signed HTTPS,
-Vite/HMR, a shell-wrapper child, two worktrees of one repository, and a real
-Docker-published HTTP port. Start, verify, and stop it with:
+Vite/HMR, Next.js/HMR, FastAPI, Redis, a shell-wrapper child, two worktrees of
+one repository, and a real Docker-published HTTP port. Start, verify, and stop
+it with:
 
 ```bash
 python3 evaluation/fixtures/manage.py start all

@@ -22,6 +22,7 @@ TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 WEB_COMMAND_HINTS = (
     "vite",
     "next dev",
+    "next-server",
     "webpack-dev-server",
     "uvicorn",
     "gunicorn",
@@ -238,17 +239,22 @@ def connect_host(listener: Dict[str, object]) -> str:
     return "127.0.0.1"
 
 
-def raw_probe(listener: Dict[str, object], use_tls: bool, verify_tls: bool = False) -> Tuple[bytes, Optional[str]]:
+def raw_probe(
+    listener: Dict[str, object],
+    use_tls: bool,
+    verify_tls: bool = False,
+    read_timeout: float = 0.45,
+) -> Tuple[bytes, Optional[str]]:
     host = connect_host(listener)
     port = int(listener["port"])
     try:
         with socket.create_connection((host, port), timeout=0.3) as plain:
-            plain.settimeout(0.45)
+            plain.settimeout(read_timeout)
             connection = plain
             if use_tls:
                 context = ssl.create_default_context() if verify_tls else ssl._create_unverified_context()
                 connection = context.wrap_socket(plain, server_hostname="localhost")
-                connection.settimeout(0.45)
+                connection.settimeout(read_timeout)
             connection.sendall(request_bytes(port))
             return receive_response(connection), None
     except ssl.SSLCertVerificationError as error:
@@ -282,21 +288,88 @@ def parse_http_response(data: bytes) -> Optional[Dict[str, object]]:
     }
 
 
+def detect_framework(listener: Dict[str, object], data: bytes) -> Optional[str]:
+    command = str(listener.get("command") or "").lower()
+    body = data.partition(b"\r\n\r\n")[2].lower()
+    if b"/@vite/client" in body or "vite" in command:
+        return "vite"
+    if b"/_next/" in body or "next dev" in command or "next-server" in command:
+        return "next"
+    if b'"framework":"fastapi"' in body or ("uvicorn" in command and "app:app" in command):
+        return "fastapi"
+    return None
+
+
+def redis_response(data: bytes) -> bool:
+    return data.startswith((b"-ERR", b"-DENIED", b"+PONG")) and (
+        b"unknown command" in data.lower()
+        or b"wrong number of arguments" in data.lower()
+        or b"redis" in data.lower()
+        or data.startswith(b"+PONG")
+    )
+
+
+def redis_candidate(listener: Dict[str, object]) -> bool:
+    management = listener.get("management") or {}
+    values = (
+        listener.get("processName"),
+        listener.get("command"),
+        management.get("containerName"),
+        management.get("image"),
+    )
+    return any("redis" in str(value).lower() for value in values if value)
+
+
+def redis_probe(listener: Dict[str, object]) -> bytes:
+    try:
+        with socket.create_connection((connect_host(listener), int(listener["port"])), timeout=0.3) as connection:
+            connection.settimeout(0.45)
+            connection.sendall(b"*1\r\n$4\r\nPING\r\n")
+            return receive_response(connection)
+    except OSError:
+        return b""
+
+
 def probe_listener(listener: Dict[str, object]) -> Dict[str, object]:
     plain_data, plain_error = raw_probe(listener, use_tls=False)
+    command = str(listener.get("command") or "").lower()
+    if not plain_data and any(hint in command for hint in WEB_COMMAND_HINTS):
+        plain_data, plain_error = raw_probe(listener, use_tls=False, read_timeout=1.2)
     plain_http = parse_http_response(plain_data)
     if plain_http:
+        framework = detect_framework(listener, plain_data)
+        evidence = [{"kind": "valid-http-response", "value": plain_http["status"]}]
+        if framework:
+            evidence.append({"kind": "framework-marker", "value": framework})
         return {
             "classification": "confirmed-web",
             "protocol": "http",
             "confidence": 1.0,
             "http": plain_http,
-            "evidence": [{"kind": "valid-http-response", "value": plain_http["status"]}],
+            "framework": framework,
+            "evidence": evidence,
+        }
+
+    redis_data = plain_data
+    if not redis_data and redis_candidate(listener):
+        redis_data = redis_probe(listener)
+    if redis_response(redis_data):
+        return {
+            "classification": "non-web",
+            "protocol": "redis",
+            "confidence": 0.99,
+            "evidence": [
+                {
+                    "kind": "redis-response",
+                    "value": redis_data[:96].decode("utf-8", errors="replace"),
+                }
+            ],
         }
 
     tls_data, tls_error = raw_probe(listener, use_tls=True)
     tls_http = parse_http_response(tls_data)
     if tls_http:
+        framework = detect_framework(listener, tls_data)
         _, verification_error = raw_probe(listener, use_tls=True, verify_tls=True)
         evidence = [
             {"kind": "tls-handshake", "value": "succeeded"},
@@ -304,15 +377,17 @@ def probe_listener(listener: Dict[str, object]) -> Dict[str, object]:
         ]
         if verification_error and verification_error.startswith("untrusted-certificate"):
             evidence.append({"kind": "untrusted-certificate", "value": verification_error})
+        if framework:
+            evidence.append({"kind": "framework-marker", "value": framework})
         return {
             "classification": "confirmed-web",
             "protocol": "https",
             "confidence": 1.0,
             "http": tls_http,
+            "framework": framework,
             "evidence": evidence,
         }
 
-    command = str(listener.get("command") or "").lower()
     hint = next((candidate for candidate in WEB_COMMAND_HINTS if candidate in command), None)
     if hint:
         return {
@@ -503,6 +578,8 @@ def endpoint_summary(service: Dict[str, object]) -> str:
     if response.get("title"):
         return html.unescape(response["title"])
     parts = []
+    if observation.get("framework"):
+        parts.append(observation["framework"])
     command = service["process"].get("command") or ""
     try:
         command_parts = shlex.split(command)

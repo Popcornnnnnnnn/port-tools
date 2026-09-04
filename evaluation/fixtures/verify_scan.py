@@ -30,6 +30,8 @@ def matches_expected(service: dict, expected: dict) -> bool:
         return False
     if "managementSource" in expected and service.get("management", {}).get("source") != expected["managementSource"]:
         return False
+    if "framework" in expected and service.get("observation", {}).get("framework") != expected["framework"]:
+        return False
     return True
 
 
@@ -61,6 +63,7 @@ def main() -> None:
                 "branch": (service.get("project") or {}).get("branch"),
                 "projectEvidence": service.get("projectEvidence"),
                 "managementSource": service.get("management", {}).get("source"),
+                "framework": service.get("observation", {}).get("framework"),
             }
             for service in matches
         ]

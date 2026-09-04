@@ -124,8 +124,37 @@ def ensure_git_worktrees() -> None:
     run_checked(["git", "worktree", "add", str(feature_root), "fixture-feature"], cwd=main_root)
 
 
+def ensure_node_modules(cwd: Path) -> None:
+    if (cwd / "node_modules").exists():
+        return
+    run_checked(["npm", "ci", "--no-audit", "--no-fund"], cwd=cwd)
+
+
+def ensure_fastapi_venv() -> None:
+    venv_root = RUNTIME_ROOT / "fastapi-venv"
+    python = venv_root / "bin" / "python"
+    if python.exists():
+        return
+    run_checked(["python3", "-m", "venv", str(venv_root)])
+    run_checked(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--requirement",
+            str(FIXTURE_ROOT / "fastapi" / "requirements.txt"),
+        ]
+    )
+
+
 def render_value(value: str) -> str:
-    return value.replace("{runtime}", str(RUNTIME_ROOT)).replace("{repo}", str(REPO_ROOT))
+    return (
+        value.replace("{runtime}", str(RUNTIME_ROOT))
+        .replace("{repo}", str(REPO_ROOT))
+        .replace("{fastapi_python}", str(RUNTIME_ROOT / "fastapi-venv" / "bin" / "python"))
+    )
 
 
 def render_command(fixture: Dict[str, object]) -> List[str]:
@@ -221,19 +250,26 @@ def start_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
         return {"id": fixture_id, "status": "already-running", "pid": existing_pid}
 
     RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
+    cwd_value = render_value(fixture.get("cwd", "."))
+    cwd = Path(cwd_value) if os.path.isabs(cwd_value) else REPO_ROOT / cwd_value
     if fixture.get("prepare") == "self-signed-certificate":
         ensure_certificate()
     elif fixture.get("prepare") == "git-worktrees":
         ensure_git_worktrees()
+    elif fixture.get("prepare") == "npm-install":
+        ensure_node_modules(cwd)
+    elif fixture.get("prepare") == "fastapi-venv":
+        ensure_fastapi_venv()
 
     command = render_command(fixture)
-    cwd_value = render_value(fixture.get("cwd", "."))
-    cwd = Path(cwd_value) if os.path.isabs(cwd_value) else REPO_ROOT / cwd_value
     log_path = RUNTIME_ROOT / "{}.log".format(fixture_id)
     log_handle = log_path.open("ab", buffering=0)
+    environment = os.environ.copy()
+    environment.update(fixture.get("environment", {}))
     process = subprocess.Popen(
         command,
         cwd=str(cwd),
+        env=environment,
         stdout=log_handle,
         stderr=subprocess.STDOUT,
         start_new_session=True,
@@ -292,11 +328,15 @@ def status_fixture(fixture: Dict[str, object]) -> Dict[str, object]:
 
 def clean_all() -> Dict[str, object]:
     results = [stop_fixture(fixture) for fixture in selected_fixtures("all")]
+    next_build = FIXTURE_ROOT / "next" / ".next"
+    if next_build.exists():
+        shutil.rmtree(next_build)
     if RUNTIME_ROOT.exists():
         shutil.rmtree(RUNTIME_ROOT)
     return {
         "status": "clean",
         "runtimeRemoved": not RUNTIME_ROOT.exists(),
+        "nextBuildRemoved": not next_build.exists(),
         "fixtures": results,
         "note": "Shared Docker image cache is intentionally retained.",
     }
