@@ -50,6 +50,13 @@ The product must answer four distinct questions. A listening port alone is insuf
 
 ### 5.2 Inventory
 
+The default inventory is a focused `Web apps` view containing confirmed and
+suspected Web services. A separate, collapsed `Other listeners` view exposes
+the complete TCP inventory for diagnosis without overwhelming the primary
+workflow. Users may switch to `All listeners`, but the product must never claim
+that a listener is Web merely because its process or port is common in
+development.
+
 Each service record should show:
 
 - stable internal service ID;
@@ -61,6 +68,19 @@ Each service record should show:
 - bind exposure;
 - management source: unmanaged process, port-tools-managed, Docker, launchd, Homebrew, or unknown;
 - optional user label and ignored/pinned state.
+
+Filtering requirements:
+
+- do not exclude a listener solely because its port is low, high, uncommon, or
+  ephemeral;
+- use successful bounded HTTP/HTTPS protocol evidence as the strongest Web
+  signal;
+- combine response status/headers/content type/title with process command,
+  script path, framework, cwd/project, and management source;
+- treat known-port mappings as low-confidence hints only;
+- keep non-Web and unknown listeners discoverable outside the default view;
+- allow the user to pin, ignore, or manually reclassify a service without
+  discarding the underlying evidence.
 
 ### 5.3 Actions
 

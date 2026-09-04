@@ -65,6 +65,10 @@ evidence-oriented integration rather than another raw port list.
   metadata.
 - It intentionally excludes ports below 1024 and ports at or above 49152.
   Therefore a valid fixture on port 51739 is invisible by design.
+- Within that range, any listener whose cwd resolves to a Git repository is
+  retained without an HTTP probe. Without a Git root, only a development-runtime
+  allow-list (`node`, Python variants, Bun, Deno, Go, Java, Ruby, PHP, Erlang,
+  Elixir, common app servers) plus Docker-like processes is retained.
 - It does not probe HTTP content. A listener is selected using process/project
   heuristics, then its Open action assumes `http://localhost:<port>`.
 - A row-level Kill sends `SIGTERM` immediately. Kill all sends `SIGTERM` to all
@@ -118,6 +122,9 @@ lifecycle rather than killing a PID that launchd will immediately restart.
 
 - It scans TCP listeners with `lsof` and issues an ephemeral URLSession GET to
   `http://localhost:<port>` with a two-second timeout.
+- Every parsed listener remains in the displayed list. The hard-coded
+  `nonHTTPPorts` set only prevents title probing; it does not hide database,
+  emulator, system, or otherwise irrelevant listeners.
 - It extracts an HTML title and falls back to the Server response header.
 - Its label function checks a hard-coded known-port dictionary before process
   evidence. The observed incorrect labels exactly match entries for ports 4317,
