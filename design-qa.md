@@ -1,72 +1,79 @@
-# Port Tools alias editor QA
+# Port Tools supporting-service hierarchy QA
 
-- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-cb688f87-cd09-45ed-b253-9c8339e03e55.png`
-- Implementation screenshot: `/tmp/port-tools-build11-alias-editor.png`
-- Focused implementation crop: `/tmp/port-tools-build11-alias-editor-focus.png`
-- Combined comparison: `/tmp/port-tools-build11-alias-editor-comparison.png`
-- Source pixels: 818 x 252 at approximately 2x density
+- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-6f0f7ddb-ce13-49d8-af70-a3565cad9853.png`
+- Final implementation screenshot: `/tmp/port-tools-build12-supporting-service-final.png`
+- Focused implementation crop: `/tmp/port-tools-build12-supporting-service-focus-final.png`
+- Multi-service expanded screenshot: `/tmp/port-tools-build12-supporting-services-expanded-final.png`
+- Combined comparison: `/tmp/port-tools-build12-supporting-service-comparison-final.png`
+- Source pixels: 864 x 624 at approximately 2x density
 - Implementation pixels: 410 x 672 at 1x capture density
-- Normalized comparison: source resized to 409 x 126; implementation cropped to 409 x 126 from the 410 x 672 preview capture
+- Normalization: the 820 px-wide source menu content was cropped and resized to 410 x 312; the implementation was cropped to the same 410 x 312 region
 - Content viewport: 410 x 640 pt plus the preview window title bar
-- State: one project, one Web app, stable-address editor focused
+- Primary state: one project, one Web app, one supporting service
+- Secondary state: one project, one Web app, two expanded supporting services
 
 ## Full-view comparison evidence
 
-The source and build 11 were opened together in
-`/tmp/port-tools-build11-alias-editor-comparison.png`. The overall compact row,
-title hierarchy, repository context, inline alias prefix, and fixed suffix are
-preserved. Build 11 removes the visually heavy Save and Cancel symbols. The
-field now occupies the freed horizontal space and reads as one lightweight
-editing surface.
+The source and final build 12 were opened together in
+`/tmp/port-tools-build12-supporting-service-comparison-final.png`. The source
+made `Related services` look like a peer of the global Other sections because
+it used the same disclosure heading, distant count capsule, and generous
+vertical separation. Build 12 places the single `live-bridge` service directly
+beneath the primary address with a smaller type scale, compact indentation, and
+explicit `Supporting service` copy. The global Other sections remain separate.
 
 ## Focused region comparison evidence
 
-- The selected prefix remains clearly editable while `.localhost:17890` stays
-  visibly fixed.
-- Return saves; Escape cancels.
-- A real pointer click outside the field saved the valid alias and restored the
-  clickable address row.
-- Invalid input retained the editor, showed a red outline and concise feedback,
-  and did not replace the saved alias.
-- The resting pencil opacity was increased from 0.18 to 0.38; hover opacity was
-  increased from 0.56 to 0.72.
+- One supporting service is visible directly and does not require a redundant
+  disclosure click.
+- The row name, role, homepage status, endpoint, network state, and process age
+  remain readable without becoming a second primary app.
+- The details chevron is nearly hidden at rest and becomes clearer on hover.
+- Clicking the row opens Service details; Back returns to the inventory.
+- A temporary second 404 service in the same Git project changed the layout to a
+  compact `Supporting services · 2` disclosure. Expanding it exposed both
+  subordinate rows. The temporary fixture was stopped after verification.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: native system type, weights, line height, truncation,
-  and monospaced address styling remain consistent with the approved menu UI.
-- Spacing and layout rhythm: removing the two trailing controls reduces visual
-  noise and gives the address field a balanced full-row width.
-- Colors and visual tokens: the blue focus ring remains the only persistent
-  editing emphasis; invalid input uses the existing red validation token; the
-  pencil is darker without becoming a primary action.
-- Image quality and assets: no raster assets are required; controls use native
-  SF Symbols.
-- Copy and content: editor help now states the exact Return, outside-click, and
-  Escape behavior. Age help explicitly describes process running time.
+- Fonts and typography: the primary app keeps the existing native system
+  hierarchy; supporting names use 11 pt semibold and metadata uses 9 pt regular.
+- Spacing and layout rhythm: the single supporting row sits directly beneath
+  the address with a 1 pt section gap and nested leading inset; the larger gap
+  before global Other sections remains.
+- Colors and visual tokens: subordinate icons and metadata use secondary or
+  tertiary system colors; no warning color, persistent card, or extra divider
+  was introduced. Multi-service count contrast was increased after the first
+  pass.
+- Image quality and assets: no raster assets are required; visible icons are
+  native SF Symbols.
+- Copy and content: `Related services` becomes the relationship-specific
+  `Supporting service` or `Supporting services`, and accessibility labels name
+  the parent project.
 
 ## Interaction checks
 
-- Direct address remains clickable outside editing mode.
-- Pencil enters editing and selects the alias prefix.
-- Valid outside click saves and restores the address row.
-- Return saves and Escape cancels.
-- Invalid outside click keeps the editor active and does not persist the value.
-- Related/Other sections remain operable while the editor is visible.
-- No native UI errors were observed during these checks.
+- Single supporting service opens details with one click.
+- Back returns from details without closing the app.
+- Two or more supporting services collapse and expand as one nested group.
+- Primary app link remains visible and clickable.
+- Other Web endpoints and Other listeners remain independent disclosures.
+- No native UI or runtime errors were observed.
 
 ## Comparison history
 
-- Pass 1: the source showed oversized confirm/cancel symbols and a faint pencil.
-- Fix: removed both symbols, added outside-click commit, retained keyboard
-  controls, strengthened pencil opacity, and added explicit process-age help.
-- Pass 2: the source and build 11 focused regions were normalized and compared;
-  no actionable P0/P1/P2 visual or interaction differences remain for the
-  selected direction.
+- Pass 1 finding [P1]: `Related services` visually appeared unrelated to the
+  primary app because it reused the global section pattern.
+- Fix: flattened the one-item case, moved it directly under the address, added
+  explicit relationship copy, and reserved the group heading for two or more.
+- Pass 2 finding [P2]: the inline multi-service count was too faint.
+- Fix: raised the count from tertiary to secondary system color.
+- Pass 3: final single- and multi-service screenshots were inspected; no
+  actionable P0/P1/P2 hierarchy or interaction issues remain.
 
 ## Follow-up polish
 
-- [P3] Re-evaluate pencil resting opacity after several days of real menu-bar
-  use against both light and dark desktop backgrounds.
+- [P3] Reassess whether the small relationship icon needs slightly more resting
+  contrast after several days of real menu-bar use.
 
 final result: passed

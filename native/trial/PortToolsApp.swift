@@ -1074,53 +1074,60 @@ struct ServiceRow: View {
 
 struct RelatedServiceRow: View {
     let service: ServiceRecord
+    let parentName: String
     let onEvidence: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         Button(action: onEvidence) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Text(relatedServiceName(service))
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                    if service.listener.bindScope != "loopback" {
-                        Label("LAN access", systemImage: "network")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Color.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.secondary.opacity(0.1), in: Capsule())
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 13, height: 16)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(relatedServiceName(service))
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                        if service.listener.bindScope != "loopback" {
+                            Label("LAN access", systemImage: "network")
+                                .font(.system(size: 8.5, weight: .medium))
+                                .foregroundStyle(Color.secondary)
+                        }
                     }
-                    Spacer(minLength: 4)
+                    HStack(spacing: 4) {
+                        Text("Supporting service")
+                        Text("·")
+                        Text(relatedServiceDescription(service))
+                        Text("·")
+                        Text(compactRawServiceAddress(service))
+                            .font(.system(size: 9, design: .monospaced))
+                    }
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+                HStack(spacing: 6) {
                     if let age = relativeAge(service.process.started) {
                         Text(age)
                             .font(.system(size: 9))
                             .foregroundStyle(.tertiary)
                             .help("Process has been running for \(age)")
                     }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Color.secondary.opacity(isHovered ? 0.58 : 0.08))
+                        .frame(width: 10, height: 16)
                 }
-                HStack(spacing: 5) {
-                    Image(systemName: "point.3.connected.trianglepath.dotted")
-                    Text(relatedServiceDescription(service))
-                    Text("·")
-                    Text(compactRawServiceAddress(service))
-                        .font(.system(size: 9, design: .monospaced))
-                    if service.listener.bindScope != "loopback" {
-                        Text("→")
-                        Text("listens \(listenerEndpoint(service))")
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "info.circle")
-                }
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
             }
             .contentShape(Rectangle())
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
         .background(
@@ -1130,7 +1137,8 @@ struct RelatedServiceRow: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
         }
-        .help("Show detection evidence")
+        .accessibilityLabel("\(relatedServiceName(service)), supporting service for \(parentName)")
+        .help("Supporting service for \(parentName). Click for details.")
     }
 }
 
@@ -1508,34 +1516,42 @@ struct InventoryView: View {
                 .padding(.top, 2)
             }
 
-            if !relatedServices.isEmpty {
-                Spacer(minLength: 3)
+            if relatedServices.count == 1, let relatedService = relatedServices.first {
+                RelatedServiceRow(
+                    service: relatedService,
+                    parentName: displayedProjectName
+                ) { evidenceService = relatedService }
+                .padding(.leading, isSinglePage ? 28 : 46)
+                .padding(.trailing, 10)
+                .padding(.top, 1)
+            } else if !relatedServices.isEmpty {
                 DisclosureRow(
                     isExpanded: relatedIsOpen,
                     isEnabled: !isSearching,
                     level: 1,
-                    contentInsets: EdgeInsets(top: 0, leading: isSinglePage ? 18 : 36, bottom: 0, trailing: 12),
-                    minimumHeight: 34
+                    contentInsets: EdgeInsets(top: 0, leading: isSinglePage ? 28 : 46, bottom: 0, trailing: 12),
+                    minimumHeight: 30
                 ) {
                     if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
                 } content: {
-                    Text("Related services")
+                    Text("Supporting services")
                         .font(.system(size: 10, weight: .semibold))
-                    Spacer()
-                    Text(String(relatedServices.count))
-                        .font(.system(size: 9, weight: .semibold))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.secondary.opacity(0.1), in: Capsule())
+                    Text("· \(relatedServices.count)")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
                 }
 
                 if relatedIsOpen {
                     VStack(spacing: 2) {
                         ForEach(relatedServices) { service in
-                            RelatedServiceRow(service: service) { evidenceService = service }
+                            RelatedServiceRow(
+                                service: service,
+                                parentName: displayedProjectName
+                            ) { evidenceService = service }
                         }
                     }
-                    .padding(.leading, isSinglePage ? 28 : 46)
+                    .padding(.leading, isSinglePage ? 36 : 54)
                     .padding(.trailing, 10)
                     .transition(disclosureContentTransition)
                 }

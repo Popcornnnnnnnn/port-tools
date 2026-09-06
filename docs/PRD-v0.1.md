@@ -57,8 +57,10 @@ openable Web pages that also have project or developer-tool evidence. Services
 are grouped by Git project/worktree. Within a project, the nearest application
 manifest creates an application subgroup, and directly openable HTTP/HTTPS pages
 are app rows beneath it. HTTP-speaking APIs, WebSocket bridges, diagnostic
-servers, and endpoints whose root returns an error remain visible in a collapsed
-`Related services` section of that project. They retain evidence and neutral
+servers, and endpoints whose root returns an error remain visible as supporting
+services of that project. One supporting service is shown directly beneath its
+primary app without a redundant group heading. Two or more use a compact,
+collapsed `Supporting services` subgroup. They retain evidence and neutral
 network-reachability context, but do not offer `Open` or stable `.localhost`
 actions. LAN reachability becomes a warning only when a policy or state change
 requires user review. A project's primary Web links are always visible and
