@@ -85,12 +85,15 @@ indented beneath the group label.
 
 Inventory and detail views suppress the native layout-affecting scroller and
 show a compact transient position indicator as a pure overlay. It appears only
-during scroll activity, forcibly fades after scrolling stops, and never reserves
-a right-side gutter or shifts existing rows when a disclosure makes the view
-scrollable. This behavior must remain independent of the user's system scrollbar
-preference. Expanded secondary rows keep their leading hierarchy indent but add
-no compensating trailing inset; their right-side metadata uses the same content
-boundary as the rest of the inventory.
+during a real scroll-position change, forcibly fades after scrolling stops, and
+never reserves a right-side gutter or shifts existing rows when a disclosure
+makes the view scrollable. Layout-only bounds changes must not reveal the
+indicator. This behavior must remain independent of the user's system scrollbar
+preference. The inventory document keeps a fixed content width. Expanding a
+global secondary section swaps its content without animated geometry; only the
+disclosure affordance may animate. Expanded secondary rows keep their leading
+hierarchy indent but add no compensating trailing inset; their right-side
+metadata uses the same content boundary as the rest of the inventory.
 
 The primary address itself is the `Open` action. Copy and display-name editing
 live in a low-emphasis overflow menu. A subtle pencil beside the address edits

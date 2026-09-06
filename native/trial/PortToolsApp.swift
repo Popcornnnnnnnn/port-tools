@@ -788,6 +788,7 @@ private let disclosureContentTransition = AnyTransition.asymmetric(
 struct DisclosureRow<Content: View>: View {
     let isExpanded: Bool
     let isEnabled: Bool
+    let animatesContent: Bool
     let level: Int
     let contentInsets: EdgeInsets
     let minimumHeight: CGFloat
@@ -800,6 +801,7 @@ struct DisclosureRow<Content: View>: View {
     init(
         isExpanded: Bool,
         isEnabled: Bool = true,
+        animatesContent: Bool = true,
         level: Int = 0,
         contentInsets: EdgeInsets,
         minimumHeight: CGFloat = 0,
@@ -809,6 +811,7 @@ struct DisclosureRow<Content: View>: View {
     ) {
         self.isExpanded = isExpanded
         self.isEnabled = isEnabled
+        self.animatesContent = animatesContent
         self.level = level
         self.contentInsets = contentInsets
         self.minimumHeight = minimumHeight
@@ -829,7 +832,11 @@ struct DisclosureRow<Content: View>: View {
     var body: some View {
         Button {
             guard isEnabled else { return }
-            withAnimation(disclosureAnimation) { action() }
+            if animatesContent {
+                withAnimation(disclosureAnimation) { action() }
+            } else {
+                action()
+            }
         } label: {
             HStack(spacing: contentSpacing ?? (level == 0 ? 7 : 8)) {
                 Image(systemName: "chevron.right")
@@ -837,6 +844,7 @@ struct DisclosureRow<Content: View>: View {
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     .foregroundStyle(Color.secondary.opacity(chevronOpacity))
                     .frame(width: level == 0 ? 14 : 12)
+                    .animation(disclosureAnimation, value: isExpanded)
                 content()
             }
             .contentShape(Rectangle())
@@ -851,7 +859,6 @@ struct DisclosureRow<Content: View>: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
         }
-        .animation(disclosureAnimation, value: isExpanded)
     }
 }
 
@@ -924,6 +931,7 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
         private var liveScrollObserver: NSObjectProtocol?
         private var endScrollObserver: NSObjectProtocol?
         private var hideWorkItem: DispatchWorkItem?
+        private var lastOffset: CGFloat?
 
         init(metrics: Binding<ScrollIndicatorMetrics>) {
             self.metrics = metrics
@@ -943,7 +951,7 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
                 object: scrollView.contentView,
                 queue: .main
             ) { [weak self] _ in
-                self?.publish(reveal: true)
+                self?.publish(revealWhenOffsetChanges: true)
             }
             liveScrollObserver = NotificationCenter.default.addObserver(
                 forName: NSScrollView.willStartLiveScrollNotification,
@@ -972,15 +980,28 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
             liveScrollObserver = nil
             endScrollObserver = nil
             scrollView = nil
+            lastOffset = nil
         }
 
-        private func publish(reveal: Bool) {
+        private func publish(revealWhenOffsetChanges: Bool) {
+            guard let scrollView else { return }
+            let offset = max(0, scrollView.contentView.bounds.minY)
+            let offsetChanged = lastOffset.map { abs($0 - offset) > 0.5 } ?? false
+            if revealWhenOffsetChanges && offsetChanged {
+                publish(reveal: true)
+            } else {
+                publish(reveal: metrics.wrappedValue.isVisible, scheduleHideAfterReveal: false)
+            }
+        }
+
+        private func publish(reveal: Bool, scheduleHideAfterReveal: Bool = true) {
             guard let scrollView, let documentView = scrollView.documentView else { return }
             let viewportHeight = scrollView.contentView.bounds.height
             let contentHeight = documentView.bounds.height
+            let offset = max(0, scrollView.contentView.bounds.minY)
             let canScroll = contentHeight > viewportHeight + 1
             let next = ScrollIndicatorMetrics(
-                offset: max(0, scrollView.contentView.bounds.minY),
+                offset: offset,
                 viewportHeight: viewportHeight,
                 contentHeight: contentHeight,
                 isVisible: reveal && canScroll
@@ -988,7 +1009,8 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
             if metrics.wrappedValue != next {
                 metrics.wrappedValue = next
             }
-            if reveal && canScroll {
+            lastOffset = offset
+            if reveal && canScroll && scheduleHideAfterReveal {
                 scheduleHide()
             }
         }
@@ -1682,6 +1704,7 @@ struct InventoryView: View {
                         }
                     }
                 }
+                .frame(width: 410, alignment: .leading)
                 .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
             }
             .scrollIndicators(.hidden)
@@ -1980,6 +2003,7 @@ struct InventoryView: View {
             DisclosureRow(
                 isExpanded: isOpen,
                 isEnabled: !isSearching,
+                animatesContent: false,
                 level: 1,
                 contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 12),
                 minimumHeight: 30,
@@ -2009,7 +2033,6 @@ struct InventoryView: View {
                 }
                 .padding(.leading, 28)
                 .padding(.bottom, 5)
-                .transition(disclosureContentTransition)
             }
         }
         .padding(.horizontal, 8)
