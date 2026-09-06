@@ -83,10 +83,12 @@ with primary project titles. Their chevrons occupy the left gutter rather than
 creating an additional hierarchy indent; expanded endpoint rows may remain
 indented beneath the group label.
 
-Inventory and detail views use the native macOS overlay scrollbar. It appears
-only while the user scrolls, uses the compact control size, and floats above the
-content instead of reserving a right-side gutter or shifting existing rows when
-a disclosure makes the view scrollable.
+Inventory and detail views suppress the native layout-affecting scroller and
+show a compact transient position indicator as a pure overlay. It appears only
+during scroll activity, forcibly fades after scrolling stops, and never reserves
+a right-side gutter or shifts existing rows when a disclosure makes the view
+scrollable. This behavior must remain independent of the user's system scrollbar
+preference.
 
 The primary address itself is the `Open` action. Copy and display-name editing
 live in a low-emphasis overflow menu. A subtle pencil beside the address edits

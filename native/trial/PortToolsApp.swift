@@ -634,6 +634,7 @@ struct ServiceDetailRow: View {
 struct ServiceDetailView: View {
     let service: ServiceRecord
     let onBack: () -> Void
+    @State private var scrollIndicator = ScrollIndicatorMetrics()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -706,7 +707,10 @@ struct ServiceDetailView: View {
                     }
                 }
                 .padding(18)
-                .background(OverlayScrollViewConfigurator())
+                .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
+            }
+            .overlay(alignment: .topTrailing) {
+                TransientScrollIndicator(metrics: scrollIndicator)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -863,37 +867,167 @@ struct WindowFrameReader: NSViewRepresentable {
     }
 }
 
-/// Keeps SwiftUI's scroll view from reserving a persistent gutter. The native
-/// overlay scroller fades away when idle and appears above content while the
-/// user scrolls, matching standard macOS menu-bar-panel behavior.
-struct OverlayScrollViewConfigurator: NSViewRepresentable {
+struct ScrollIndicatorMetrics: Equatable {
+    var offset: CGFloat = 0
+    var viewportHeight: CGFloat = 0
+    var contentHeight: CGFloat = 0
+    var isVisible = false
+}
+
+/// Removes AppKit's layout-affecting scroller entirely and reports scroll
+/// activity so SwiftUI can draw a transient, non-layout overlay indicator.
+struct TransientScrollViewConfigurator: NSViewRepresentable {
+    @Binding var metrics: ScrollIndicatorMetrics
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(metrics: $metrics)
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        configure(view)
+        configure(view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        configure(view)
+        context.coordinator.metrics = $metrics
+        configure(view, coordinator: context.coordinator)
     }
 
-    private func configure(_ view: NSView, attemptsRemaining: Int = 8) {
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    private func configure(_ view: NSView, coordinator: Coordinator, attemptsRemaining: Int = 8) {
         DispatchQueue.main.async {
             guard let scrollView = view.enclosingScrollView else {
                 guard attemptsRemaining > 0 else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-                    configure(view, attemptsRemaining: attemptsRemaining - 1)
+                    configure(view, coordinator: coordinator, attemptsRemaining: attemptsRemaining - 1)
                 }
                 return
             }
 
-            scrollView.scrollerStyle = .overlay
+            scrollView.hasVerticalScroller = false
             scrollView.autohidesScrollers = true
-            scrollView.hasVerticalScroller = true
-            scrollView.verticalScroller?.controlSize = .small
-            scrollView.scrollerKnobStyle = .default
             scrollView.tile()
+            coordinator.attach(to: scrollView)
         }
+    }
+
+    final class Coordinator {
+        var metrics: Binding<ScrollIndicatorMetrics>
+        private weak var scrollView: NSScrollView?
+        private var boundsObserver: NSObjectProtocol?
+        private var liveScrollObserver: NSObjectProtocol?
+        private var endScrollObserver: NSObjectProtocol?
+        private var hideWorkItem: DispatchWorkItem?
+
+        init(metrics: Binding<ScrollIndicatorMetrics>) {
+            self.metrics = metrics
+        }
+
+        func attach(to scrollView: NSScrollView) {
+            if self.scrollView === scrollView {
+                return
+            }
+
+            detach()
+            self.scrollView = scrollView
+            scrollView.contentView.postsBoundsChangedNotifications = true
+
+            boundsObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                self?.publish(reveal: true)
+            }
+            liveScrollObserver = NotificationCenter.default.addObserver(
+                forName: NSScrollView.willStartLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                self?.publish(reveal: true)
+            }
+            endScrollObserver = NotificationCenter.default.addObserver(
+                forName: NSScrollView.didEndLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                self?.scheduleHide()
+            }
+            publish(reveal: false)
+        }
+
+        func detach() {
+            hideWorkItem?.cancel()
+            hideWorkItem = nil
+            for observer in [boundsObserver, liveScrollObserver, endScrollObserver].compactMap({ $0 }) {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            boundsObserver = nil
+            liveScrollObserver = nil
+            endScrollObserver = nil
+            scrollView = nil
+        }
+
+        private func publish(reveal: Bool) {
+            guard let scrollView, let documentView = scrollView.documentView else { return }
+            let viewportHeight = scrollView.contentView.bounds.height
+            let contentHeight = documentView.bounds.height
+            let canScroll = contentHeight > viewportHeight + 1
+            let next = ScrollIndicatorMetrics(
+                offset: max(0, scrollView.contentView.bounds.minY),
+                viewportHeight: viewportHeight,
+                contentHeight: contentHeight,
+                isVisible: reveal && canScroll
+            )
+            if metrics.wrappedValue != next {
+                metrics.wrappedValue = next
+            }
+            if reveal && canScroll {
+                scheduleHide()
+            }
+        }
+
+        fileprivate func scheduleHide() {
+            hideWorkItem?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                var next = metrics.wrappedValue
+                next.isVisible = false
+                if metrics.wrappedValue != next {
+                    metrics.wrappedValue = next
+                }
+            }
+            hideWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: item)
+        }
+    }
+}
+
+struct TransientScrollIndicator: View {
+    let metrics: ScrollIndicatorMetrics
+
+    var body: some View {
+        GeometryReader { geometry in
+            let trackHeight = max(0, geometry.size.height - 8)
+            let ratio = metrics.contentHeight > 0 ? min(1, metrics.viewportHeight / metrics.contentHeight) : 1
+            let thumbHeight = min(trackHeight, max(28, trackHeight * ratio))
+            let maximumOffset = max(1, metrics.contentHeight - metrics.viewportHeight)
+            let progress = min(1, max(0, metrics.offset / maximumOffset))
+            let thumbOffset = 4 + ((trackHeight - thumbHeight) * progress)
+
+            Capsule(style: .continuous)
+                .fill(Color.secondary.opacity(0.28))
+                .frame(width: 3, height: thumbHeight)
+                .offset(x: geometry.size.width - 7, y: thumbOffset)
+                .opacity(metrics.isVisible && ratio < 1 ? 1 : 0)
+                .animation(.easeOut(duration: 0.16), value: metrics.isVisible)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1366,6 +1500,7 @@ struct InventoryView: View {
     @State private var query = ""
     @State private var searchVisible = false
     @State private var message: String?
+    @State private var scrollIndicator = ScrollIndicatorMetrics()
     @FocusState private var searchFocused: Bool
 
     private let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -1545,7 +1680,10 @@ struct InventoryView: View {
                         }
                     }
                 }
-                .background(OverlayScrollViewConfigurator())
+                .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
+            }
+            .overlay(alignment: .topTrailing) {
+                TransientScrollIndicator(metrics: scrollIndicator)
             }
 
             Divider()
