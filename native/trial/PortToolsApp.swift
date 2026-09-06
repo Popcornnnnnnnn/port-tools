@@ -855,11 +855,12 @@ struct ServiceRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
                 Text(displayName)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
+                    .help(projectContext ?? "Local Web app")
 
                 if service.observation.classification == "suspected-web" {
                     Image(systemName: "questionmark.circle.fill")
@@ -916,13 +917,6 @@ struct ServiceRow: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-            }
-
-            if let projectContext {
-                Text(projectContext)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
 
             if isEditingAlias {
@@ -1000,7 +994,7 @@ struct ServiceRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.vertical, 6)
         .background(
             Color.secondary.opacity(isHovered ? 0.04 : 0),
             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1087,7 +1081,7 @@ struct RelatedServiceRow: View {
                     .foregroundStyle(.tertiary)
                     .frame(width: 13, height: 16)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(relatedServiceName(service))
                             .font(.system(size: 11, weight: .semibold))
@@ -1127,7 +1121,7 @@ struct RelatedServiceRow: View {
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
         .background(
@@ -1313,7 +1307,7 @@ struct InventoryView: View {
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.vertical, 9)
 
             if searchVisible {
                 HStack(spacing: 7) {
@@ -1364,10 +1358,10 @@ struct InventoryView: View {
                     } else {
                         ForEach(filteredProjects) { project in
                             projectSection(project)
-                                .padding(.vertical, 3)
+                                .padding(.vertical, 2)
                         }
 
-                        Spacer(minLength: 5)
+                        Spacer(minLength: 2)
                         if !filteredOtherWebServices.isEmpty {
                             secondarySection(
                                 "Other Web endpoints",
@@ -1397,7 +1391,7 @@ struct InventoryView: View {
             .font(.system(size: 9))
             .foregroundStyle(.tertiary)
             .padding(.horizontal, 14)
-            .frame(height: 29)
+            .frame(height: 25)
         }
         .frame(width: 410, height: 640)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -1464,7 +1458,7 @@ struct InventoryView: View {
         let inferredProjectName = project.name + (worktreeLabel(project.project).map { " · \($0)" } ?? "")
         let displayedProjectName = projectNames[project.id] ?? inferredProjectName
         let isSinglePage = pageServices.count == 1
-        let supportingLabel = "\(relatedServices.count) supporting service\(relatedServices.count == 1 ? "" : "s")"
+        let supportingLabel = "\(relatedServices.count) background service\(relatedServices.count == 1 ? "" : "s")"
 
         VStack(spacing: 0) {
             if isSinglePage, let service = pageServices.first {
@@ -1478,7 +1472,7 @@ struct InventoryView: View {
                     onRenameProject: { beginProjectRename(project, displayedProjectName: displayedProjectName) }
                 )
                 .padding(.horizontal, 10)
-                .padding(.top, 5)
+                .padding(.top, 2)
             } else {
                 projectHeader(
                     project,
@@ -1522,13 +1516,14 @@ struct InventoryView: View {
                     isExpanded: relatedIsOpen,
                     isEnabled: !isSearching,
                     level: 1,
-                    contentInsets: EdgeInsets(top: 0, leading: isSinglePage ? 28 : 46, bottom: 0, trailing: 12),
-                    minimumHeight: 30
+                    contentInsets: EdgeInsets(top: 0, leading: isSinglePage ? 22 : 40, bottom: 0, trailing: 12),
+                    minimumHeight: 22
                 ) {
                     if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
                 } content: {
                     Text(supportingLabel)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
 
@@ -1541,13 +1536,13 @@ struct InventoryView: View {
                             ) { evidenceService = service }
                         }
                     }
-                    .padding(.leading, isSinglePage ? 36 : 54)
+                    .padding(.leading, isSinglePage ? 28 : 48)
                     .padding(.trailing, 10)
                     .transition(disclosureContentTransition)
                 }
             }
         }
-        .padding(.bottom, 5)
+        .padding(.bottom, 2)
     }
 
     private func beginProjectRename(_ project: ProjectGroup, displayedProjectName: String) {
@@ -1672,19 +1667,19 @@ struct InventoryView: View {
                 isEnabled: !isSearching,
                 level: 1,
                 contentInsets: EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12),
-                minimumHeight: 36
+                minimumHeight: 30
             ) {
                 onToggle()
             } content: {
                 Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(.secondary)
                 Spacer()
                 Text(String(services.count))
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
                     .background(Color.secondary.opacity(0.1), in: Capsule())
             }
 
@@ -1703,7 +1698,7 @@ struct InventoryView: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
     }
 
     private func showMessage(_ value: String) {

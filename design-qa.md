@@ -1,63 +1,83 @@
-# Port Tools supporting-service default-collapse QA
+# Port Tools compact inventory density QA
 
-- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-6f0f7ddb-ce13-49d8-af70-a3565cad9853.png`
-- Default collapsed screenshot: `/tmp/port-tools-build13-supporting-collapsed.png`
-- Expanded screenshot: `/tmp/port-tools-build13-supporting-expanded.png`
-- Combined comparison: `/tmp/port-tools-build13-supporting-comparison.png`
-- Source pixels: 864 x 624 at approximately 2x density
+- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-aab2a5f5-608e-4554-aa65-2b59b68e2e9f.png`
+- Default implementation screenshot: `/tmp/port-tools-build14-compact-default.png`
+- Expanded implementation screenshot: `/tmp/port-tools-build14-compact-expanded.png`
+- Focused implementation crop: `/tmp/port-tools-build14-compact-focus.png`
+- Combined density comparison: `/tmp/port-tools-build14-density-comparison.png`
+- Source pixels: 824 x 282 at approximately 2x density
 - Implementation pixels: 410 x 672 at 1x capture density
-- Content viewport: 410 x 640 pt plus the preview window title bar
-- Test state: one project, one primary Web app, one supporting service
+- Normalization: source downsampled to 412 x 141; implementation project region cropped and placed in a 412 x 141 comparison frame
+- Content viewport: 410 x 640 pt plus the preview title bar
+- Test state: two single-page projects, one background service under each; first group also tested expanded
 
-## Comparison evidence
+## Full-view comparison evidence
 
-The source, collapsed build 13, and expanded build 13 were inspected together in
-`/tmp/port-tools-build13-supporting-comparison.png`. The source used a generic
-`Related services` row that could be mistaken for a peer of the global Other
-sections. Build 13 changes this to a relationship-specific `1 supporting
-service` row, places it immediately below the primary app address, and keeps it
-collapsed until requested. Expansion reveals `live-bridge` as a subordinate
-background service rather than a second app.
+The default build 14 screenshot shows two complete project summaries plus both
+global Other groups within roughly the same vertical area previously occupied
+by one project. The fixed menu frame remains unchanged so larger inventories can
+still scroll without a resizing popover.
+
+## Focused region comparison evidence
+
+The normalized source and implementation were inspected together in
+`/tmp/port-tools-build14-density-comparison.png`. The source used four visible
+levels for one single-page project: title, repository context, address, and a
+30 pt supporting-service disclosure. Build 14 reduces the default scan path to
+three compact lines: title/status/age, primary address/edit, and a 22 pt
+background-service disclosure. The repository context remains available as the
+title help text instead of consuming a permanent row.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: the primary app retains the established native system
-  hierarchy; the supporting group and service remain deliberately smaller.
-- Spacing and layout rhythm: the group is nested under the primary app with a
-  tighter inset and spacing than the global Other sections.
-- Colors and visual tokens: the disclosure affordance is quiet at rest and no
-  warning color, persistent card, or extra divider was introduced.
-- Image quality and assets: all icons remain native SF Symbols; no raster assets
-  are required by the implementation.
-- Copy and content: the new label explicitly states the relationship and count;
-  the expanded service says `Supporting service` and `No homepage`.
+- Fonts and typography: native system fonts and the existing hierarchy remain;
+  only secondary group labels were reduced by 0.5 pt and changed to medium,
+  secondary styling. Primary app names and addresses retain their sizes.
+- Spacing and layout rhythm: main-row vertical padding changed from 9 to 6 pt,
+  internal spacing from 6 to 4 pt, background disclosures from 30 to 22 pt,
+  Other disclosures from 36 to 30 pt, and project/footer gaps were tightened.
+- Colors and visual tokens: the background-service label now uses the neutral
+  secondary token; no new warning color, card, divider, or persistent highlight
+  was introduced.
+- Image quality and assets: no raster assets are required by the implementation;
+  all visible icons remain native SF Symbols at their intended density.
+- Copy and content: `supporting service` becomes the clearer `background
+  service`; runtime age and the directly openable address remain visible because
+  they support stale-server decisions. Repository URL and branch are hidden
+  from the default single-page scan path.
 
 ## Interaction checks
 
-- Default launch keeps `live-bridge` folded under `1 supporting service`.
-- Clicking the supporting-service group reveals the `live-bridge` row.
-- Clicking `live-bridge` opens Service details.
-- Back returns from Service details to the inventory instead of closing the app.
-- The primary app link remains visible and directly clickable in both states.
+- The primary `.localhost` address remains directly clickable.
+- The pencil remains visible and opens address editing.
+- `1 background service` expands and collapses without reserving a large empty
+  region in the collapsed state.
+- Expanded `live-bridge` still exposes its name, LAN state, homepage status,
+  endpoint, and age.
+- Clicking `live-bridge` opens Service details; Back returns to the inventory.
 - Other Web endpoints and Other listeners remain independent disclosures.
-- Accessibility labels identify `live-bridge` as a supporting service for its
-  parent project.
+- Accessibility exposes hidden repository context as help on the app title and
+  preserves named buttons for the address, edit action, and disclosure.
 - No native UI or runtime errors were observed.
 
-## Comparison history
+## Findings and comparison history
 
-- Build 12 clarified the visual relationship by using subordinate styling and
-  explicit supporting-service copy, but displayed the one-item case by default.
-- User feedback requested that the background `live-bridge` service remain
-  available without occupying the normal primary-app scan path.
-- Build 13 applies the same compact disclosure behavior to one or many
-  supporting services and preserves one-click access after expansion.
-- Final collapsed, expanded, details, and Back states were exercised against
-  the live Phone 3D UI Studio processes; no actionable P0/P1/P2 issue remains.
+- Earlier [P1]: the one-item supporting-service disclosure visually reserved a
+  full secondary-section block and made the project feel disproportionately
+  tall.
+- Earlier [P2]: branch and full GitHub remote consumed a permanent line in a
+  single-page project even though the app title already established identity.
+- Fix: moved repository context to title help, reduced the subordinate
+  disclosure to 22 pt, tightened primary and global group padding, and preserved
+  only decision-critical information in the default scan path.
+- Post-fix evidence: the normalized comparison shows the project summary reduced
+  from about 141 pt to about 89 pt without losing its primary action, health, or
+  age. Expanded, details, and Back states remain functional. No actionable
+  P0/P1/P2 issue remains.
 
 ## Follow-up polish
 
-- [P3] Reassess the resting disclosure contrast after several days of real
-  menu-bar use.
+- [P3] Reassess the neutral background-service label contrast after several days
+  of real menu-bar use; its hit target is larger than its visible text.
 
 final result: passed
