@@ -37,6 +37,7 @@ struct ApplicationRecord: Codable, Sendable {
 struct HTTPRecord: Codable, Sendable {
     let status: Int?
     let title: String?
+    let contentType: String?
 }
 
 struct EvidenceRecord: Codable, Identifiable, Sendable {
@@ -364,6 +365,23 @@ func isOpenablePage(_ service: ServiceRecord) -> Bool {
     return (200..<400).contains(status)
 }
 
+/// A real, directly openable app should not disappear merely because it is not
+/// attached to a Git checkout. Keep this deliberately stricter than the normal
+/// page role so redirects and framework guesses remain in Other Web endpoints.
+func isHighConfidenceStandalonePage(_ service: ServiceRecord) -> Bool {
+    guard !service.relevance.developerRelevant,
+          service.observation.classification == "confirmed-web",
+          isOpenablePage(service),
+          let status = service.observation.http?.status,
+          (200..<300).contains(status),
+          let title = service.observation.http?.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !title.isEmpty,
+          let contentType = service.observation.http?.contentType?.lowercased()
+    else { return false }
+
+    return contentType.contains("text/html") || contentType.contains("application/xhtml+xml")
+}
+
 func relatedServiceName(_ service: ServiceRecord) -> String {
     if let title = service.observation.http?.title, !title.isEmpty { return title }
     if let commandName = commandApplicationName(service), !commandName.isEmpty { return commandName }
@@ -631,20 +649,52 @@ struct ServiceDetailRow: View {
     }
 }
 
+private let detailNavigationAnimation = Animation.snappy(duration: 0.18, extraBounce: 0.025)
+
+private struct NavigationBackButtonStyle: ButtonStyle {
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
 struct ServiceDetailView: View {
     let service: ServiceRecord
     let onBack: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scrollIndicator = ScrollIndicatorMetrics()
+    @State private var backHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Button(action: onBack) {
-                    Label("Back", systemImage: "chevron.left")
-                        .font(.system(size: 11, weight: .medium))
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(Color.primary.opacity(backHovered ? 0.96 : 0.82))
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(
+                        Color.secondary.opacity(backHovered ? 0.105 : 0),
+                        in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    )
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NavigationBackButtonStyle(reduceMotion: reduceMotion))
                 .keyboardShortcut(.cancelAction)
+                .onHover { hovering in
+                    withAnimation(.easeOut(duration: 0.1)) { backHovered = hovering }
+                }
+                .help("Back (Esc or ⌘[)")
+                .accessibilityLabel("Back to Web apps")
                 Spacer()
                 Text("Service details")
                     .font(.system(size: 12, weight: .semibold))
@@ -717,6 +767,11 @@ struct ServiceDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onKeyPress("[", phases: .down) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            onBack()
+            return .handled
+        }
     }
 }
 
@@ -779,7 +834,7 @@ struct RenameView: View {
     }
 }
 
-private let disclosureAnimation = Animation.easeOut(duration: 0.15)
+private let disclosureAnimation = Animation.snappy(duration: 0.17, extraBounce: 0.035)
 private let disclosureContentTransition = AnyTransition.asymmetric(
     insertion: .offset(y: -4).combined(with: .opacity),
     removal: .opacity
@@ -861,6 +916,50 @@ struct DisclosureRow<Content: View>: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
         }
+    }
+}
+
+private struct ExpandableContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Keeps secondary-section width stable while giving the content a compact,
+/// direction-aware reveal inspired by React Bits' Animated Content pattern.
+struct ExpandableContent<Content: View>: View {
+    let isExpanded: Bool
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var contentHeight: CGFloat = 0
+
+    private var animation: Animation {
+        reduceMotion ? .easeOut(duration: 0.1) : .snappy(duration: 0.2, extraBounce: 0.035)
+    }
+
+    var body: some View {
+        content()
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: ExpandableContentHeightKey.self, value: geometry.size.height)
+                }
+            }
+            .opacity(isExpanded ? 1 : 0)
+            .offset(y: reduceMotion || isExpanded ? 0 : -5)
+            .scaleEffect(x: 1, y: reduceMotion || isExpanded ? 1 : 0.985, anchor: .top)
+            .frame(height: isExpanded ? contentHeight : 0, alignment: .top)
+            .clipped()
+            .allowsHitTesting(isExpanded)
+            .accessibilityHidden(!isExpanded)
+            .animation(animation, value: isExpanded)
+            .onPreferenceChange(ExpandableContentHeightKey.self) { measuredHeight in
+                guard measuredHeight > 0, abs(measuredHeight - contentHeight) > 0.5 else { return }
+                contentHeight = measuredHeight
+            }
     }
 }
 
@@ -1517,6 +1616,7 @@ struct SecondaryServiceRow: View {
 
 struct InventoryView: View {
     @ObservedObject var store: InventoryStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expandedRelated = Set<String>()
     @State private var expandedOtherWeb = false
     @State private var expandedOtherListeners = false
@@ -1536,14 +1636,14 @@ struct InventoryView: View {
     private var webServices: [ServiceRecord] {
         allServices.filter { webClassifications.contains($0.observation.classification) }
     }
-    private var developmentServices: [ServiceRecord] {
-        webServices.filter(\.relevance.developerRelevant)
+    private var primaryWebServices: [ServiceRecord] {
+        webServices.filter { $0.relevance.developerRelevant || isHighConfidenceStandalonePage($0) }
     }
     private var developmentPages: [ServiceRecord] {
-        developmentServices.filter(isOpenablePage)
+        primaryWebServices.filter(isOpenablePage)
     }
     private var projects: [ProjectGroup] {
-        groupServices(developmentServices).filter { $0.services.contains(where: isOpenablePage) }
+        groupServices(primaryWebServices).filter { $0.services.contains(where: isOpenablePage) }
     }
     private var displayedProjectServiceIDs: Set<String> {
         Set(projects.flatMap(\.services).map(\.id))
@@ -1559,9 +1659,11 @@ struct InventoryView: View {
     }
     private var isSearching: Bool { !searchNeedle.isEmpty }
     private var inventorySummary: String {
-        let projectLabel = projects.count == 1 ? "project" : "projects"
+        let projectCount = Set(developmentPages.compactMap { $0.project?.root }).count
+        let projectLabel = projectCount == 1 ? "project" : "projects"
         let appLabel = developmentPages.count == 1 ? "Web app" : "Web apps"
-        return "\(projects.count) \(projectLabel) · \(developmentPages.count) \(appLabel)"
+        guard projectCount > 0 else { return "\(developmentPages.count) \(appLabel)" }
+        return "\(projectCount) \(projectLabel) · \(developmentPages.count) \(appLabel)"
     }
     private var filteredOtherWebServices: [ServiceRecord] {
         guard isSearching else { return otherWebServices }
@@ -1746,9 +1848,18 @@ struct InventoryView: View {
                 ZStack {
                     Color(nsColor: .windowBackgroundColor)
                     ServiceDetailView(service: service) {
-                        evidenceService = nil
+                        hideServiceDetails()
                     }
                 }
+                .id(service.id)
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .asymmetric(
+                            insertion: .offset(x: 14).combined(with: .opacity),
+                            removal: .offset(x: 8).combined(with: .opacity)
+                        )
+                )
                 .zIndex(2)
             }
         }
@@ -1797,14 +1908,16 @@ struct InventoryView: View {
             if isSinglePage, let service = pageServices.first {
                 mainServiceRow(
                     service,
-                    projectContext: compactProjectContext(project: project),
+                    projectContext: project.project == nil ? nil : compactProjectContext(project: project),
                     repositoryURL: repositoryWebURL(project.project),
                     backgroundServiceCount: relatedServices.count,
                     backgroundServicesExpanded: relatedIsOpen,
                     onToggleBackgroundServices: {
                         if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
                     },
-                    onRenameProject: { beginProjectRename(project, displayedProjectName: displayedProjectName) }
+                    onRenameProject: project.project == nil ? nil : {
+                        beginProjectRename(project, displayedProjectName: displayedProjectName)
+                    }
                 )
                 .padding(.leading, 10)
                 .padding(.top, 2)
@@ -1865,7 +1978,7 @@ struct InventoryView: View {
                         RelatedServiceRow(
                             service: service,
                             parentName: displayedProjectName
-                        ) { evidenceService = service }
+                        ) { showServiceDetails(service) }
                     }
                 }
                 .padding(.leading, isSinglePage ? 28 : 48)
@@ -1990,7 +2103,7 @@ struct InventoryView: View {
                     }
                 }
             },
-            onEvidence: { evidenceService = service },
+            onEvidence: { showServiceDetails(service) },
             onMessage: showMessage
         )
     }
@@ -2026,11 +2139,11 @@ struct InventoryView: View {
                     .background(Color.secondary.opacity(0.1), in: Capsule())
             }
 
-            if isOpen {
+            ExpandableContent(isExpanded: isOpen) {
                 VStack(spacing: 2) {
                     ForEach(services) { service in
                         SecondaryServiceRow(service: service) {
-                            evidenceService = service
+                            showServiceDetails(service)
                         }
                     }
                 }
@@ -2040,6 +2153,18 @@ struct InventoryView: View {
         }
         .padding(.leading, 8)
         .padding(.vertical, 1)
+    }
+
+    private func showServiceDetails(_ service: ServiceRecord) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.1) : detailNavigationAnimation) {
+            evidenceService = service
+        }
+    }
+
+    private func hideServiceDetails() {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.1) : detailNavigationAnimation) {
+            evidenceService = nil
+        }
     }
 
     private func showMessage(_ value: String) {
