@@ -61,7 +61,9 @@ servers, and endpoints whose root returns an error remain visible as supporting
 services of that project. Background services are represented by a compact
 relationship icon beside the project title instead of a repeated text row. A
 single service shows no count; two or more add a numeric count. Activating the
-icon expands the individual services directly beneath the project. They retain
+icon expands the individual services directly beneath the project. The control
+uses a quiet capsule at rest so it reads as interactive without competing with
+health or runtime state. They retain
 evidence and neutral network-reachability context, but do
 not offer `Open` or stable `.localhost` actions. LAN reachability becomes a
 warning only when a policy or state change requires user review. A project's
@@ -75,6 +77,11 @@ repository at the current branch; the blue local address continues to open the
 running page. Multi-page projects retain a static group heading while keeping
 every primary link visible. Different worktrees of the same repository remain
 separate project groups.
+
+Global `Other Web endpoints` and `Other listeners` disclosures align their text
+with primary project titles. Their chevrons occupy the left gutter rather than
+creating an additional hierarchy indent; expanded endpoint rows may remain
+indented beneath the group label.
 
 The primary address itself is the `Open` action. Copy and display-name editing
 live in a low-emphasis overflow menu. A subtle pencil beside the address edits

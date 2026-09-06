@@ -1,92 +1,79 @@
-# Port Tools project-source and background-service QA
+# Port Tools disclosure affordance and global alignment QA
 
-- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-93fe28ae-fe4f-4c05-b065-16e79a553298.png`
-- Default implementation screenshot: `/tmp/port-tools-build15-project-links-default.png`
-- Expanded implementation screenshot: `/tmp/port-tools-build15-background-expanded.png`
-- Focused implementation crop: `/tmp/port-tools-build15-project-list-focus.png`
-- Combined comparison: `/tmp/port-tools-build15-project-links-comparison.png`
-- Source pixels: 840 x 672 at approximately 2x density
+- Source visual truth 1: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-c60e4f73-cfb5-4ecd-9764-1161cb18980c.png`
+- Source visual truth 2: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-3b45857b-abe5-47c7-bf42-041ffb2957bf.png`
+- Default implementation screenshot: `/tmp/port-tools-build16-affordance-alignment.png`
+- Expanded implementation screenshot: `/tmp/port-tools-build16-two-services-expanded.png`
+- Affordance focus crop: `/tmp/port-tools-build16-affordance-focus.png`
+- Other-groups focus crop: `/tmp/port-tools-build16-other-focus.png`
+- Combined comparison: `/tmp/port-tools-build16-affordance-alignment-comparison.png`
+- Source pixels: 818 x 190 and 878 x 346 at approximately 2x density
 - Implementation pixels: 410 x 672 at 1x capture density
-- Normalization: source downsampled to 420 x 336; implementation inventory region cropped to 410 x 320 and placed in a matching 420 x 336 frame
+- Normalization: source 1 downsampled to 409 x 95; source 2 cropped to the 820 px menu region and downsampled to 410 x 173; implementation regions captured at matching 410 px width
 - Content viewport: 410 x 640 pt plus the preview title bar
-- Test state: three single-page Git worktrees; zero, one, and two background-service indicators were all visible
+- Test state: three Git-backed projects; a two-background-service control was tested collapsed and expanded
 
 ## Full-view comparison evidence
 
-The default build 15 screenshot shows three projects, their branch/repository
-identity, their primary local address, and both global Other groups without the
-three repeated background-service text rows. A project with no background
-service shows no indicator; one service shows only the relationship icon; two
-services show the icon plus `2`.
+Build 16 preserves build 15's compact three-line project structure. The
+two-service indicator is now a quiet capsule rather than low-contrast bare
+glyphs, while the one-service indicator remains compact. Both global Other
+groups begin on the same text axis as project titles instead of inheriting the
+old nested-section indent.
 
 ## Focused region comparison evidence
 
-The normalized before/after states were inspected together in
-`/tmp/port-tools-build15-project-links-comparison.png`. The source spent a full
-row repeating `1 background service` while omitting the Git source. Build 15
-uses that vertical budget for `branch · owner/repository`, attaches the service
-indicator to the title, and keeps the local page address as a separate blue
-action. The resulting project blocks are denser while differentiating otherwise
-similar worktrees.
+Both requested regions were inspected together in
+`/tmp/port-tools-build16-affordance-alignment-comparison.png`. The service
+control's resting foreground increased from 34% to 50% secondary opacity and
+gained a 6.5% secondary capsule; hover/expanded state rises to 78% foreground
+and 12% background. For Other groups, disclosure spacing changed from 8 pt to
+0 and leading content inset from 12 pt to 0, placing label text at the primary
+20 pt content axis while keeping the chevron in the left gutter.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: project titles remain 13 pt semibold; Git context is
-  9.5 pt secondary text; addresses remain 10 pt monospaced. The title's external
-  link icon uses a fixed 9 pt slot so hover does not shift neighboring controls.
-- Spacing and layout rhythm: background services no longer reserve a collapsed
-  row. The restored Git line reuses the compact 4 pt internal rhythm, leaving
-  each project at three meaningful lines.
-- Colors and visual tokens: project titles remain label-colored instead of blue;
-  only the local page address uses the accent color. Repository-link affordance
-  appears through hover underline/external-link disclosure. Background-service
-  indicators use a neutral secondary token.
-- Image quality and assets: no raster assets are required by the implementation;
-  branch, external-link, verification, relationship, address, and edit icons are
-  native SF Symbols.
-- Copy and content: full `github.com/` prefixes are omitted while owner/repository
-  identity remains. Background count text is suppressed for one service and
-  appears only for two or more.
+- Fonts and typography: existing project, branch, address, Other label, and
+  count typography is unchanged; the adjustment affects affordance treatment
+  and alignment only.
+- Spacing and layout rhythm: Other labels now align with project titles. Their
+  expanded endpoint rows remain indented because those rows are true children.
+- Colors and visual tokens: the service capsule uses the existing neutral
+  secondary color at low opacity; no accent or warning semantics were added.
+- Image quality and assets: all visible icons remain native SF Symbols; no
+  raster or generated asset is required.
+- Copy and content: no text changed. `2` remains a count, while its surrounding
+  icon and capsule now communicate that the cluster is interactive.
 
 ## Interaction checks
 
-- Accessibility exposes each remote-backed project title as an `open current
-  repository branch` button.
-- GitHub destination construction was verified for `main` and slash-containing
-  worktree branches; the system has an HTTPS handler.
-- The local `.localhost` or loopback address remains a separate button and still
-  opens the running page.
-- The one-service relationship icon expands `live-bridge`; its accessibility
-  value changes from Collapsed to Expanded.
-- The two-service indicator exposes its numeric count and remains collapsed by
-  default.
-- Expanded supporting rows still open Service details, and Back behavior is
-  unchanged from the previously verified flow.
-- The title was not activated during QA to avoid opening an unsolicited tab in
-  the user's default browser; URL generation, target semantics, accessible
-  action, and installed HTTPS handler were checked independently.
+- The two-service capsule exposes a named button with Collapsed state.
+- Activating it reveals both supporting rows and changes accessibility state to
+  Expanded.
+- The one-service capsule remains a named interactive control without adding a
+  repeated count.
+- Other Web endpoints and Other listeners remain independently clickable after
+  their alignment change.
+- Expanded endpoint rows preserve their subordinate indentation.
 - No native UI or runtime errors were observed.
 
 ## Findings and comparison history
 
-- Earlier [P1]: every project repeated the same `1 background service` text,
-  creating noise without adding identity.
-- Earlier [P2]: hiding branch/repository context made worktrees with similar
-  names difficult to distinguish.
-- Fix: moved background-service access into the title row, suppressed the count
-  for one service, restored compact Git context, and made remote-backed titles
-  open their current repository branch.
-- Post-fix evidence: the combined comparison shows all three repeated rows
-  removed and all three Git sources restored without increasing the overall
-  inventory height. The one-service expansion and the two-service count state
-  were exercised. No actionable P0/P1/P2 issue remains.
+- Earlier [P2]: the bare relationship glyph and `2` were too faint to read as a
+  clickable control.
+- Earlier [P2]: global Other labels inherited a nested disclosure inset, leaving
+  an unexplained empty strip at the left.
+- Fix: added a low-noise capsule and higher resting contrast to the background
+  service control; added configurable disclosure spacing and aligned global
+  group text to the primary content axis.
+- Post-fix evidence: the normalized comparison shows the service control as an
+  intentional compact button and both Other labels aligned with project titles.
+  The two-service expanded state was exercised. No actionable P0/P1/P2 issue
+  remains.
 
 ## Follow-up polish
 
-- [P3] Validate the title hover underline and external-link reveal during normal
-  use; the code prevents layout shift, but QA intentionally did not launch the
-  user's external browser.
-- [P3] Reassess whether the one-service icon needs slightly higher resting
-  contrast after several days of use.
+- [P3] Reassess the service capsule's resting opacity after several days of
+  mixed light/dark appearance use.
 
 final result: passed

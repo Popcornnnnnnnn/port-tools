@@ -784,6 +784,7 @@ struct DisclosureRow<Content: View>: View {
     let level: Int
     let contentInsets: EdgeInsets
     let minimumHeight: CGFloat
+    let contentSpacing: CGFloat?
     let action: () -> Void
     @ViewBuilder let content: () -> Content
 
@@ -795,6 +796,7 @@ struct DisclosureRow<Content: View>: View {
         level: Int = 0,
         contentInsets: EdgeInsets,
         minimumHeight: CGFloat = 0,
+        contentSpacing: CGFloat? = nil,
         action: @escaping () -> Void,
         @ViewBuilder content: @escaping () -> Content
     ) {
@@ -803,6 +805,7 @@ struct DisclosureRow<Content: View>: View {
         self.level = level
         self.contentInsets = contentInsets
         self.minimumHeight = minimumHeight
+        self.contentSpacing = contentSpacing
         self.action = action
         self.content = content
     }
@@ -821,7 +824,7 @@ struct DisclosureRow<Content: View>: View {
             guard isEnabled else { return }
             withAnimation(disclosureAnimation) { action() }
         } label: {
-            HStack(spacing: level == 0 ? 7 : 8) {
+            HStack(spacing: contentSpacing ?? (level == 0 ? 7 : 8)) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: level == 0 ? 8.5 : 8, weight: .semibold))
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -914,8 +917,13 @@ struct BackgroundServiceButton: View {
                         .font(.system(size: 8, weight: .semibold))
                 }
             }
-            .foregroundStyle(Color.secondary.opacity(isHovered || isExpanded ? 0.68 : 0.34))
-            .frame(minWidth: 18, minHeight: 20)
+            .foregroundStyle(Color.secondary.opacity(isHovered || isExpanded ? 0.78 : 0.5))
+            .padding(.horizontal, 4)
+            .frame(minWidth: 22, minHeight: 18)
+            .background(
+                Color.secondary.opacity(isHovered || isExpanded ? 0.12 : 0.065),
+                in: Capsule()
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1795,8 +1803,9 @@ struct InventoryView: View {
                 isExpanded: isOpen,
                 isEnabled: !isSearching,
                 level: 1,
-                contentInsets: EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12),
-                minimumHeight: 30
+                contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 12),
+                minimumHeight: 30,
+                contentSpacing: 0
             ) {
                 onToggle()
             } content: {
