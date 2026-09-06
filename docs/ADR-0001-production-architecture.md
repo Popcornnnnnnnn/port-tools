@@ -157,8 +157,12 @@ download executable plug-ins at runtime.
 
 ## Privileged HTTPS remains a separate gate
 
-The MVP keeps `http://<alias>.localhost:<high-port>` and performs no trust-store
-change. A future polished HTTPS mode requires a new owner-approved design that:
+The current no-install trial keeps `http://<alias>.localhost:<high-port>` and
+performs no trust-store change. The product target is portless HTTP through an
+auditable, separately approved macOS helper or loopback redirect for port 80,
+with the high-port URL retained as an explicit fallback when port 80 is not
+available. A future polished HTTPS mode requires a new owner-approved design
+that:
 
 1. explains why trust is requested;
 2. inventories every certificate, key, helper, listener, and state path;

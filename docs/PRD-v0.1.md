@@ -120,6 +120,12 @@ Filtering requirements:
 ### 5.4 Stable local routes
 
 - Default public name: `<alias>.localhost`.
+- Product target: open the default HTTP route as `http://<alias>.localhost`
+  without a visible port. The current no-install trial keeps the high-port form
+  `http://<alias>.localhost:17890` until a separately approved, auditable macOS
+  helper can own or redirect loopback port 80. If that helper is unavailable or
+  port 80 is occupied, fall back visibly to the high-port route rather than
+  silently breaking the address.
 - Route by HTTP Host/SNI to an existing HTTP or HTTPS loopback upstream.
 - Support normal requests, WebSocket/HMR, server-sent events, streaming responses, redirects, and large request bodies.
 - Allow a per-route upstream Host-header mode: preserve public host or rewrite to upstream host.

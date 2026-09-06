@@ -811,6 +811,20 @@ struct DisclosureRow<Content: View>: View {
     }
 }
 
+struct WindowFrameReader: NSViewRepresentable {
+    let onChange: (Int?, CGRect) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onChange(view.window?.windowNumber, view.convert(view.bounds, to: nil))
+        }
+    }
+}
+
 struct ServiceRow: View {
     let service: ServiceRecord
     let displayName: String
@@ -826,6 +840,10 @@ struct ServiceRow: View {
     @State private var isLinkHovered = false
     @State private var isEditingAlias = false
     @State private var aliasDraft = ""
+    @State private var aliasEditorDidFocus = false
+    @State private var aliasEditorFrame = CGRect.zero
+    @State private var aliasEditorWindowNumber: Int?
+    @State private var aliasClickMonitor: Any?
     @FocusState private var aliasFocused: Bool
 
     private var normalizedAlias: String {
@@ -859,6 +877,7 @@ struct ServiceRow: View {
                     Text(age)
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
+                        .help("Process has been running for \(age)")
                 }
 
                 Menu {
@@ -926,19 +945,22 @@ struct ServiceRow: View {
                         RoundedRectangle(cornerRadius: 6)
                             .stroke(aliasIsValid ? Color.accentColor.opacity(0.45) : Color.red.opacity(0.65))
                     )
-                    Button { saveAlias() } label: {
-                        Image(systemName: "checkmark")
+                    .background(
+                        WindowFrameReader { windowNumber, frame in
+                            aliasEditorWindowNumber = windowNumber
+                            aliasEditorFrame = frame
+                        }
+                    )
+                    .onChange(of: aliasFocused) { _, focused in
+                        if focused {
+                            aliasEditorDidFocus = true
+                        } else {
+                            saveAliasWhenFocusLeaves()
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!aliasIsValid)
-                    .help("Save local address")
-                    Button { cancelAliasEditing() } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Cancel")
                 }
                 .onExitCommand { cancelAliasEditing() }
+                .help("Press Return or click elsewhere to save. Press Escape to cancel.")
             } else {
                 HStack(spacing: 5) {
                     Button {
@@ -960,7 +982,7 @@ struct ServiceRow: View {
                     Button { beginAliasEditing() } label: {
                         Image(systemName: "pencil")
                             .font(.system(size: 8.5, weight: .medium))
-                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.56 : 0.18))
+                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.72 : 0.38))
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
                     }
@@ -986,6 +1008,7 @@ struct ServiceRow: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
         }
+        .onDisappear { removeAliasClickMonitor() }
     }
 
     private func copyAddress() {
@@ -996,20 +1019,56 @@ struct ServiceRow: View {
 
     private func beginAliasEditing() {
         aliasDraft = service.route?.alias ?? suggestedAlias(service)
+        aliasEditorDidFocus = false
         isEditingAlias = true
-        DispatchQueue.main.async { aliasFocused = true }
+        DispatchQueue.main.async {
+            aliasFocused = true
+            installAliasClickMonitor()
+        }
     }
 
     private func cancelAliasEditing() {
+        removeAliasClickMonitor()
+        aliasEditorDidFocus = false
         isEditingAlias = false
         aliasFocused = false
     }
 
     private func saveAlias() {
         guard aliasIsValid else { return }
+        removeAliasClickMonitor()
+        aliasEditorDidFocus = false
         isEditingAlias = false
         aliasFocused = false
         onSaveAlias(normalizedAlias)
+    }
+
+    private func saveAliasWhenFocusLeaves() {
+        guard isEditingAlias, aliasEditorDidFocus else { return }
+        if aliasIsValid {
+            saveAlias()
+        } else {
+            onMessage("Use lowercase letters, numbers, and hyphens")
+            DispatchQueue.main.async { aliasFocused = true }
+        }
+    }
+
+    private func installAliasClickMonitor() {
+        guard aliasClickMonitor == nil else { return }
+        aliasClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+            let isInsideEditor = event.windowNumber == aliasEditorWindowNumber
+                && aliasEditorFrame.contains(event.locationInWindow)
+            if !isInsideEditor {
+                DispatchQueue.main.async { saveAliasWhenFocusLeaves() }
+            }
+            return event
+        }
+    }
+
+    private func removeAliasClickMonitor() {
+        guard let monitor = aliasClickMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        aliasClickMonitor = nil
     }
 }
 
@@ -1036,7 +1095,10 @@ struct RelatedServiceRow: View {
                     }
                     Spacer(minLength: 4)
                     if let age = relativeAge(service.process.started) {
-                        Text(age).font(.system(size: 9)).foregroundStyle(.tertiary)
+                        Text(age)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                            .help("Process has been running for \(age)")
                     }
                 }
                 HStack(spacing: 5) {
@@ -1103,6 +1165,7 @@ struct SecondaryServiceRow: View {
                     Text(age)
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
+                        .help("Process has been running for \(age)")
                 }
                 Image(systemName: "info.circle")
                     .font(.system(size: 9))
