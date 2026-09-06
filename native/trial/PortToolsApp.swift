@@ -1464,6 +1464,7 @@ struct InventoryView: View {
         let inferredProjectName = project.name + (worktreeLabel(project.project).map { " · \($0)" } ?? "")
         let displayedProjectName = projectNames[project.id] ?? inferredProjectName
         let isSinglePage = pageServices.count == 1
+        let supportingLabel = "\(relatedServices.count) supporting service\(relatedServices.count == 1 ? "" : "s")"
 
         VStack(spacing: 0) {
             if isSinglePage, let service = pageServices.first {
@@ -1516,15 +1517,7 @@ struct InventoryView: View {
                 .padding(.top, 2)
             }
 
-            if relatedServices.count == 1, let relatedService = relatedServices.first {
-                RelatedServiceRow(
-                    service: relatedService,
-                    parentName: displayedProjectName
-                ) { evidenceService = relatedService }
-                .padding(.leading, isSinglePage ? 28 : 46)
-                .padding(.trailing, 10)
-                .padding(.top, 1)
-            } else if !relatedServices.isEmpty {
+            if !relatedServices.isEmpty {
                 DisclosureRow(
                     isExpanded: relatedIsOpen,
                     isEnabled: !isSearching,
@@ -1534,11 +1527,8 @@ struct InventoryView: View {
                 ) {
                     if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
                 } content: {
-                    Text("Supporting services")
+                    Text(supportingLabel)
                         .font(.system(size: 10, weight: .semibold))
-                    Text("· \(relatedServices.count)")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
 

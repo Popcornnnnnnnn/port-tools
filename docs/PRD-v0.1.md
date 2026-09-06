@@ -59,11 +59,12 @@ manifest creates an application subgroup, and directly openable HTTP/HTTPS pages
 are app rows beneath it. HTTP-speaking APIs, WebSocket bridges, diagnostic
 servers, and endpoints whose root returns an error remain visible as supporting
 services of that project. One supporting service is shown directly beneath its
-primary app without a redundant group heading. Two or more use a compact,
-collapsed `Supporting services` subgroup. They retain evidence and neutral
-network-reachability context, but do not offer `Open` or stable `.localhost`
-actions. LAN reachability becomes a warning only when a policy or state change
-requires user review. A project's primary Web links are always visible and
+primary app as a compact, collapsed `1 supporting service` subgroup. Two or
+more use the plural count form. Expanding the subgroup reveals the individual
+services. They retain evidence and neutral network-reachability context, but do
+not offer `Open` or stable `.localhost` actions. LAN reachability becomes a
+warning only when a policy or state change requires user review. A project's
+primary Web links are always visible and
 directly openable; project disclosure must never gate the primary action.
 Single-page projects flatten the project/application/service hierarchy into one
 row and omit the redundant `1 app` heading. Multi-page projects retain a static
