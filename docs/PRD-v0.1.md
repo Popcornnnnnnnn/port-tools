@@ -95,6 +95,12 @@ disclosure affordance may animate. Expanded secondary rows keep their leading
 hierarchy indent but add no compensating trailing inset; their right-side
 metadata uses the same content boundary as the rest of the inventory.
 
+The menu and service-detail surfaces use a compact 382 pt width. Project rows
+reserve a stable trailing rail for process age and overflow actions, while the
+main repository context may truncate on one line. Global secondary counts share
+that tighter trailing boundary. The narrower layout must not reduce the existing
+control hit areas or add low-value metadata simply to fill horizontal space.
+
 The primary address itself is the `Open` action. Copy and display-name editing
 live in a low-emphasis overflow menu. A subtle pencil beside the address edits
 the stable `.localhost` alias inline; the fixed suffix remains visible, Enter

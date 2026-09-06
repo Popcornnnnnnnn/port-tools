@@ -784,6 +784,8 @@ private let disclosureContentTransition = AnyTransition.asymmetric(
     insertion: .offset(y: -4).combined(with: .opacity),
     removal: .opacity
 )
+private let inventoryPanelWidth: CGFloat = 382
+private let inventoryPanelHeight: CGFloat = 640
 
 struct DisclosureRow<Content: View>: View {
     let isExpanded: Bool
@@ -1191,6 +1193,7 @@ struct ServiceRow: View {
                     Text(age)
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
+                        .frame(width: 36, alignment: .trailing)
                         .help("Process has been running for \(age)")
                 }
 
@@ -1630,7 +1633,7 @@ struct InventoryView: View {
                 .menuIndicator(.hidden)
             }
             .buttonStyle(.borderless)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
             .padding(.vertical, 9)
 
             if searchVisible {
@@ -1704,7 +1707,7 @@ struct InventoryView: View {
                         }
                     }
                 }
-                .frame(width: 410, alignment: .leading)
+                .frame(width: inventoryPanelWidth, alignment: .leading)
                 .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
             }
             .scrollIndicators(.hidden)
@@ -1721,10 +1724,10 @@ struct InventoryView: View {
             }
             .font(.system(size: 9))
             .foregroundStyle(.tertiary)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
             .frame(height: 25)
         }
-        .frame(width: 410, height: 640)
+        .frame(width: inventoryPanelWidth, height: inventoryPanelHeight)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) {
             if let message {
@@ -1803,7 +1806,7 @@ struct InventoryView: View {
                     },
                     onRenameProject: { beginProjectRename(project, displayedProjectName: displayedProjectName) }
                 )
-                .padding(.horizontal, 10)
+                .padding(.leading, 10)
                 .padding(.top, 2)
             } else {
                 projectHeader(
@@ -2005,7 +2008,7 @@ struct InventoryView: View {
                 isEnabled: !isSearching,
                 animatesContent: false,
                 level: 1,
-                contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 12),
+                contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8),
                 minimumHeight: 30,
                 contentSpacing: 0
             ) {
@@ -2035,7 +2038,7 @@ struct InventoryView: View {
                 .padding(.bottom, 5)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
         .padding(.vertical, 1)
     }
 
@@ -2057,7 +2060,7 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
         store.refresh()
         let host = NSHostingView(rootView: InventoryView(store: store))
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 410, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: inventoryPanelWidth, height: inventoryPanelHeight),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
