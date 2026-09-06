@@ -61,9 +61,18 @@ servers, and endpoints whose root returns an error remain visible in a collapsed
 `Related services` section of that project. They retain evidence and neutral
 network-reachability context, but do not offer `Open` or stable `.localhost`
 actions. LAN reachability becomes a warning only when a policy or state change
-requires user review. Single-
-application projects omit the redundant application heading. Different
-worktrees of the same repository remain separate project groups.
+requires user review. A project's primary Web links are always visible and
+directly openable; project disclosure must never gate the primary action.
+Single-page projects flatten the project/application/service hierarchy into one
+row and omit the redundant `1 app` heading. Multi-page projects retain a static
+group heading while keeping every primary link visible. Different worktrees of
+the same repository remain separate project groups.
+
+The primary address itself is the `Open` action. Copy and display-name editing
+live in a low-emphasis overflow menu. A subtle pencil beside the address edits
+the stable `.localhost` alias inline; the fixed suffix remains visible, Enter
+saves, and Escape cancels. The expanded action-card pattern is not used for
+normal Web pages.
 
 A collapsed `Other Web endpoints` view contains valid HTTP/HTTPS endpoints with
 no developer-project evidence, such as application-internal control APIs. A

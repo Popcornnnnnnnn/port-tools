@@ -537,31 +537,6 @@ func serviceSearchText(_ service: ServiceRecord) -> String {
     ].compactMap { $0 }.joined(separator: " ").lowercased()
 }
 
-struct StatusPill: View {
-    let service: ServiceRecord
-
-    var body: some View {
-        let exposed = service.listener.bindScope != "loopback"
-        let suspected = service.observation.classification == "suspected-web"
-        let tone = exposed ? Color.secondary : suspected ? Color.orange : Color.green
-        Label(
-            exposed ? "LAN access" : suspected ? "Likely Web" : "Web verified",
-            systemImage: exposed ? "network" : suspected ? "exclamationmark.triangle.fill" : "checkmark.shield.fill"
-        )
-        .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(tone)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(tone.opacity(0.1), in: Capsule())
-        .help(exposed
-            ? "Available beyond 127.0.0.1, so other devices on this LAN may be able to connect."
-            : suspected
-                ? "The endpoint looks like Web traffic, but verification is incomplete."
-                : "A local HTTP or HTTPS response was verified."
-        )
-    }
-}
-
 func serviceTypeDescription(_ service: ServiceRecord) -> String {
     if isOpenablePage(service) { return "Openable Web page" }
     if service.observation.classification == "confirmed-web" { return "Background HTTP service" }
@@ -763,84 +738,6 @@ struct RenameView: View {
     }
 }
 
-struct AliasTarget: Identifiable {
-    let id = UUID()
-    let service: ServiceRecord
-}
-
-struct AliasView: View {
-    let target: AliasTarget
-    let onSave: (String) -> Void
-    let onRemove: ((String) -> Void)?
-    @Environment(\.dismiss) private var dismiss
-    @State private var alias: String
-
-    init(target: AliasTarget, onSave: @escaping (String) -> Void, onRemove: ((String) -> Void)? = nil) {
-        self.target = target
-        self.onSave = onSave
-        self.onRemove = onRemove
-        _alias = State(initialValue: target.service.route?.alias ?? suggestedAlias(target.service))
-    }
-
-    private var normalizedAlias: String {
-        alias.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var valid: Bool {
-        normalizedAlias.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"#, options: .regularExpression) != nil
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(target.service.route == nil ? "Add local address" : "Local address")
-                    .font(.headline)
-                Text("A stable name for this app on your Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 0) {
-                TextField("project-name", text: $alias)
-                    .textFieldStyle(.plain)
-                    .onSubmit { save() }
-                Text(".localhost:17890")
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 34)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(valid ? Color.accentColor.opacity(0.55) : Color.red.opacity(0.75)))
-
-            Text("Routes only on this Mac's IPv4/IPv6 loopback. No hosts file, certificate, sudo, or public tunnel is used.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                if let currentAlias = target.service.route?.alias, let onRemove {
-                    Button("Remove", role: .destructive) {
-                        onRemove(currentAlias)
-                        dismiss()
-                    }
-                }
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Save") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!valid)
-            }
-        }
-        .padding(18)
-        .frame(width: 390)
-    }
-
-    private func save() {
-        guard valid else { return }
-        onSave(normalizedAlias)
-        dismiss()
-    }
-}
-
 private let disclosureAnimation = Animation.easeOut(duration: 0.15)
 private let disclosureContentTransition = AnyTransition.asymmetric(
     insertion: .offset(y: -4).combined(with: .opacity),
@@ -917,119 +814,202 @@ struct DisclosureRow<Content: View>: View {
 struct ServiceRow: View {
     let service: ServiceRecord
     let displayName: String
-    let selected: Bool
-    let onSelect: () -> Void
+    let projectContext: String?
     let onRename: () -> Void
-    let onAlias: () -> Void
+    let onRenameProject: (() -> Void)?
+    let onSaveAlias: (String) -> Void
+    let onRemoveAlias: (() -> Void)?
     let onEvidence: () -> Void
     let onMessage: (String) -> Void
 
     @State private var isHovered = false
+    @State private var isLinkHovered = false
+    @State private var isEditingAlias = false
+    @State private var aliasDraft = ""
+    @FocusState private var aliasFocused: Bool
+
+    private var normalizedAlias: String {
+        aliasDraft.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var aliasIsValid: Bool {
+        normalizedAlias.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"#, options: .regularExpression) != nil
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button(action: onSelect) {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 7) {
-                        Text(displayName)
-                            .font(.system(size: 13, weight: .semibold))
-                            .lineLimit(1)
-                        StatusPill(service: service)
-                        Spacer(minLength: 4)
-                    }
-                    HStack(spacing: 5) {
-                        Image(systemName: service.route == nil ? "terminal" : "link")
-                        Text(compactServiceAddress(service))
-                            .font(.system(size: 10, design: .monospaced))
-                            .lineLimit(1)
-                            .foregroundStyle(service.route == nil ? Color.secondary : Color.accentColor)
-                        if service.listener.bindScope != "loopback" {
-                            Text("→")
-                            Text("listens \(listenerEndpoint(service))")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(.orange)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        if let age = relativeAge(service.process.started) {
-                            Text(age)
-                        }
-                    }
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Text(displayName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+
+                if service.observation.classification == "suspected-web" {
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.orange.opacity(0.75))
+                        .help("Web detection is not yet verified")
+                } else {
+                    Image(systemName: "checkmark.shield.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.green.opacity(0.72))
+                        .help("HTTP or HTTPS response verified")
                 }
-                .contentShape(Rectangle())
-                .padding(.vertical, 8)
-                .padding(.horizontal, 10)
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
-            }
+                Spacer(minLength: 4)
+                if let age = relativeAge(service.process.started) {
+                    Text(age)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
 
-            if selected {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Button("Open", systemImage: "arrow.up.forward.square") {
-                            if let url = primaryServiceURL(service) { NSWorkspace.shared.open(url) }
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Copy", systemImage: "doc.on.doc") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(primaryServiceURL(service)?.absoluteString ?? "", forType: .string)
-                            onMessage("Address copied")
-                        }
-                        Button("Rename", systemImage: "pencil", action: onRename)
-                        Spacer(minLength: 0)
-                        Menu {
-                            Button("Why this is Web", systemImage: "questionmark.circle", action: onEvidence)
-                            Divider()
-                            Button("Stop (preview only)", systemImage: "stop.circle") {
-                                onMessage("Trial preview only · no process was stopped")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
+                Menu {
+                    Button("Copy address", systemImage: "doc.on.doc") { copyAddress() }
+                    Button("Rename display name…", systemImage: "pencil", action: onRename)
+                    if let onRenameProject {
+                        Button("Rename project…", systemImage: "folder.badge.gearshape", action: onRenameProject)
                     }
-                    .font(.system(size: 10, weight: .medium))
-                    .controlSize(.small)
-
-                    Button(action: onAlias) {
-                        Label(
-                            service.route?.url.replacingOccurrences(of: "http://", with: "") ?? "Add a stable .localhost address",
-                            systemImage: service.route == nil ? "link.badge.plus" : "link"
-                        )
-                        .font(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
+                    Divider()
+                    Button(
+                        service.route == nil ? "Add local address…" : "Edit local address…",
+                        systemImage: service.route == nil ? "link.badge.plus" : "link"
+                    ) { beginAliasEditing() }
+                    if let onRemoveAlias {
+                        Button("Remove local address", systemImage: "link.badge.minus", role: .destructive, action: onRemoveAlias)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(service.route == nil ? Color.accentColor : Color.secondary)
-
+                    Button("Why this was detected", systemImage: "info.circle", action: onEvidence)
                     if let path = service.project?.root {
-                        Button {
+                        Divider()
+                        Button("Reveal project in Finder", systemImage: "folder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                        }
+                        Button("Copy project path", systemImage: "doc.on.doc") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(path, forType: .string)
                             onMessage("Project path copied")
-                        } label: {
-                            Label(compactPath(path), systemImage: "folder")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
                         }
-                        .buttonStyle(.plain)
                     }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.secondary.opacity(isHovered ? 0.58 : 0.2))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+
+            if let projectContext {
+                Text(projectContext)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            if isEditingAlias {
+                HStack(spacing: 5) {
+                    Image(systemName: "link")
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 0) {
+                        TextField("project-name", text: $aliasDraft)
+                            .textFieldStyle(.plain)
+                            .focused($aliasFocused)
+                            .onSubmit { saveAlias() }
+                        Text(".localhost:17890")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 10, design: .monospaced))
+                    .padding(.horizontal, 7)
+                    .frame(height: 26)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(aliasIsValid ? Color.accentColor.opacity(0.45) : Color.red.opacity(0.65))
+                    )
+                    Button { saveAlias() } label: {
+                        Image(systemName: "checkmark")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!aliasIsValid)
+                    .help("Save local address")
+                    Button { cancelAliasEditing() } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel")
+                }
+                .onExitCommand { cancelAliasEditing() }
+            } else {
+                HStack(spacing: 5) {
+                    Button {
+                        if let url = primaryServiceURL(service) { NSWorkspace.shared.open(url) }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "link")
+                            Text(compactServiceAddress(service))
+                                .font(.system(size: 10, design: .monospaced))
+                                .lineLimit(1)
+                                .underline(isLinkHovered)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .onHover { isLinkHovered = $0 }
+                    .help("Open in browser")
+
+                    Button { beginAliasEditing() } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 8.5, weight: .medium))
+                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.56 : 0.18))
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(service.route == nil ? "Add stable local address" : "Edit local address")
+
+                    if service.listener.bindScope != "loopback" {
+                        Image(systemName: "network")
+                            .font(.system(size: 8.5))
+                            .foregroundStyle(.secondary.opacity(0.7))
+                            .help("Potentially reachable on this LAN")
+                    }
+                    Spacer(minLength: 0)
+                }
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
         .background(
-            selected ? Color.accentColor.opacity(0.06) : Color.secondary.opacity(isHovered ? 0.04 : 0),
+            Color.secondary.opacity(isHovered ? 0.04 : 0),
             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
         )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
+    }
+
+    private func copyAddress() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(primaryServiceURL(service)?.absoluteString ?? "", forType: .string)
+        onMessage("Address copied")
+    }
+
+    private func beginAliasEditing() {
+        aliasDraft = service.route?.alias ?? suggestedAlias(service)
+        isEditingAlias = true
+        DispatchQueue.main.async { aliasFocused = true }
+    }
+
+    private func cancelAliasEditing() {
+        isEditingAlias = false
+        aliasFocused = false
+    }
+
+    private func saveAlias() {
+        guard aliasIsValid else { return }
+        isEditingAlias = false
+        aliasFocused = false
+        onSaveAlias(normalizedAlias)
     }
 }
 
@@ -1146,15 +1126,11 @@ struct SecondaryServiceRow: View {
 
 struct InventoryView: View {
     @ObservedObject var store: InventoryStore
-    @State private var expanded = Set<String>()
     @State private var expandedRelated = Set<String>()
     @State private var expandedOtherWeb = false
     @State private var expandedOtherListeners = false
-    @State private var initializedExpansion = false
-    @State private var selectedServiceID: String?
     @State private var evidenceService: ServiceRecord?
     @State private var renameTarget: RenameTarget?
-    @State private var aliasTarget: AliasTarget?
     @State private var projectNames = UserDefaults.standard.dictionary(forKey: "projectDisplayNames") as? [String: String] ?? [:]
     @State private var serviceNames = UserDefaults.standard.dictionary(forKey: "serviceDisplayNames") as? [String: String] ?? [:]
     @State private var query = ""
@@ -1190,6 +1166,11 @@ struct InventoryView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
     private var isSearching: Bool { !searchNeedle.isEmpty }
+    private var inventorySummary: String {
+        let projectLabel = projects.count == 1 ? "project" : "projects"
+        let appLabel = developmentPages.count == 1 ? "Web app" : "Web apps"
+        return "\(projects.count) \(projectLabel) · \(developmentPages.count) \(appLabel)"
+    }
     private var filteredOtherWebServices: [ServiceRecord] {
         guard isSearching else { return otherWebServices }
         return otherWebServices.filter { serviceSearchText($0).contains(searchNeedle) }
@@ -1236,7 +1217,7 @@ struct InventoryView: View {
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.green)
                     }
-                    Text(store.document == nil ? "Scanning local Web apps…" : "\(projects.count) projects · \(developmentPages.count) Web apps")
+                    Text(store.document == nil ? "Scanning local Web apps…" : inventorySummary)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -1257,6 +1238,7 @@ struct InventoryView: View {
                 Menu {
                     Button("Quit Port Tools") { NSApplication.shared.terminate(nil) }
                 } label: { Image(systemName: "ellipsis") }
+                .menuIndicator(.hidden)
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 14)
@@ -1384,44 +1366,10 @@ struct InventoryView: View {
                 showMessage("Name saved")
             }
         }
-        .sheet(item: $aliasTarget) { target in
-            AliasView(
-                target: target,
-                onSave: { alias in
-                    store.assignAlias(alias, to: target.service) { result in
-                        switch result {
-                        case .success(let route): showMessage("Local address ready · \(route.alias).localhost")
-                        case .failure(let error): showMessage(error.localizedDescription)
-                        }
-                    }
-                },
-                onRemove: target.service.route == nil ? nil : { alias in
-                    store.removeAlias(alias) { result in
-                        switch result {
-                        case .success: showMessage("Local address removed")
-                        case .failure(let error): showMessage(error.localizedDescription)
-                        }
-                    }
-                }
-            )
-        }
         .task {
-            let stored = UserDefaults.standard.stringArray(forKey: "expandedProjects") ?? []
-            expanded = Set(stored)
             if store.document == nil { store.refresh() }
         }
         .onReceive(timer) { _ in store.refresh(silent: true) }
-        .onChange(of: projects.map(\.id)) { _, ids in
-            if !initializedExpansion {
-                initializedExpansion = true
-                if UserDefaults.standard.object(forKey: "expandedProjects") == nil {
-                    expanded = Set(ids)
-                }
-            }
-        }
-        .onChange(of: expanded) { _, value in
-            UserDefaults.standard.set(Array(value), forKey: "expandedProjects")
-        }
         .onKeyPress("k", phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             searchVisible = true
@@ -1438,60 +1386,35 @@ struct InventoryView: View {
 
     @ViewBuilder
     private func projectSection(_ project: ProjectGroup) -> some View {
-        let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let isOpen = searching || expanded.contains(project.id)
         let pageServices = project.services.filter(isOpenablePage)
         let relatedServices = project.services.filter { !isOpenablePage($0) }
         let pageApplications = project.applications.filter { $0.services.contains(where: isOpenablePage) }
-        let relatedIsOpen = searching || expandedRelated.contains(project.id)
+        let relatedIsOpen = isSearching || expandedRelated.contains(project.id)
         let inferredProjectName = project.name + (worktreeLabel(project.project).map { " · \($0)" } ?? "")
         let displayedProjectName = projectNames[project.id] ?? inferredProjectName
+        let isSinglePage = pageServices.count == 1
 
         VStack(spacing: 0) {
-            DisclosureRow(
-                isExpanded: isOpen,
-                isEnabled: !searching,
-                contentInsets: EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
-            ) {
-                if isOpen { expanded.remove(project.id) } else { expanded.insert(project.id) }
-            } content: {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 6, height: 6)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(displayedProjectName)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.branch")
-                        Text(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
-                        if let remote = compactRemote(project.project?.remoteUrl) {
-                            Text("·")
-                            Text(remote).lineLimit(1)
-                        }
-                    }
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 5)
-                Text("\(pageServices.count) \(pageServices.count == 1 ? "app" : "apps")")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.1), in: Capsule())
-            }
-            .contextMenu {
-                Button("Rename Project…", systemImage: "pencil") {
-                    renameTarget = RenameTarget(
-                        key: project.id,
-                        kind: .project,
-                        currentName: projectNames[project.id] ?? project.name
-                    )
-                }
-            }
+            if isSinglePage, let service = pageServices.first {
+                mainServiceRow(
+                    service,
+                    projectContext: compactProjectContext(
+                        project: project,
+                        displayedProjectName: displayedProjectName,
+                        displayedServiceName: serviceNames[serviceRenameKey(service)] ?? serviceName(service)
+                    ),
+                    onRenameProject: { beginProjectRename(project, displayedProjectName: displayedProjectName) }
+                )
+                .padding(.horizontal, 10)
+                .padding(.top, 5)
+            } else {
+                projectHeader(
+                    project,
+                    displayedProjectName: displayedProjectName,
+                    pageCount: pageServices.count,
+                    applicationCount: pageApplications.count
+                )
 
-            if isOpen {
                 VStack(spacing: 0) {
                     ForEach(project.applications) { application in
                         let applicationPages = application.services.filter(isOpenablePage)
@@ -1504,76 +1427,167 @@ struct InventoryView: View {
                                     .lineLimit(1)
                                 Spacer()
                             }
-                            .padding(.leading, 72)
+                            .padding(.leading, 46)
                             .padding(.trailing, 10)
                             .padding(.top, 5)
                         }
                         if !applicationPages.isEmpty {
                             VStack(spacing: 2) {
                                 ForEach(applicationPages) { service in
-                                    ServiceRow(
-                                        service: service,
-                                        displayName: serviceNames[serviceRenameKey(service)] ?? serviceName(service),
-                                        selected: selectedServiceID == service.id,
-                                        onSelect: {
-                                            selectedServiceID = selectedServiceID == service.id ? nil : service.id
-                                        },
-                                        onRename: {
-                                            renameTarget = RenameTarget(
-                                                key: serviceRenameKey(service),
-                                                kind: .service,
-                                                currentName: serviceNames[serviceRenameKey(service)] ?? serviceName(service)
-                                            )
-                                        },
-                                        onAlias: { aliasTarget = AliasTarget(service: service) },
-                                        onEvidence: { evidenceService = service },
-                                        onMessage: showMessage
-                                    )
+                                    mainServiceRow(service, projectContext: nil, onRenameProject: nil)
                                 }
                             }
-                            .padding(.leading, 70)
-                        }
-                    }
-
-                    if !relatedServices.isEmpty {
-                        Spacer(minLength: 4)
-                        DisclosureRow(
-                            isExpanded: relatedIsOpen,
-                            level: 1,
-                            contentInsets: EdgeInsets(top: 0, leading: 62, bottom: 0, trailing: 12),
-                            minimumHeight: 34
-                        ) {
-                            if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
-                        } content: {
-                            Text("Related services")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("Not a directly openable page")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                            Spacer()
-                            Text(String(relatedServices.count))
-                                .font(.system(size: 9, weight: .semibold))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Color.secondary.opacity(0.1), in: Capsule())
-                        }
-
-                        if relatedIsOpen {
-                            VStack(spacing: 2) {
-                                ForEach(relatedServices) { service in
-                                    RelatedServiceRow(service: service) { evidenceService = service }
-                                }
-                            }
-                            .padding(.leading, 72)
-                            .transition(disclosureContentTransition)
+                            .padding(.leading, 36)
+                            .padding(.trailing, 10)
                         }
                     }
                 }
                 .padding(.top, 2)
-                .padding(.bottom, 5)
-                .transition(disclosureContentTransition)
+            }
+
+            if !relatedServices.isEmpty {
+                Spacer(minLength: 3)
+                DisclosureRow(
+                    isExpanded: relatedIsOpen,
+                    isEnabled: !isSearching,
+                    level: 1,
+                    contentInsets: EdgeInsets(top: 0, leading: isSinglePage ? 18 : 36, bottom: 0, trailing: 12),
+                    minimumHeight: 34
+                ) {
+                    if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
+                } content: {
+                    Text("Related services")
+                        .font(.system(size: 10, weight: .semibold))
+                    Spacer()
+                    Text(String(relatedServices.count))
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.secondary.opacity(0.1), in: Capsule())
+                }
+
+                if relatedIsOpen {
+                    VStack(spacing: 2) {
+                        ForEach(relatedServices) { service in
+                            RelatedServiceRow(service: service) { evidenceService = service }
+                        }
+                    }
+                    .padding(.leading, isSinglePage ? 28 : 46)
+                    .padding(.trailing, 10)
+                    .transition(disclosureContentTransition)
+                }
             }
         }
+        .padding(.bottom, 5)
+    }
+
+    private func beginProjectRename(_ project: ProjectGroup, displayedProjectName: String) {
+        renameTarget = RenameTarget(
+            key: project.id,
+            kind: .project,
+            currentName: projectNames[project.id] ?? displayedProjectName
+        )
+    }
+
+    private func compactProjectContext(
+        project: ProjectGroup,
+        displayedProjectName: String,
+        displayedServiceName: String
+    ) -> String {
+        var parts: [String] = []
+        let normalizedProject = displayedProjectName.lowercased().filter { $0.isLetter || $0.isNumber }
+        let normalizedService = displayedServiceName.lowercased().filter { $0.isLetter || $0.isNumber }
+        if normalizedProject != normalizedService {
+            parts.append(displayedProjectName)
+        }
+        parts.append(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
+        if let remote = compactRemote(project.project?.remoteUrl) { parts.append(remote) }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func projectHeader(
+        _ project: ProjectGroup,
+        displayedProjectName: String,
+        pageCount: Int,
+        applicationCount: Int
+    ) -> some View {
+        let countText = applicationCount > 1
+            ? "\(applicationCount) apps"
+            : "\(pageCount) pages"
+        HStack(spacing: 7) {
+            Circle()
+                .fill(Color.green)
+                .frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(displayedProjectName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                    Text(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
+                    if let remote = compactRemote(project.project?.remoteUrl) {
+                        Text("·")
+                        Text(remote).lineLimit(1)
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 5)
+            Text(countText)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.1), in: Capsule())
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .contextMenu {
+            Button("Rename project…", systemImage: "pencil") {
+                beginProjectRename(project, displayedProjectName: displayedProjectName)
+            }
+        }
+    }
+
+    private func mainServiceRow(
+        _ service: ServiceRecord,
+        projectContext: String?,
+        onRenameProject: (() -> Void)?
+    ) -> some View {
+        ServiceRow(
+            service: service,
+            displayName: serviceNames[serviceRenameKey(service)] ?? serviceName(service),
+            projectContext: projectContext,
+            onRename: {
+                renameTarget = RenameTarget(
+                    key: serviceRenameKey(service),
+                    kind: .service,
+                    currentName: serviceNames[serviceRenameKey(service)] ?? serviceName(service)
+                )
+            },
+            onRenameProject: onRenameProject,
+            onSaveAlias: { alias in
+                store.assignAlias(alias, to: service) { result in
+                    switch result {
+                    case .success(let route): showMessage("Local address ready · \(route.alias).localhost")
+                    case .failure(let error): showMessage(error.localizedDescription)
+                    }
+                }
+            },
+            onRemoveAlias: service.route == nil ? nil : {
+                guard let alias = service.route?.alias else { return }
+                store.removeAlias(alias) { result in
+                    switch result {
+                    case .success: showMessage("Local address removed")
+                    case .failure(let error): showMessage(error.localizedDescription)
+                    }
+                }
+            },
+            onEvidence: { evidenceService = service },
+            onMessage: showMessage
+        )
     }
 
     @ViewBuilder
@@ -1632,6 +1646,29 @@ struct InventoryView: View {
 }
 
 final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
+    private var previewWindow: NSWindow?
+    private var previewStore: InventoryStore?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard CommandLine.arguments.contains("--preview-window") else { return }
+        let store = InventoryStore()
+        store.refresh()
+        let host = NSHostingView(rootView: InventoryView(store: store))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 410, height: 640),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Port Tools Preview"
+        window.contentView = host
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        previewStore = store
+        previewWindow = window
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         CoreRuntime.shared.stop()
     }
