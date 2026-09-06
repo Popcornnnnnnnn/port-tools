@@ -83,6 +83,11 @@ with primary project titles. Their chevrons occupy the left gutter rather than
 creating an additional hierarchy indent; expanded endpoint rows may remain
 indented beneath the group label.
 
+Inventory and detail views use the native macOS overlay scrollbar. It appears
+only while the user scrolls, uses the compact control size, and floats above the
+content instead of reserving a right-side gutter or shifting existing rows when
+a disclosure makes the view scrollable.
+
 The primary address itself is the `Open` action. Copy and display-name editing
 live in a low-emphasis overflow menu. A subtle pencil beside the address edits
 the stable `.localhost` alias inline; the fixed suffix remains visible, Enter

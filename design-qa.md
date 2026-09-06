@@ -1,79 +1,51 @@
-# Port Tools disclosure affordance and global alignment QA
+# Design QA — build 17 overlay scrollbar
 
-- Source visual truth 1: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-c60e4f73-cfb5-4ecd-9764-1161cb18980c.png`
-- Source visual truth 2: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-3b45857b-abe5-47c7-bf42-041ffb2957bf.png`
-- Default implementation screenshot: `/tmp/port-tools-build16-affordance-alignment.png`
-- Expanded implementation screenshot: `/tmp/port-tools-build16-two-services-expanded.png`
-- Affordance focus crop: `/tmp/port-tools-build16-affordance-focus.png`
-- Other-groups focus crop: `/tmp/port-tools-build16-other-focus.png`
-- Combined comparison: `/tmp/port-tools-build16-affordance-alignment-comparison.png`
-- Source pixels: 818 x 190 and 878 x 346 at approximately 2x density
-- Implementation pixels: 410 x 672 at 1x capture density
-- Normalization: source 1 downsampled to 409 x 95; source 2 cropped to the 820 px menu region and downsampled to 410 x 173; implementation regions captured at matching 410 px width
-- Content viewport: 410 x 640 pt plus the preview title bar
-- Test state: three Git-backed projects; a two-background-service control was tested collapsed and expanded
+## Evidence
 
-## Full-view comparison evidence
+- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-d22c95bb-7607-44fc-bda6-d9137e482d2b.png`
+- Collapsed implementation: `/tmp/port-tools-build17-collapsed.png`
+- Expanded idle implementation: `/tmp/port-tools-build17-expanded-idle.png`
+- Scrolled implementation: `/tmp/port-tools-build17-scrolling.png`
+- Normalized comparison: `/tmp/port-tools-build17-scrollbar-comparison.png`
+- State: `Other Web endpoints` expanded in the light appearance.
 
-Build 16 preserves build 15's compact three-line project structure. The
-two-service indicator is now a quiet capsule rather than low-contrast bare
-glyphs, while the one-service indicator remains compact. Both global Other
-groups begin on the same text axis as project titles instead of inheriting the
-old nested-section indent.
+## Normalization
 
-## Focused region comparison evidence
+- Source: 832 × 1276 px at 2× density, representing approximately a 416 × 638 pt menu panel.
+- Implementation capture: 956 × 1480 px including the native preview-window shadow at 2× density.
+- Compared implementation crop: 820 × 1282 px, representing the 410 × 641 pt app content area.
+- CSS size/device scale factor: not applicable; this is a native SwiftUI/AppKit application.
+- The comparison removes the preview title bar and outer shadow. The remaining 6 pt width difference is the existing preview-vs-menu-panel framing, not a scrollbar gutter.
 
-Both requested regions were inspected together in
-`/tmp/port-tools-build16-affordance-alignment-comparison.png`. The service
-control's resting foreground increased from 34% to 50% secondary opacity and
-gained a 6.5% secondary capsule; hover/expanded state rises to 78% foreground
-and 12% background. For Other groups, disclosure spacing changed from 8 pt to
-0 and leading content inset from 12 pt to 0, placing label text at the primary
-20 pt content axis while keeping the chevron in the left gutter.
+## Findings
+
+- No actionable P0/P1/P2 findings remain.
+- The build 16/source state used a persistent, dark scrollbar approximately 11 pt wide and reserved a right-side gutter.
+- Build 17 uses the native overlay scroller. At rest it is fully hidden; during the CUA scroll action it appeared as a narrow translucent indicator over the right edge; after the native fade delay it disappeared again.
+- Expanding `Other Web endpoints` no longer changes the horizontal bounds of project rows, section backgrounds, counts, or the footer.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing project, branch, address, Other label, and
-  count typography is unchanged; the adjustment affects affordance treatment
-  and alignment only.
-- Spacing and layout rhythm: Other labels now align with project titles. Their
-  expanded endpoint rows remain indented because those rows are true children.
-- Colors and visual tokens: the service capsule uses the existing neutral
-  secondary color at low opacity; no accent or warning semantics were added.
-- Image quality and assets: all visible icons remain native SF Symbols; no
-  raster or generated asset is required.
-- Copy and content: no text changed. `2` remains a count, while its surrounding
-  icon and capsule now communicate that the cluster is interactive.
+- Fonts and typography: unchanged from the accepted build; hierarchy, weight, truncation, and monospaced endpoint text remain stable.
+- Spacing and layout rhythm: project and endpoint geometry remains stable across collapsed, expanded, and scrolled states; no width is reserved for the scroller.
+- Colors and visual tokens: the persistent dark track is removed; the active scroller uses the native translucent macOS overlay treatment.
+- Image quality and asset fidelity: no raster or custom visual assets are involved; existing SF Symbols remain unchanged.
+- Copy and content: unchanged; live endpoint data and disclosure counts remain intact.
 
 ## Interaction checks
 
-- The two-service capsule exposes a named button with Collapsed state.
-- Activating it reveals both supporting rows and changes accessibility state to
-  Expanded.
-- The one-service capsule remains a named interactive control without adding a
-  repeated count.
-- Other Web endpoints and Other listeners remain independently clickable after
-  their alignment change.
-- Expanded endpoint rows preserve their subordinate indentation.
-- No native UI or runtime errors were observed.
+- `Other Web endpoints` expands and collapses without horizontal layout movement.
+- The scroll position can move through the expanded endpoint list.
+- The vertical indicator is visible only during native scroll activity and auto-hides when idle.
+- The footer stays fixed while the inventory scrolls.
+- The same overlay/autohide policy is applied to the service-detail scroll view.
 
-## Findings and comparison history
+## Comparison history
 
-- Earlier [P2]: the bare relationship glyph and `2` were too faint to read as a
-  clickable control.
-- Earlier [P2]: global Other labels inherited a nested disclosure inset, leaving
-  an unexplained empty strip at the left.
-- Fix: added a low-noise capsule and higher resting contrast to the background
-  service control; added configurable disclosure spacing and aligned global
-  group text to the primary content axis.
-- Post-fix evidence: the normalized comparison shows the service control as an
-  intentional compact button and both Other labels aligned with project titles.
-  The two-service expanded state was exercised. No actionable P0/P1/P2 issue
-  remains.
+1. Initial P1: the expanded list showed a thick, persistent scrollbar that visually dominated the panel and changed available content width.
+2. Fix: configured both SwiftUI scroll views through their enclosing `NSScrollView` with `.overlay`, `autohidesScrollers = true`, and `.small` vertical-scroller control size.
+3. Post-fix evidence: the normalized side-by-side comparison shows the expanded idle state without a gutter; the live CUA scroll frame showed the compact overlay indicator, and the later scrolled capture confirms it faded away.
 
-## Follow-up polish
-
-- [P3] Reassess the service capsule's resting opacity after several days of
-  mixed light/dark appearance use.
+Focused-region comparison was not needed because the affected surface is the full-height right edge and the full-view normalized comparison shows both the scrollbar and layout bounds at readable resolution.
 
 final result: passed

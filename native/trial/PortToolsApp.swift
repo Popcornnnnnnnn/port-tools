@@ -706,6 +706,7 @@ struct ServiceDetailView: View {
                     }
                 }
                 .padding(18)
+                .background(OverlayScrollViewConfigurator())
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -858,6 +859,40 @@ struct WindowFrameReader: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         DispatchQueue.main.async {
             onChange(view.window?.windowNumber, view.convert(view.bounds, to: nil))
+        }
+    }
+}
+
+/// Keeps SwiftUI's scroll view from reserving a persistent gutter. The native
+/// overlay scroller fades away when idle and appears above content while the
+/// user scrolls, matching standard macOS menu-bar-panel behavior.
+struct OverlayScrollViewConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        configure(view)
+    }
+
+    private func configure(_ view: NSView, attemptsRemaining: Int = 8) {
+        DispatchQueue.main.async {
+            guard let scrollView = view.enclosingScrollView else {
+                guard attemptsRemaining > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                    configure(view, attemptsRemaining: attemptsRemaining - 1)
+                }
+                return
+            }
+
+            scrollView.scrollerStyle = .overlay
+            scrollView.autohidesScrollers = true
+            scrollView.hasVerticalScroller = true
+            scrollView.verticalScroller?.controlSize = .small
+            scrollView.scrollerKnobStyle = .default
+            scrollView.tile()
         }
     }
 }
@@ -1510,6 +1545,7 @@ struct InventoryView: View {
                         }
                     }
                 }
+                .background(OverlayScrollViewConfigurator())
             }
 
             Divider()
