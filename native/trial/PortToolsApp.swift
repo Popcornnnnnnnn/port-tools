@@ -453,6 +453,40 @@ func compactRemote(_ value: String?) -> String? {
     return remote
 }
 
+func compactRepositoryLabel(_ value: String?) -> String? {
+    guard var label = compactRemote(value) else { return nil }
+    for prefix in ["github.com/", "gitlab.com/", "bitbucket.org/"] where label.hasPrefix(prefix) {
+        label.removeFirst(prefix.count)
+        break
+    }
+    return label
+}
+
+func repositoryWebURL(_ project: ProjectRecord?) -> URL? {
+    guard let project, var remote = project.remoteUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !remote.isEmpty else {
+        return nil
+    }
+
+    if remote.hasPrefix("git@"), let colon = remote.firstIndex(of: ":") {
+        let host = remote.dropFirst(4).prefix { $0 != ":" }
+        remote = "https://\(host)/\(remote[remote.index(after: colon)...])"
+    } else if remote.hasPrefix("ssh://git@"), let url = URL(string: remote), let host = url.host {
+        remote = "https://\(host)\(url.path)"
+    }
+
+    if remote.hasSuffix(".git") { remote.removeLast(4) }
+    guard let repositoryURL = URL(string: remote), ["http", "https"].contains(repositoryURL.scheme?.lowercased() ?? "") else {
+        return nil
+    }
+
+    guard repositoryURL.host?.lowercased() == "github.com",
+          let branch = project.branch?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !branch.isEmpty else {
+        return repositoryURL
+    }
+    return repositoryURL.appendingPathComponent("tree").appendingPathComponent(branch)
+}
+
 func worktreeLabel(_ project: ProjectRecord?) -> String? {
     guard let project, project.isWorktree == true else { return nil }
     let parent = URL(fileURLWithPath: project.root).deletingLastPathComponent().lastPathComponent
@@ -825,10 +859,83 @@ struct WindowFrameReader: NSViewRepresentable {
     }
 }
 
+struct ProjectTitleLink: View {
+    let title: String
+    let destination: URL?
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Group {
+            if let destination {
+                Button {
+                    NSWorkspace.shared.open(destination)
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(title)
+                            .lineLimit(1)
+                            .underline(isHovered)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 7.5, weight: .semibold))
+                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.52 : 0))
+                            .frame(width: 9)
+                    }
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+                }
+                .help("Open the current repository branch")
+                .accessibilityLabel("\(title), open current repository branch")
+            } else {
+                Text(title)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+struct BackgroundServiceButton: View {
+    let count: Int
+    let isExpanded: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            withAnimation(disclosureAnimation) { action() }
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 8.5, weight: .medium))
+                if count > 1 {
+                    Text(String(count))
+                        .font(.system(size: 8, weight: .semibold))
+                }
+            }
+            .foregroundStyle(Color.secondary.opacity(isHovered || isExpanded ? 0.68 : 0.34))
+            .frame(minWidth: 18, minHeight: 20)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
+        .help("\(count) background service\(count == 1 ? "" : "s"). Click to \(isExpanded ? "hide" : "show").")
+        .accessibilityLabel("\(count) background service\(count == 1 ? "" : "s")")
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+    }
+}
+
 struct ServiceRow: View {
     let service: ServiceRecord
     let displayName: String
     let projectContext: String?
+    let repositoryURL: URL?
+    let backgroundServiceCount: Int
+    let backgroundServicesExpanded: Bool
+    let onToggleBackgroundServices: (() -> Void)?
     let onRename: () -> Void
     let onRenameProject: (() -> Void)?
     let onSaveAlias: (String) -> Void
@@ -857,10 +964,8 @@ struct ServiceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
-                Text(displayName)
+                ProjectTitleLink(title: displayName, destination: repositoryURL)
                     .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                    .help(projectContext ?? "Local Web app")
 
                 if service.observation.classification == "suspected-web" {
                     Image(systemName: "questionmark.circle.fill")
@@ -872,6 +977,13 @@ struct ServiceRow: View {
                         .font(.system(size: 9))
                         .foregroundStyle(.green.opacity(0.72))
                         .help("HTTP or HTTPS response verified")
+                }
+                if backgroundServiceCount > 0, let onToggleBackgroundServices {
+                    BackgroundServiceButton(
+                        count: backgroundServiceCount,
+                        isExpanded: backgroundServicesExpanded,
+                        action: onToggleBackgroundServices
+                    )
                 }
                 Spacer(minLength: 4)
                 if let age = relativeAge(service.process.started) {
@@ -917,6 +1029,16 @@ struct ServiceRow: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
+            }
+
+            if let projectContext {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                    Text(projectContext)
+                        .lineLimit(1)
+                }
+                .font(.system(size: 9.5))
+                .foregroundStyle(.secondary)
             }
 
             if isEditingAlias {
@@ -1458,17 +1580,18 @@ struct InventoryView: View {
         let inferredProjectName = project.name + (worktreeLabel(project.project).map { " · \($0)" } ?? "")
         let displayedProjectName = projectNames[project.id] ?? inferredProjectName
         let isSinglePage = pageServices.count == 1
-        let supportingLabel = "\(relatedServices.count) background service\(relatedServices.count == 1 ? "" : "s")"
 
         VStack(spacing: 0) {
             if isSinglePage, let service = pageServices.first {
                 mainServiceRow(
                     service,
-                    projectContext: compactProjectContext(
-                        project: project,
-                        displayedProjectName: displayedProjectName,
-                        displayedServiceName: serviceNames[serviceRenameKey(service)] ?? serviceName(service)
-                    ),
+                    projectContext: compactProjectContext(project: project),
+                    repositoryURL: repositoryWebURL(project.project),
+                    backgroundServiceCount: relatedServices.count,
+                    backgroundServicesExpanded: relatedIsOpen,
+                    onToggleBackgroundServices: {
+                        if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
+                    },
                     onRenameProject: { beginProjectRename(project, displayedProjectName: displayedProjectName) }
                 )
                 .padding(.horizontal, 10)
@@ -1478,7 +1601,12 @@ struct InventoryView: View {
                     project,
                     displayedProjectName: displayedProjectName,
                     pageCount: pageServices.count,
-                    applicationCount: pageApplications.count
+                    applicationCount: pageApplications.count,
+                    backgroundServiceCount: relatedServices.count,
+                    backgroundServicesExpanded: relatedIsOpen,
+                    onToggleBackgroundServices: {
+                        if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
+                    }
                 )
 
                 VStack(spacing: 0) {
@@ -1500,7 +1628,15 @@ struct InventoryView: View {
                         if !applicationPages.isEmpty {
                             VStack(spacing: 2) {
                                 ForEach(applicationPages) { service in
-                                    mainServiceRow(service, projectContext: nil, onRenameProject: nil)
+                                    mainServiceRow(
+                                        service,
+                                        projectContext: nil,
+                                        repositoryURL: nil,
+                                        backgroundServiceCount: 0,
+                                        backgroundServicesExpanded: false,
+                                        onToggleBackgroundServices: nil,
+                                        onRenameProject: nil
+                                    )
                                 }
                             }
                             .padding(.leading, 36)
@@ -1511,35 +1647,18 @@ struct InventoryView: View {
                 .padding(.top, 2)
             }
 
-            if !relatedServices.isEmpty {
-                DisclosureRow(
-                    isExpanded: relatedIsOpen,
-                    isEnabled: !isSearching,
-                    level: 1,
-                    contentInsets: EdgeInsets(top: 0, leading: isSinglePage ? 22 : 40, bottom: 0, trailing: 12),
-                    minimumHeight: 22
-                ) {
-                    if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
-                } content: {
-                    Text(supportingLabel)
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-
-                if relatedIsOpen {
-                    VStack(spacing: 2) {
-                        ForEach(relatedServices) { service in
-                            RelatedServiceRow(
-                                service: service,
-                                parentName: displayedProjectName
-                            ) { evidenceService = service }
-                        }
+            if relatedIsOpen && !relatedServices.isEmpty {
+                VStack(spacing: 2) {
+                    ForEach(relatedServices) { service in
+                        RelatedServiceRow(
+                            service: service,
+                            parentName: displayedProjectName
+                        ) { evidenceService = service }
                     }
-                    .padding(.leading, isSinglePage ? 28 : 48)
-                    .padding(.trailing, 10)
-                    .transition(disclosureContentTransition)
                 }
+                .padding(.leading, isSinglePage ? 28 : 48)
+                .padding(.trailing, 10)
+                .transition(disclosureContentTransition)
             }
         }
         .padding(.bottom, 2)
@@ -1553,19 +1672,10 @@ struct InventoryView: View {
         )
     }
 
-    private func compactProjectContext(
-        project: ProjectGroup,
-        displayedProjectName: String,
-        displayedServiceName: String
-    ) -> String {
+    private func compactProjectContext(project: ProjectGroup) -> String {
         var parts: [String] = []
-        let normalizedProject = displayedProjectName.lowercased().filter { $0.isLetter || $0.isNumber }
-        let normalizedService = displayedServiceName.lowercased().filter { $0.isLetter || $0.isNumber }
-        if normalizedProject != normalizedService {
-            parts.append(displayedProjectName)
-        }
         parts.append(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
-        if let remote = compactRemote(project.project?.remoteUrl) { parts.append(remote) }
+        if let remote = compactRepositoryLabel(project.project?.remoteUrl) { parts.append(remote) }
         return parts.joined(separator: " · ")
     }
 
@@ -1574,7 +1684,10 @@ struct InventoryView: View {
         _ project: ProjectGroup,
         displayedProjectName: String,
         pageCount: Int,
-        applicationCount: Int
+        applicationCount: Int,
+        backgroundServiceCount: Int,
+        backgroundServicesExpanded: Bool,
+        onToggleBackgroundServices: @escaping () -> Void
     ) -> some View {
         let countText = applicationCount > 1
             ? "\(applicationCount) apps"
@@ -1584,13 +1697,21 @@ struct InventoryView: View {
                 .fill(Color.green)
                 .frame(width: 6, height: 6)
             VStack(alignment: .leading, spacing: 3) {
-                Text(displayedProjectName)
+                HStack(spacing: 5) {
+                    ProjectTitleLink(title: displayedProjectName, destination: repositoryWebURL(project.project))
+                    if backgroundServiceCount > 0 {
+                        BackgroundServiceButton(
+                            count: backgroundServiceCount,
+                            isExpanded: backgroundServicesExpanded,
+                            action: onToggleBackgroundServices
+                        )
+                    }
+                }
                     .font(.system(size: 15, weight: .semibold))
-                    .lineLimit(1)
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.branch")
                     Text(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
-                    if let remote = compactRemote(project.project?.remoteUrl) {
+                    if let remote = compactRepositoryLabel(project.project?.remoteUrl) {
                         Text("·")
                         Text(remote).lineLimit(1)
                     }
@@ -1618,12 +1739,20 @@ struct InventoryView: View {
     private func mainServiceRow(
         _ service: ServiceRecord,
         projectContext: String?,
+        repositoryURL: URL?,
+        backgroundServiceCount: Int,
+        backgroundServicesExpanded: Bool,
+        onToggleBackgroundServices: (() -> Void)?,
         onRenameProject: (() -> Void)?
     ) -> some View {
         ServiceRow(
             service: service,
             displayName: serviceNames[serviceRenameKey(service)] ?? serviceName(service),
             projectContext: projectContext,
+            repositoryURL: repositoryURL,
+            backgroundServiceCount: backgroundServiceCount,
+            backgroundServicesExpanded: backgroundServicesExpanded,
+            onToggleBackgroundServices: onToggleBackgroundServices,
             onRename: {
                 renameTarget = RenameTarget(
                     key: serviceRenameKey(service),

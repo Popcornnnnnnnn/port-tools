@@ -1,83 +1,92 @@
-# Port Tools compact inventory density QA
+# Port Tools project-source and background-service QA
 
-- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-aab2a5f5-608e-4554-aa65-2b59b68e2e9f.png`
-- Default implementation screenshot: `/tmp/port-tools-build14-compact-default.png`
-- Expanded implementation screenshot: `/tmp/port-tools-build14-compact-expanded.png`
-- Focused implementation crop: `/tmp/port-tools-build14-compact-focus.png`
-- Combined density comparison: `/tmp/port-tools-build14-density-comparison.png`
-- Source pixels: 824 x 282 at approximately 2x density
+- Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-93fe28ae-fe4f-4c05-b065-16e79a553298.png`
+- Default implementation screenshot: `/tmp/port-tools-build15-project-links-default.png`
+- Expanded implementation screenshot: `/tmp/port-tools-build15-background-expanded.png`
+- Focused implementation crop: `/tmp/port-tools-build15-project-list-focus.png`
+- Combined comparison: `/tmp/port-tools-build15-project-links-comparison.png`
+- Source pixels: 840 x 672 at approximately 2x density
 - Implementation pixels: 410 x 672 at 1x capture density
-- Normalization: source downsampled to 412 x 141; implementation project region cropped and placed in a 412 x 141 comparison frame
+- Normalization: source downsampled to 420 x 336; implementation inventory region cropped to 410 x 320 and placed in a matching 420 x 336 frame
 - Content viewport: 410 x 640 pt plus the preview title bar
-- Test state: two single-page projects, one background service under each; first group also tested expanded
+- Test state: three single-page Git worktrees; zero, one, and two background-service indicators were all visible
 
 ## Full-view comparison evidence
 
-The default build 14 screenshot shows two complete project summaries plus both
-global Other groups within roughly the same vertical area previously occupied
-by one project. The fixed menu frame remains unchanged so larger inventories can
-still scroll without a resizing popover.
+The default build 15 screenshot shows three projects, their branch/repository
+identity, their primary local address, and both global Other groups without the
+three repeated background-service text rows. A project with no background
+service shows no indicator; one service shows only the relationship icon; two
+services show the icon plus `2`.
 
 ## Focused region comparison evidence
 
-The normalized source and implementation were inspected together in
-`/tmp/port-tools-build14-density-comparison.png`. The source used four visible
-levels for one single-page project: title, repository context, address, and a
-30 pt supporting-service disclosure. Build 14 reduces the default scan path to
-three compact lines: title/status/age, primary address/edit, and a 22 pt
-background-service disclosure. The repository context remains available as the
-title help text instead of consuming a permanent row.
+The normalized before/after states were inspected together in
+`/tmp/port-tools-build15-project-links-comparison.png`. The source spent a full
+row repeating `1 background service` while omitting the Git source. Build 15
+uses that vertical budget for `branch · owner/repository`, attaches the service
+indicator to the title, and keeps the local page address as a separate blue
+action. The resulting project blocks are denser while differentiating otherwise
+similar worktrees.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: native system fonts and the existing hierarchy remain;
-  only secondary group labels were reduced by 0.5 pt and changed to medium,
-  secondary styling. Primary app names and addresses retain their sizes.
-- Spacing and layout rhythm: main-row vertical padding changed from 9 to 6 pt,
-  internal spacing from 6 to 4 pt, background disclosures from 30 to 22 pt,
-  Other disclosures from 36 to 30 pt, and project/footer gaps were tightened.
-- Colors and visual tokens: the background-service label now uses the neutral
-  secondary token; no new warning color, card, divider, or persistent highlight
-  was introduced.
+- Fonts and typography: project titles remain 13 pt semibold; Git context is
+  9.5 pt secondary text; addresses remain 10 pt monospaced. The title's external
+  link icon uses a fixed 9 pt slot so hover does not shift neighboring controls.
+- Spacing and layout rhythm: background services no longer reserve a collapsed
+  row. The restored Git line reuses the compact 4 pt internal rhythm, leaving
+  each project at three meaningful lines.
+- Colors and visual tokens: project titles remain label-colored instead of blue;
+  only the local page address uses the accent color. Repository-link affordance
+  appears through hover underline/external-link disclosure. Background-service
+  indicators use a neutral secondary token.
 - Image quality and assets: no raster assets are required by the implementation;
-  all visible icons remain native SF Symbols at their intended density.
-- Copy and content: `supporting service` becomes the clearer `background
-  service`; runtime age and the directly openable address remain visible because
-  they support stale-server decisions. Repository URL and branch are hidden
-  from the default single-page scan path.
+  branch, external-link, verification, relationship, address, and edit icons are
+  native SF Symbols.
+- Copy and content: full `github.com/` prefixes are omitted while owner/repository
+  identity remains. Background count text is suppressed for one service and
+  appears only for two or more.
 
 ## Interaction checks
 
-- The primary `.localhost` address remains directly clickable.
-- The pencil remains visible and opens address editing.
-- `1 background service` expands and collapses without reserving a large empty
-  region in the collapsed state.
-- Expanded `live-bridge` still exposes its name, LAN state, homepage status,
-  endpoint, and age.
-- Clicking `live-bridge` opens Service details; Back returns to the inventory.
-- Other Web endpoints and Other listeners remain independent disclosures.
-- Accessibility exposes hidden repository context as help on the app title and
-  preserves named buttons for the address, edit action, and disclosure.
+- Accessibility exposes each remote-backed project title as an `open current
+  repository branch` button.
+- GitHub destination construction was verified for `main` and slash-containing
+  worktree branches; the system has an HTTPS handler.
+- The local `.localhost` or loopback address remains a separate button and still
+  opens the running page.
+- The one-service relationship icon expands `live-bridge`; its accessibility
+  value changes from Collapsed to Expanded.
+- The two-service indicator exposes its numeric count and remains collapsed by
+  default.
+- Expanded supporting rows still open Service details, and Back behavior is
+  unchanged from the previously verified flow.
+- The title was not activated during QA to avoid opening an unsolicited tab in
+  the user's default browser; URL generation, target semantics, accessible
+  action, and installed HTTPS handler were checked independently.
 - No native UI or runtime errors were observed.
 
 ## Findings and comparison history
 
-- Earlier [P1]: the one-item supporting-service disclosure visually reserved a
-  full secondary-section block and made the project feel disproportionately
-  tall.
-- Earlier [P2]: branch and full GitHub remote consumed a permanent line in a
-  single-page project even though the app title already established identity.
-- Fix: moved repository context to title help, reduced the subordinate
-  disclosure to 22 pt, tightened primary and global group padding, and preserved
-  only decision-critical information in the default scan path.
-- Post-fix evidence: the normalized comparison shows the project summary reduced
-  from about 141 pt to about 89 pt without losing its primary action, health, or
-  age. Expanded, details, and Back states remain functional. No actionable
-  P0/P1/P2 issue remains.
+- Earlier [P1]: every project repeated the same `1 background service` text,
+  creating noise without adding identity.
+- Earlier [P2]: hiding branch/repository context made worktrees with similar
+  names difficult to distinguish.
+- Fix: moved background-service access into the title row, suppressed the count
+  for one service, restored compact Git context, and made remote-backed titles
+  open their current repository branch.
+- Post-fix evidence: the combined comparison shows all three repeated rows
+  removed and all three Git sources restored without increasing the overall
+  inventory height. The one-service expansion and the two-service count state
+  were exercised. No actionable P0/P1/P2 issue remains.
 
 ## Follow-up polish
 
-- [P3] Reassess the neutral background-service label contrast after several days
-  of real menu-bar use; its hit target is larger than its visible text.
+- [P3] Validate the title hover underline and external-link reveal during normal
+  use; the code prevents layout shift, but QA intentionally did not launch the
+  user's external browser.
+- [P3] Reassess whether the one-service icon needs slightly higher resting
+  contrast after several days of use.
 
 final result: passed
