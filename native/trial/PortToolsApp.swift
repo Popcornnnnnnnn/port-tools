@@ -709,6 +709,8 @@ struct ServiceDetailView: View {
                 .padding(18)
                 .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
             }
+            .scrollIndicators(.hidden)
+            .contentMargins(.trailing, 0, for: .scrollContent)
             .overlay(alignment: .topTrailing) {
                 TransientScrollIndicator(metrics: scrollIndicator)
             }
@@ -1682,6 +1684,8 @@ struct InventoryView: View {
                 }
                 .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
             }
+            .scrollIndicators(.hidden)
+            .contentMargins(.trailing, 0, for: .scrollContent)
             .overlay(alignment: .topTrailing) {
                 TransientScrollIndicator(metrics: scrollIndicator)
             }
@@ -2004,7 +2008,6 @@ struct InventoryView: View {
                     }
                 }
                 .padding(.leading, 28)
-                .padding(.trailing, 8)
                 .padding(.bottom, 5)
                 .transition(disclosureContentTransition)
             }

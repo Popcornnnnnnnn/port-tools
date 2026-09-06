@@ -1,11 +1,12 @@
-# Design QA — build 18 transient scroll indicator
+# Design QA — build 19 full-width scroll content
 
 ## Evidence
 
 - Source visual truth: `/var/folders/k5/bs66lgrn1rs3lm2n4gfcnh2r0000gn/T/codex-clipboard-d22c95bb-7607-44fc-bda6-d9137e482d2b.png`
-- Scrolling implementation: `/tmp/port-tools-build18-scrolling.png`
-- One-second idle implementation: `/tmp/port-tools-build18-idle.png`
-- Normalized three-state comparison: `/tmp/port-tools-build18-scrollbar-comparison.png`
+- Collapsed implementation: `/tmp/port-tools-build19-collapsed.png`
+- Expanded idle implementation: `/tmp/port-tools-build19-expanded-idle.png`
+- Final expanded implementation: `/tmp/port-tools-build19-expanded-final.png`
+- Normalized comparison: `/tmp/port-tools-build19-gutter-comparison.png`
 - State: `Other Web endpoints` expanded in the light appearance.
 
 ## Normalization
@@ -18,15 +19,15 @@
 
 ## Findings
 
-- No actionable P0/P1/P2 findings remain in build 18.
+- No actionable P0/P1/P2 findings remain in build 19.
 - The supplied/build 17 state shows a persistent dark native scrollbar and a reserved right gutter.
 - Build 18 removes the native scroller from the accessibility hierarchy and layout. A 3 pt translucent custom indicator overlays the right edge during a real scroll gesture, then is absent in the one-second idle capture.
-- Project rows, section backgrounds, endpoint text, counts, and footer retain identical horizontal bounds between scrolling and idle states.
+- Build 19 also removes the old 8 pt trailing inset from expanded secondary rows and hides native indicators at SwiftUI creation time. Right-side metadata now uses the same content boundary whether the list is collapsed, expanded, scrolling, or idle.
 
 ## Required fidelity surfaces
 
 - Fonts and typography: unchanged from the accepted interface; hierarchy, weights, truncation, and monospaced endpoint text remain stable.
-- Spacing and layout rhythm: no scrollbar gutter exists in either build 18 state; overlay appearance does not change available row width.
+- Spacing and layout rhythm: no scrollbar gutter exists; the left child hierarchy indent remains while the previous compensating right inset is removed.
 - Colors and visual tokens: the active indicator uses secondary foreground at 28% opacity and has no track; the idle state contains no scrollbar pixels.
 - Image quality and asset fidelity: no raster or custom product assets are involved; existing SF Symbols remain unchanged.
 - Copy and content: unchanged apart from live scanner counts and elapsed times.
@@ -39,13 +40,16 @@
 - The native scrollbar is disabled rather than merely asked to autohide, so system scrollbar preferences cannot reserve layout width.
 - The footer stays fixed while the inventory scrolls.
 - The same transient overlay implementation is attached to the service-detail scroll view.
+- After repeated disclosure and scroll interactions, the preview process remained idle at 0.0% CPU; no layout-update loop remained.
 
 ## Comparison history
 
 1. Earlier P1: build 17 configured AppKit's native scroller as overlay/autohide, but the user's actual menu-panel state still retained it and it continued to affect layout.
 2. Intermediate P1: the first build 18 candidate disabled the native scroller but placed the custom indicator outside the visible GeometryReader bounds.
 3. Fix: removed the native scroller entirely, observed clip-view bounds changes, placed a 3 pt custom indicator 4 pt inside the trailing edge, and forced it to fade after 0.7 seconds.
-4. Post-fix evidence: the combined comparison visibly shows the thin indicator only in the middle scrolling state, no indicator in the right idle state, and no horizontal difference between the two build 18 layouts.
+4. User follow-up P2: although the indicator was hidden, the expanded `Other` rows still retained an unrelated 8 pt trailing inset, making their metadata look squeezed left.
+5. Fix: applied `.scrollIndicators(.hidden)` and zero trailing scroll-content margin at the SwiftUI layer, then removed the nested list's explicit trailing inset. An attempted AppKit inset reset was rejected during QA because it caused a 99.6% CPU update loop; it is not present in the final build.
+6. Post-fix evidence: the normalized comparison shows the build 19 endpoint metadata extending farther right, while collapsed and expanded top-level controls keep the same boundary. Scrolling shows the transient overlay, idle removes it, and the final process remains idle.
 
 Focused-region comparison was not necessary because the 2× full-height captures make the entire right-edge behavior and row alignment directly readable.
 
