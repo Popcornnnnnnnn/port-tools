@@ -197,6 +197,10 @@ final class CoreRuntime: @unchecked Sendable {
         ]
         task.standardOutput = logHandle
         task.standardError = logHandle
+        // A previous app instance can leave its core alive briefly while launchd
+        // restarts us. Remove that instance's socket name before spawning so the
+        // readiness loop cannot mistake a stale socket for this child being ready.
+        try? FileManager.default.removeItem(at: socketURL)
         try task.run()
         process = task
         self.logHandle = logHandle
@@ -2175,12 +2179,23 @@ struct InventoryView: View {
     }
 }
 
+@MainActor
 final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
     private var previewWindow: NSWindow?
     private var previewStore: InventoryStore?
+    private var statusItem: NSStatusItem?
+    private var statusPopover: NSPopover?
+    private var statusStore: InventoryStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard CommandLine.arguments.contains("--preview-window") else { return }
+        if CommandLine.arguments.contains("--preview-window") {
+            showPreviewWindow()
+        } else {
+            installStatusItem()
+        }
+    }
+
+    private func showPreviewWindow() {
         let store = InventoryStore()
         store.refresh()
         let host = NSHostingView(rootView: InventoryView(store: store))
@@ -2199,6 +2214,46 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
         previewWindow = window
     }
 
+    private func installStatusItem() {
+        let store = InventoryStore()
+        store.refresh()
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentSize = NSSize(width: inventoryPanelWidth, height: inventoryPanelHeight)
+        popover.contentViewController = NSHostingController(rootView: InventoryView(store: store))
+
+        let item = NSStatusBar.system.statusItem(withLength: 24)
+        if let button = item.button {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            let image = NSImage(systemSymbolName: "network", accessibilityDescription: "Port Tools")?
+                .withSymbolConfiguration(configuration)
+            image?.isTemplate = true
+            image?.size = NSSize(width: 16, height: 16)
+            button.image = image
+            button.imageScaling = .scaleNone
+            button.imagePosition = .imageOnly
+            button.toolTip = "Port Tools"
+            button.target = self
+            button.action = #selector(toggleStatusPopover(_:))
+        }
+
+        statusStore = store
+        statusPopover = popover
+        statusItem = item
+    }
+
+    @objc private func toggleStatusPopover(_ sender: Any?) {
+        guard let button = statusItem?.button, let statusPopover else { return }
+        if statusPopover.isShown {
+            statusPopover.performClose(sender)
+        } else {
+            statusStore?.refresh(silent: true)
+            statusPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         CoreRuntime.shared.stop()
     }
@@ -2207,19 +2262,14 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct PortToolsApp: App {
     @NSApplicationDelegateAdaptor(PortToolsAppDelegate.self) private var appDelegate
-    @StateObject private var store = InventoryStore()
 
     init() {
         try? CoreRuntime.shared.start()
-        let initialStore = InventoryStore()
-        _store = StateObject(wrappedValue: initialStore)
-        initialStore.refresh()
     }
 
     var body: some Scene {
-        MenuBarExtra("Port Tools", systemImage: "network") {
-            InventoryView(store: store)
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
     }
 }

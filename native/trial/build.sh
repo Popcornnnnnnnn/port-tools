@@ -13,7 +13,7 @@ if [ -z "$go_binary" ] || [ ! -x "$go_binary" ]; then
 fi
 
 rm -rf "$build_root"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 
 (
     cd "$repository_root/core"
@@ -31,6 +31,7 @@ xcrun swiftc \
     -o "$app/Contents/MacOS/PortTools"
 
 cp "$script_root/Info.plist" "$app/Contents/Info.plist"
+cp "$script_root/Resources/PortTools.icns" "$app/Contents/Resources/PortTools.icns"
 chmod 755 "$app/Contents/MacOS/PortTools"
 chmod 755 "$app/Contents/Helpers/port-tools-core"
 codesign --force --sign - --options runtime "$app/Contents/Helpers/port-tools-core"

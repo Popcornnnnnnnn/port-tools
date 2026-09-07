@@ -119,6 +119,49 @@ func TestRoutePersistenceAndCollision(t *testing.T) {
 	}
 }
 
+func TestRemoveSocketIfOwnedDoesNotRemoveReplacement(t *testing.T) {
+	temporaryRoot, err := os.MkdirTemp("/tmp", "pt-socket-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(temporaryRoot) })
+	socketPath := filepath.Join(temporaryRoot, "core.sock")
+	first, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.(*net.UnixListener).SetUnlinkOnClose(false)
+	firstInfo, err := os.Stat(socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement.(*net.UnixListener).SetUnlinkOnClose(false)
+	defer replacement.Close()
+
+	removeSocketIfOwned(socketPath, firstInfo)
+	if _, err := os.Stat(socketPath); err != nil {
+		t.Fatalf("replacement socket was removed: %v", err)
+	}
+	replacementInfo, err := os.Stat(socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removeSocketIfOwned(socketPath, replacementInfo)
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Fatalf("owned socket still exists: %v", err)
+	}
+}
+
 func TestReverseProxyAndMissingUpstreamDiagnostic(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "text/plain")

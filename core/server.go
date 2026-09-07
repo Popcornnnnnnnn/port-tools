@@ -165,7 +165,11 @@ func serveCore(socketPath, statePath, proxyAddress string, parentPID int) error 
 		return err
 	}
 	defer apiListener.Close()
-	defer os.Remove(socketPath)
+	socketInfo, err := os.Stat(socketPath)
+	if err != nil {
+		return err
+	}
+	defer removeSocketIfOwned(socketPath, socketInfo)
 	if err := os.Chmod(socketPath, 0o600); err != nil {
 		return err
 	}
@@ -226,6 +230,13 @@ func serveCore(socketPath, statePath, proxyAddress string, parentPID int) error 
 	_ = apiHTTP.Shutdown(shutdownContext)
 	_ = proxyHTTP.Shutdown(shutdownContext)
 	return nil
+}
+
+func removeSocketIfOwned(socketPath string, ownedInfo os.FileInfo) {
+	currentInfo, err := os.Stat(socketPath)
+	if err == nil && os.SameFile(ownedInfo, currentInfo) {
+		_ = os.Remove(socketPath)
+	}
 }
 
 func filepathDir(path string) string {

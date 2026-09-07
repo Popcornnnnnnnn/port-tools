@@ -14,12 +14,14 @@
     <string>Port Tools</string>
     <key>CFBundleDisplayName</key>
     <string>Port Tools</string>
+    <key>CFBundleIconFile</key>
+    <string>PortTools.icns</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>0.2.0</string>
     <key>CFBundleVersion</key>
-    <string>22</string>
+    <string>23</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
