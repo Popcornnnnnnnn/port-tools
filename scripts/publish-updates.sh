@@ -4,6 +4,10 @@ set -euo pipefail
 release_version="${1:?release version required}"
 appcast_path="${2:?appcast path required}"
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "$appcast_path" != /* ]]; then
+  appcast_path="$repository_root/$appcast_path"
+fi
+[[ -f "$appcast_path" ]] || { echo "Appcast not found: $appcast_path" >&2; exit 1; }
 remote_url="$(git -C "$repository_root" remote get-url origin)"
 temporary_root="$(mktemp -d -t port-tools-updates.XXXXXX)"
 trap 'rm -rf "$temporary_root"' EXIT
