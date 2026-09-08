@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="native/trial/Resources/PortToolsIcon.png" width="112" alt="Port Tools 图标">
+  <img src="design/marketing/port-tools-icon-rounded.png" width="104" alt="Port Tools 图标">
   <h1>Port Tools</h1>
   <p><strong>把 localhost 端口还原成项目、应用和服务类型。</strong></p>
   <p>一个本地优先的 macOS 菜单栏工具，用来理解这台 Mac 上已经运行的开发服务。</p>
@@ -8,7 +8,7 @@
 </div>
 
 <p align="center">
-  <img src="design/native-build25-hierarchy-collapsed.png" width="382" alt="Port Tools 按项目组织本机 Web 服务">
+  <img src="design/marketing/github-hero-zh.png" width="100%" alt="Port Tools 把 localhost 端口还原成项目、worktree、应用、服务类型和可用地址">
 </p>
 
 ## `lsof` 找到 PID，Port Tools 找到 PID 背后的项目

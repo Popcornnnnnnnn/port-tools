@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="native/trial/Resources/PortToolsIcon.png" width="112" alt="Port Tools icon">
+  <img src="design/marketing/port-tools-icon-rounded.png" width="104" alt="Port Tools icon">
   <h1>Port Tools</h1>
   <p><strong>Turn localhost ports into projects, apps, and service types.</strong></p>
   <p>A local-first macOS menu-bar control plane for the development services already running on your Mac.</p>
@@ -8,7 +8,7 @@
 </div>
 
 <p align="center">
-  <img src="design/native-build25-hierarchy-collapsed.png" width="382" alt="Port Tools showing local Web services grouped by project">
+  <img src="design/marketing/github-hero-en.png" width="100%" alt="Port Tools turns localhost ports into projects, worktrees, apps, service types, and verified URLs">
 </p>
 
 ## `lsof` finds a PID. Port Tools finds the project behind it.
