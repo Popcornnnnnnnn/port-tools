@@ -1,98 +1,98 @@
-# port-tools
+<div align="center">
+  <img src="native/trial/Resources/PortToolsIcon.png" width="112" alt="Port Tools icon">
+  <h1>Port Tools</h1>
+  <p><strong>Turn localhost ports into projects, apps, and service types.</strong></p>
+  <p>A local-first macOS menu-bar control plane for the development services already running on your Mac.</p>
+  <p><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
+  <p>macOS 14+ · Native SwiftUI · Self-contained Go core · Local only</p>
+</div>
 
-`port-tools` is a proposed local development control plane for discovering forgotten web servers, understanding which project owns them, assigning stable `*.localhost` URLs, and stopping them safely.
+<p align="center">
+  <img src="design/native-build25-hierarchy-collapsed.png" width="382" alt="Port Tools showing local Web services grouped by project">
+</p>
 
-The project is currently in discovery and technical-spike stage. Product scope and acceptance criteria live in:
+## `lsof` finds a PID. Port Tools finds the project behind it.
 
-- [`docs/PRD-v0.1.md`](docs/PRD-v0.1.md)
-- [`docs/technical-spike.md`](docs/technical-spike.md)
-- [`docs/ADR-0001-production-architecture.md`](docs/ADR-0001-production-architecture.md)
+After a day of coding, `localhost:4178`, `localhost:4317`, and `localhost:7680` may all respond—but a port number does not tell you which repository, worktree, or application you are looking at.
 
-The first read-only scanner prototype is runnable now:
+Port Tools scans the listeners already running on your Mac and reconstructs their development context:
 
-```bash
-bin/port-tools scan
-bin/port-tools scan --json
-bin/port-tools scan --all-web
-bin/port-tools scan --json --all
-```
+- repository, branch, and Git worktree;
+- nearest application manifest and relative path;
+- verified Web page versus supporting service;
+- the local address you can actually open;
+- whether the process can be stopped without guessing.
 
-The default view shows only Web endpoints with developer-project evidence. It
-groups by Git worktree first, then by the nearest application manifest, with
-multiple live ports shown as service rows.
-Sibling monorepo apps remain separate subgroups inside the same project, while
-multiple ports from one app stay together. Protocol classification
-and developer relevance are intentionally separate in the JSON contract; an
-application can expose a valid local HTTP endpoint without being a development
-website the user wants to manage.
+It turns a machine-level port table into a project-level map of your local development environment.
 
-The safe-stop policy can be inspected without terminating anything:
+## Pain and solution, in the same place
 
-```bash
-bin/port-tools stop <service-id> --dry-run
-bin/port-tools stop <service-id> --dry-run --json
-bin/port-tools stop <service-id> --graceful
-```
+| When this happens | Port Tools does this |
+| --- | --- |
+| “What project owns port `4178`?” | Follows process ancestry and working directories back to the repository, branch, worktree, and application. |
+| “Why are there four `node` processes for one repo?” | Groups applications by project and separates visible Web pages from supporting services. |
+| “The port changed again.” | Assigns a stable address such as `phone-studio.localhost:17890`. |
+| “Can I safely kill this old server?” | Shows a reviewed stop plan, revalidates process identity, sends `SIGTERM`, and confirms that the listeners were released. |
 
-The dry run revalidates PID identity and ownership, lists same-project
-descendants and excluded processes, describes the graceful `SIGTERM` order,
-and records which listeners would need to be released. Docker, other-user,
-shared-runtime, and unattributed targets are refused. Graceful stop requires the
-separate explicit `--graceful` action, revalidates the complete plan immediately
-before signalling, sends only `SIGTERM`, and reports success only after every
-target listener is actually released. Force stop is not implemented.
+## How it compares
 
-The unprivileged route spike is also runnable without ports 80/443 or a local
-certificate authority:
+Port Tools does not replace the tools developers already trust. It connects the context between them.
 
-```bash
-bin/port-tools alias add studio 4317
-bin/port-tools proxy --listen 127.0.0.1:17890
-# open http://studio.localhost:17890
-```
+| Tool | Best at | What Port Tools adds |
+| --- | --- | --- |
+| [`lsof`](https://github.com/lsof-org/lsof) / `netstat` | Sockets, ports, and PIDs | Repository, worktree, application, Web classification, and a usable address |
+| Activity Monitor | Process and resource inspection | A Web-service-first view organized around development projects |
+| `kill-port` / [`fkill`](https://github.com/sindresorhus/fkill) | Freeing a port quickly | Ownership evidence, refusal rules, identity revalidation, and listener-release verification |
+| [Portless](https://github.com/vercel-labs/portless) | Starting apps on stable named URLs | Discovery and classification of services that are already running |
+| [Caddy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) | Flexible reverse-proxy infrastructure | Automatic local inventory and project-aware route ownership |
+| Docker Desktop | Container and published-port management | One view for host processes, worktrees, applications, and conservative Docker handling |
 
-For a self-signed local HTTPS upstream, the exception is explicit and scoped to
-that alias:
+## One local workflow
 
-```bash
-bin/port-tools alias add secure-studio 4443 \
-  --upstream-scheme https --tls-policy insecure-local
-```
+1. **Discover** HTTP/HTTPS listeners without changing how your app was started.
+2. **Identify** the process, repository, worktree, application, and service role.
+3. **Name** the service with a persistent `*.localhost` address.
+4. **Open or copy** the address directly from the menu bar.
+5. **Stop safely** only after reviewing and revalidating the target.
 
-Alias state is updated atomically and live without restarting the proxy. The
-compatibility suite covers streaming, SSE, redirects, cookies, large request
-bodies, HTTPS upstreams, route updates during a long response, and Vite/Next.js
-HMR. The proxy implementation remains a spike, not a final build-versus-reuse
-decision.
+## How it works
 
-The current Python and Node programs are technical-spike implementations, not a
-distribution choice. The production macOS app must be self-contained and must
-not require the user to install Python, Node.js, npm, Homebrew, Docker, or a
-separate proxy. See [`docs/packaging-requirements.md`](docs/packaging-requirements.md).
+The native SwiftUI menu-bar app talks to a bundled Go core over a private, owner-only Unix socket. The Go core discovers listeners, inspects process ancestry and working directories, reads Git and application-manifest evidence, probes HTTP/HTTPS behavior, persists aliases atomically, and runs a loopback-only reverse proxy.
 
-## Native menu bar app
+Safe stop is intentionally narrower than `kill -9`: Docker, other-user, shared-runtime, and unattributed targets are refused. Eligible targets receive an identity-bound plan token, are revalidated immediately before `SIGTERM`, and count as stopped only when their listeners are actually gone. Force stop is not implemented.
 
-The current macOS build is a real menu bar app with a bundled, self-contained
-Go core. Building it requires Go and Xcode Command Line Tools, but running the
-resulting app does not:
+## Build the current v1.0 candidate
+
+Building requires Go and Xcode Command Line Tools. The resulting app is self-contained and does not require Python, Node.js, npm, Homebrew, Docker, or a separate proxy at runtime.
 
 ```bash
-GO_BIN=/absolute/path/to/go native/trial/build.sh
+git clone https://github.com/Popcornnnnnnnn/port-tools.git
+cd port-tools
+native/trial/build.sh
 open "native/.build/Port Tools.app"
 ```
 
-It reads the live Go scanner through a private owner-only Unix socket, groups
-development Web services by project, searches projects and services, opens or
-copies local addresses, explains Web-detection evidence, and persists custom
-display names. A service can claim a real stable URL such as
-`http://phone-studio.localhost:17890`; the bundled reverse proxy listens only on
-IPv4 and IPv6 loopback, persists routes atomically, and provides a diagnostic
-page when the upstream is absent. Stop remains a non-destructive preview.
+Verify the bundle and its critical runtime paths:
 
-The release bundle contains no Python or Node runtime. Developer-side Python
-fixtures remain in the repository as compatibility specifications while the Go
-implementation is brought to full scanner, proxy, and safe-stop parity.
+```bash
+python3 native/trial/verify.py
+```
 
-No privileged helper, trusted certificate authority, background service, or
-force-termination behavior should be introduced until the corresponding
-decision gate in the PRD is resolved.
+## v1.0 boundary
+
+The current candidate is deliberately local and conservative:
+
+- macOS 14 or later;
+- IPv4/IPv6 loopback proxy on an unprivileged port;
+- no `/etc/hosts` edits, trusted local CA, or ports 80/443;
+- no privileged helper and no force termination;
+- no claim that code-level tests replace real menu-bar interaction testing.
+
+## Engineering notes
+
+- [Product requirements](docs/PRD-v0.1.md)
+- [Architecture decision](docs/ADR-0001-production-architecture.md)
+- [Technical spike](docs/technical-spike.md)
+- [Packaging requirements](docs/packaging-requirements.md)
+
+Port Tools v1.0 is approaching its first public release. Issues and early feedback are welcome.

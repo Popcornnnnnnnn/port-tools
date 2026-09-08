@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -22,7 +23,9 @@ import (
 var version = "development"
 
 type coreServer struct {
-	routes *routeManager
+	routes        *routeManager
+	stops         *stopManager
+	instanceToken string
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
@@ -38,7 +41,7 @@ func writeError(response http.ResponseWriter, status int, err error) {
 func (server *coreServer) apiHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", func(response http.ResponseWriter, _ *http.Request) {
-		writeJSON(response, http.StatusOK, map[string]any{"status": "ok", "schemaVersion": 1})
+		writeJSON(response, http.StatusOK, map[string]any{"status": "ok", "schemaVersion": 1, "instanceToken": server.instanceToken})
 	})
 	mux.HandleFunc("GET /v1/capabilities", func(response http.ResponseWriter, _ *http.Request) {
 		writeJSON(response, http.StatusOK, map[string]any{
@@ -46,7 +49,7 @@ func (server *coreServer) apiHandler() http.Handler {
 			"version":                 version,
 			"runtime":                 "self-contained-go-binary",
 			"apiVersions":             []string{"v1"},
-			"implementedCapabilities": []string{"health", "services", "routes", "reverse-proxy"},
+			"implementedCapabilities": []string{"health", "services", "routes", "reverse-proxy", "safe-stop"},
 			"selectedProxyEngine":     "net/http/httputil.ReverseProxy",
 			"privileges":              "current-user-unprivileged",
 		})
@@ -85,6 +88,34 @@ func (server *coreServer) apiHandler() http.Handler {
 			return
 		}
 		writeJSON(response, http.StatusOK, map[string]any{"alias": request.PathValue("alias"), "removed": true})
+	})
+	mux.HandleFunc("POST /v1/services/{id}/stop-plan", func(response http.ResponseWriter, request *http.Request) {
+		plan, err := server.stops.createPlan(request.PathValue("id"))
+		if err != nil {
+			writeError(response, http.StatusNotFound, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, plan)
+	})
+	mux.HandleFunc("POST /v1/services/{id}/graceful-stop", func(response http.ResponseWriter, request *http.Request) {
+		var mutation struct {
+			PlanToken      string  `json:"planToken"`
+			TimeoutSeconds float64 `json:"timeoutSeconds"`
+		}
+		if err := json.NewDecoder(io.LimitReader(request.Body, 64*1024)).Decode(&mutation); err != nil {
+			writeError(response, http.StatusBadRequest, fmt.Errorf("invalid stop request: %w", err))
+			return
+		}
+		if mutation.PlanToken == "" {
+			writeError(response, http.StatusBadRequest, fmt.Errorf("planToken is required"))
+			return
+		}
+		result, err := server.stops.gracefulStop(request.PathValue("id"), mutation.PlanToken, mutation.TimeoutSeconds)
+		if err != nil {
+			writeError(response, http.StatusConflict, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, result)
 	})
 	return mux
 }
@@ -155,11 +186,39 @@ func (server *coreServer) proxyHandler() http.Handler {
 	})
 }
 
-func serveCore(socketPath, statePath, proxyAddress string, parentPID int) error {
+func prepareUnixSocket(socketPath string) error {
+	info, err := os.Stat(socketPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return errors.New("refusing to replace a non-socket file at the Unix socket path")
+	}
+	connection, dialError := net.DialTimeout("unix", socketPath, 200*time.Millisecond)
+	if dialError == nil {
+		_ = connection.Close()
+		return errors.New("another Port Tools core already owns the Unix socket")
+	}
+	currentInfo, statError := os.Stat(socketPath)
+	if statError != nil {
+		return statError
+	}
+	if !os.SameFile(info, currentInfo) {
+		return errors.New("Unix socket changed while checking ownership")
+	}
+	return os.Remove(socketPath)
+}
+
+func serveCore(socketPath, statePath, proxyAddress string, parentPID int, instanceToken string) error {
 	if err := os.MkdirAll(filepathDir(socketPath), 0o700); err != nil {
 		return err
 	}
-	_ = os.Remove(socketPath)
+	if err := prepareUnixSocket(socketPath); err != nil {
+		return err
+	}
 	apiListener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return err
@@ -193,7 +252,7 @@ func serveCore(socketPath, statePath, proxyAddress string, parentPID int) error 
 	if err != nil {
 		return err
 	}
-	server := &coreServer{routes: routes}
+	server := &coreServer{routes: routes, stops: newStopManager(), instanceToken: instanceToken}
 	apiHTTP := &http.Server{Handler: server.apiHandler()}
 	proxyHTTP := &http.Server{Handler: server.proxyHandler()}
 	contextValue, cancel := context.WithCancel(context.Background())

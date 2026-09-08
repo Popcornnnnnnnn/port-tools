@@ -23,6 +23,7 @@ with:
 ```bash
 python3 evaluation/fixtures/manage.py start all
 python3 evaluation/fixtures/verify_scan.py
+python3 evaluation/fixtures/verify_go_scan.py
 python3 evaluation/fixtures/verify_identity.py
 python3 evaluation/fixtures/manage.py clean
 ```

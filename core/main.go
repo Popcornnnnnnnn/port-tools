@@ -52,7 +52,7 @@ func main() {
 			"schemaVersion": 1,
 			"version":       version,
 			"runtime":       "self-contained-go-binary",
-			"capabilities":  []string{"services", "routes", "reverse-proxy"},
+			"capabilities":  []string{"services", "routes", "reverse-proxy", "safe-stop"},
 		})
 	case "scan":
 		document, err := scanServices()
@@ -67,12 +67,13 @@ func main() {
 		statePath := flags.String("state", "", "route state path")
 		proxyAddress := flags.String("proxy", "127.0.0.1:17890", "loopback route proxy address")
 		parentPID := flags.Int("parent-pid", 0, "exit when this parent process exits")
+		instanceToken := flags.String("instance-token", "", "opaque owner instance token")
 		_ = flags.Parse(os.Args[2:])
 		if *socketPath == "" || *statePath == "" {
 			fmt.Fprintln(os.Stderr, "serve requires --socket and --state")
 			os.Exit(2)
 		}
-		if err := serveCore(*socketPath, *statePath, *proxyAddress, *parentPID); err != nil {
+		if err := serveCore(*socketPath, *statePath, *proxyAddress, *parentPID, *instanceToken); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

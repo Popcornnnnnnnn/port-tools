@@ -65,6 +65,15 @@ type RelevanceRecord struct {
 	Evidence          []EvidenceRecord `json:"evidence"`
 }
 
+type ManagementRecord struct {
+	Source        string            `json:"source"`
+	ContainerID   string            `json:"containerId,omitempty"`
+	ContainerName string            `json:"containerName,omitempty"`
+	Image         string            `json:"image,omitempty"`
+	ContainerPort string            `json:"containerPort,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+}
+
 type RouteRecord struct {
 	Alias           string `json:"alias"`
 	Port            int    `json:"port"`
@@ -77,14 +86,18 @@ type RouteRecord struct {
 }
 
 type ServiceRecord struct {
-	ID          string             `json:"id"`
-	Listener    ListenerRecord     `json:"listener"`
-	Process     ProcessRecord      `json:"process"`
-	Project     *ProjectRecord     `json:"project,omitempty"`
-	Application *ApplicationRecord `json:"application,omitempty"`
-	Observation ObservationRecord  `json:"observation"`
-	Relevance   RelevanceRecord    `json:"relevance"`
-	Route       *RouteRecord       `json:"route,omitempty"`
+	ID                 string             `json:"id"`
+	Listener           ListenerRecord     `json:"listener"`
+	Process            ProcessRecord      `json:"process"`
+	Project            *ProjectRecord     `json:"project,omitempty"`
+	Application        *ApplicationRecord `json:"application,omitempty"`
+	ProjectEvidence    string             `json:"projectEvidence,omitempty"`
+	ProjectCandidates  []string           `json:"projectCandidates"`
+	HostProcessProject *ProjectRecord     `json:"hostProcessProject,omitempty"`
+	Management         ManagementRecord   `json:"management"`
+	Observation        ObservationRecord  `json:"observation"`
+	Relevance          RelevanceRecord    `json:"relevance"`
+	Route              *RouteRecord       `json:"route,omitempty"`
 }
 
 type ScanDocument struct {

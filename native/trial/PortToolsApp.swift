@@ -85,6 +85,50 @@ struct ScanDocument: Codable, Sendable {
     let services: [ServiceRecord]
 }
 
+struct StopProcessRecord: Codable, Sendable {
+    let pid: Int
+    let name: String?
+    let owner: String?
+    let command: String?
+    let projectRoot: String?
+    let applicationRoot: String?
+    let reason: String?
+}
+
+struct StopListenerTarget: Codable, Sendable {
+    let pid: Int
+    let address: String
+    let port: Int
+    let currentPids: [Int]?
+}
+
+struct GracefulStopPlan: Codable, Sendable {
+    let signal: String
+    let pids: [Int]
+    let verifyListenersReleased: [StopListenerTarget]
+}
+
+struct StopPlanRecord: Codable, Sendable {
+    let decision: String
+    let reasons: [String]
+    let rootProcess: StopProcessRecord
+    let descendants: [StopProcessRecord]
+    let exclusions: [StopProcessRecord]
+    let gracefulPlan: GracefulStopPlan
+    let planToken: String?
+    let expiresAt: String?
+}
+
+struct GracefulStopResult: Codable, Sendable {
+    let decision: String
+    let reasons: [String]
+    let signalSent: Bool
+    let signaledPids: [Int]
+    let listenersReleased: Bool
+    let forceStopPerformed: Bool
+    let success: Bool
+}
+
 struct ApplicationGroup: Identifiable {
     let id: String
     let name: String
@@ -105,12 +149,15 @@ struct ProjectGroup: Identifiable {
 
 enum CoreError: LocalizedError {
     case missingResource
+    case alreadyRunning
     case failed(String)
 
     var errorDescription: String? {
         switch self {
         case .missingResource:
             return "Bundled Port Tools core is missing."
+        case .alreadyRunning:
+            return "Another Port Tools instance is already running."
         case .failed(let message):
             return message
         }
@@ -121,6 +168,8 @@ protocol InventoryProviding: Sendable {
     func scan() throws -> ScanDocument
     func assignAlias(_ alias: String, to service: ServiceRecord) throws -> RouteRecord
     func removeAlias(_ alias: String) throws
+    func stopPlan(for service: ServiceRecord) throws -> StopPlanRecord
+    func gracefulStop(_ service: ServiceRecord, planToken: String) throws -> GracefulStopResult
 }
 
 final class CoreRuntime: @unchecked Sendable {
@@ -129,6 +178,7 @@ final class CoreRuntime: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
     private var logHandle: FileHandle?
+    private var activeInstanceToken: String?
 
     private var executableURL: URL {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/port-tools-core")
@@ -164,6 +214,8 @@ final class CoreRuntime: @unchecked Sendable {
                 return
             } catch CoreError.missingResource {
                 throw CoreError.missingResource
+            } catch CoreError.alreadyRunning {
+                throw CoreError.alreadyRunning
             } catch {
                 lastError = error
                 if attempt < 7 { Thread.sleep(forTimeInterval: 0.35) }
@@ -172,10 +224,47 @@ final class CoreRuntime: @unchecked Sendable {
         throw lastError
     }
 
+    private func socketInstanceToken() -> String? {
+        guard FileManager.default.fileExists(atPath: socketURL.path) else { return nil }
+        let probe = Process()
+        let output = Pipe()
+        let errors = Pipe()
+        probe.executableURL = executableURL
+        probe.arguments = ["request", "--socket", socketURL.path, "--path", "/v1/health"]
+        probe.standardOutput = output
+        probe.standardError = errors
+        do {
+            try probe.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            probe.waitUntilExit()
+            guard probe.terminationStatus == 0,
+                  let document = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            return document["instanceToken"] as? String
+        } catch {
+            return nil
+        }
+    }
+
+    private func clearChild() {
+        process = nil
+        activeInstanceToken = nil
+        try? logHandle?.close()
+        logHandle = nil
+    }
+
     private func startLocked() throws {
-        if let process, process.isRunning, FileManager.default.fileExists(atPath: socketURL.path) { return }
+        if let process, process.isRunning {
+            if let activeInstanceToken, socketInstanceToken() == activeInstanceToken { return }
+            process.terminate()
+            process.waitUntilExit()
+            clearChild()
+        }
         guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             throw CoreError.missingResource
+        }
+        if socketInstanceToken() != nil {
+            throw CoreError.alreadyRunning
         }
         try FileManager.default.createDirectory(at: socketURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.createDirectory(at: routeStateURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -187,6 +276,7 @@ final class CoreRuntime: @unchecked Sendable {
         try logHandle.seekToEnd()
 
         let task = Process()
+        let instanceToken = UUID().uuidString
         task.executableURL = executableURL
         task.arguments = [
             "serve",
@@ -194,41 +284,39 @@ final class CoreRuntime: @unchecked Sendable {
             "--state", routeStateURL.path,
             "--proxy", ProcessInfo.processInfo.environment["PORT_TOOLS_PROXY_ADDRESS"] ?? "127.0.0.1:17890",
             "--parent-pid", String(ProcessInfo.processInfo.processIdentifier),
+            "--instance-token", instanceToken,
         ]
         task.standardOutput = logHandle
         task.standardError = logHandle
-        // A previous app instance can leave its core alive briefly while launchd
-        // restarts us. Remove that instance's socket name before spawning so the
-        // readiness loop cannot mistake a stale socket for this child being ready.
-        try? FileManager.default.removeItem(at: socketURL)
         try task.run()
         process = task
         self.logHandle = logHandle
 
         for _ in 0..<80 {
             if !task.isRunning {
-                process = nil
-                try? logHandle.close()
-                self.logHandle = nil
+                clearChild()
                 throw CoreError.failed("Port Tools core exited during startup. See \(logURL.path).")
             }
-            if FileManager.default.fileExists(atPath: socketURL.path) { return }
+            if socketInstanceToken() == instanceToken {
+                activeInstanceToken = instanceToken
+                return
+            }
             Thread.sleep(forTimeInterval: 0.05)
         }
         task.terminate()
-        process = nil
-        try? logHandle.close()
-        self.logHandle = nil
+        task.waitUntilExit()
+        clearChild()
         throw CoreError.failed("Port Tools core did not become ready.")
     }
 
     func stop() {
         lock.lock()
         defer { lock.unlock() }
-        if let process, process.isRunning { process.terminate() }
-        process = nil
-        try? logHandle?.close()
-        logHandle = nil
+        if let process, process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+        }
+        clearChild()
     }
 
     func request(method: String = "GET", path: String, body: Data? = nil) throws -> Data {
@@ -284,6 +372,24 @@ struct BundledGoInventoryProvider: InventoryProviding {
         let encodedAlias = alias.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? alias
         _ = try CoreRuntime.shared.request(method: "DELETE", path: "/v1/routes/\(encodedAlias)")
     }
+
+    func stopPlan(for service: ServiceRecord) throws -> StopPlanRecord {
+        let data = try CoreRuntime.shared.request(method: "POST", path: "/v1/services/\(service.id)/stop-plan")
+        return try JSONDecoder().decode(StopPlanRecord.self, from: data)
+    }
+
+    func gracefulStop(_ service: ServiceRecord, planToken: String) throws -> GracefulStopResult {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "planToken": planToken,
+            "timeoutSeconds": 5,
+        ])
+        let data = try CoreRuntime.shared.request(
+            method: "POST",
+            path: "/v1/services/\(service.id)/graceful-stop",
+            body: body
+        )
+        return try JSONDecoder().decode(GracefulStopResult.self, from: data)
+    }
 }
 
 @MainActor
@@ -330,6 +436,29 @@ final class InventoryStore: ObservableObject {
         let provider = provider
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try provider.removeAlias(alias) }
+            DispatchQueue.main.async {
+                completion(result)
+                if case .success = result { self.refresh() }
+            }
+        }
+    }
+
+    func stopPlan(for service: ServiceRecord, completion: @escaping (Result<StopPlanRecord, Error>) -> Void) {
+        let provider = provider
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try provider.stopPlan(for: service) }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
+    func gracefulStop(
+        _ service: ServiceRecord,
+        planToken: String,
+        completion: @escaping (Result<GracefulStopResult, Error>) -> Void
+    ) {
+        let provider = provider
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try provider.gracefulStop(service, planToken: planToken) }
             DispatchQueue.main.async {
                 completion(result)
                 if case .success = result { self.refresh() }
@@ -669,6 +798,7 @@ private struct NavigationBackButtonStyle: ButtonStyle {
 struct ServiceDetailView: View {
     let service: ServiceRecord
     let onBack: () -> Void
+    let onReviewStop: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scrollIndicator = ScrollIndicatorMetrics()
     @State private var backHovered = false
@@ -759,6 +889,10 @@ struct ServiceDetailView: View {
                         )
                         ServiceDetailRow(label: "Command", value: service.process.command ?? "Unknown", monospaced: true)
                     }
+
+                    Button("Review safe stop…", systemImage: "stop.circle", action: onReviewStop)
+                        .buttonStyle(.bordered)
+                        .tint(.red)
                 }
                 .padding(18)
                 .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
@@ -789,6 +923,98 @@ struct RenameTarget: Identifiable {
     let key: String
     let kind: RenameKind
     let currentName: String
+}
+
+struct StopReview: Identifiable {
+    let id = UUID()
+    let service: ServiceRecord
+    let plan: StopPlanRecord
+}
+
+struct StopConfirmationView: View {
+    let review: StopReview
+    @Binding var isStopping: Bool
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var isEligible: Bool {
+        review.plan.decision == "eligible" && review.plan.planToken != nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: isEligible ? "stop.circle.fill" : "exclamationmark.shield.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(isEligible ? .red : .orange)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(isEligible ? "Stop this service?" : "Cannot stop this service safely")
+                        .font(.headline)
+                    Text("Port Tools revalidates this exact process tree before sending SIGTERM.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ServiceDetailRow(label: "Service", value: serviceName(review.service))
+                ServiceDetailRow(label: "Root PID", value: String(review.plan.rootProcess.pid), monospaced: true)
+                ServiceDetailRow(
+                    label: "Signal order",
+                    value: review.plan.gracefulPlan.pids.map(String.init).joined(separator: " → ").isEmpty
+                        ? "None"
+                        : review.plan.gracefulPlan.pids.map(String.init).joined(separator: " → "),
+                    monospaced: true
+                )
+                ServiceDetailRow(
+                    label: "Verify",
+                    value: review.plan.gracefulPlan.verifyListenersReleased
+                        .map { "\($0.address):\($0.port)" }
+                        .joined(separator: ", "),
+                    monospaced: true
+                )
+            }
+
+            if !review.plan.reasons.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("WHY IT WAS REFUSED")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                    ForEach(review.plan.reasons, id: \.self) { reason in
+                        Label(reason, systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if !review.plan.exclusions.isEmpty {
+                Text("\(review.plan.exclusions.count) related process(es) are excluded because ownership could not be proven.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button(isEligible ? "Cancel" : "Done") { dismiss() }
+                    .disabled(isStopping)
+                if isEligible {
+                    Button("Stop service", role: .destructive) { onConfirm() }
+                        .disabled(isStopping)
+                }
+            }
+        }
+        .padding(18)
+        .frame(width: 430)
+        .overlay {
+            if isStopping {
+                ProgressView("Revalidating and stopping…")
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+        .interactiveDismissDisabled(isStopping)
+    }
 }
 
 struct RenameView: View {
@@ -846,6 +1072,175 @@ private let disclosureContentTransition = AnyTransition.asymmetric(
 private let inventoryPanelWidth: CGFloat = 382
 private let inventoryPanelHeight: CGFloat = 640
 
+private enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
+private enum PortToolsTheme {
+    static func panelBase(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.075, green: 0.086, blue: 0.112)
+            : Color(red: 0.955, green: 0.966, blue: 0.982)
+    }
+
+    static func chromeSurface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.025) : Color.white.opacity(0.46)
+    }
+
+    static func headerSurface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.055) : Color.white.opacity(0.72)
+    }
+
+    static func groupSurface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.035) : Color.white.opacity(0.52)
+    }
+
+    static func groupBorder(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.075) : Color.white.opacity(0.78)
+    }
+
+    static func hoverSurface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.045) : Color.black.opacity(0.035)
+    }
+}
+
+private struct FullTitleBubble: View {
+    let title: String
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var tooltipWidth: CGFloat {
+        min(310, max(150, CGFloat(title.count) * 6.6))
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(.primary)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: tooltipWidth, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                PortToolsTheme.panelBase(colorScheme),
+                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(PortToolsTheme.groupBorder(colorScheme), lineWidth: 0.75)
+            )
+            .shadow(color: Color.black.opacity(0.24), radius: 9, y: 4)
+            .allowsHitTesting(false)
+    }
+}
+
+private struct TitleRenderedWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct HoverFullTitleText: View {
+    let title: String
+    let font: Font
+    let nsFont: NSFont
+    var isUnderlined = false
+
+    @State private var renderedWidth: CGFloat = 0
+    @State private var pointerIsInside = false
+    @State private var isVisible = false
+    @State private var pendingReveal: DispatchWorkItem?
+
+    private var idealWidth: CGFloat {
+        ceil((title as NSString).size(withAttributes: [.font: nsFont]).width)
+    }
+
+    private var isTruncated: Bool {
+        renderedWidth > 0 && idealWidth > renderedWidth + 1
+    }
+
+    private var forcesTooltipForPreview: Bool {
+        CommandLine.arguments.contains("--preview-window")
+            && ProcessInfo.processInfo.environment["PORT_TOOLS_PREVIEW_FULL_TITLE"] == "1"
+            && isTruncated
+    }
+
+    var body: some View {
+        Text(title)
+            .font(font)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .underline(isUnderlined)
+            .background(
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: TitleRenderedWidthPreferenceKey.self,
+                        value: geometry.size.width
+                    )
+                }
+            )
+            .contentShape(Rectangle())
+            .overlay {
+                Rectangle()
+                    .fill(Color.black.opacity(0.001))
+                    .contentShape(Rectangle())
+                    .onHover(perform: handleHover)
+            }
+            .onPreferenceChange(TitleRenderedWidthPreferenceKey.self) { width in
+                renderedWidth = width
+                if !isTruncated {
+                    pendingReveal?.cancel()
+                    pendingReveal = nil
+                    isVisible = false
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if isVisible || forcesTooltipForPreview {
+                    FullTitleBubble(title: title)
+                        .offset(x: -4, y: -3)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
+                }
+            }
+            .zIndex(isVisible || forcesTooltipForPreview ? 100 : 0)
+            .onDisappear {
+                pendingReveal?.cancel()
+                pendingReveal = nil
+            }
+    }
+
+    private func handleHover(_ hovering: Bool) {
+        pointerIsInside = hovering
+        pendingReveal?.cancel()
+        pendingReveal = nil
+
+        if hovering && isTruncated {
+            let reveal = DispatchWorkItem {
+                guard pointerIsInside, isTruncated else { return }
+                withAnimation(.easeOut(duration: 0.12)) { isVisible = true }
+            }
+            pendingReveal = reveal
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: reveal)
+        } else {
+            withAnimation(.easeOut(duration: 0.08)) { isVisible = false }
+        }
+    }
+}
+
 struct DisclosureRow<Content: View>: View {
     let isExpanded: Bool
     let isEnabled: Bool
@@ -854,10 +1249,12 @@ struct DisclosureRow<Content: View>: View {
     let contentInsets: EdgeInsets
     let minimumHeight: CGFloat
     let contentSpacing: CGFloat?
+    let trailingChevron: Bool
     let action: () -> Void
     @ViewBuilder let content: () -> Content
 
     @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     init(
         isExpanded: Bool,
@@ -867,6 +1264,7 @@ struct DisclosureRow<Content: View>: View {
         contentInsets: EdgeInsets,
         minimumHeight: CGFloat = 0,
         contentSpacing: CGFloat? = nil,
+        trailingChevron: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder content: @escaping () -> Content
     ) {
@@ -877,6 +1275,7 @@ struct DisclosureRow<Content: View>: View {
         self.contentInsets = contentInsets
         self.minimumHeight = minimumHeight
         self.contentSpacing = contentSpacing
+        self.trailingChevron = trailingChevron
         self.action = action
         self.content = content
     }
@@ -890,6 +1289,15 @@ struct DisclosureRow<Content: View>: View {
         level == 0 ? 0.055 : 0.04
     }
 
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: level == 0 ? 8.5 : 8, weight: .semibold))
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .foregroundStyle(Color.secondary.opacity(chevronOpacity))
+            .frame(width: level == 0 ? 14 : 12)
+            .animation(disclosureAnimation, value: isExpanded)
+    }
+
     var body: some View {
         Button {
             guard isEnabled else { return }
@@ -900,19 +1308,15 @@ struct DisclosureRow<Content: View>: View {
             }
         } label: {
             HStack(spacing: contentSpacing ?? (level == 0 ? 7 : 8)) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: level == 0 ? 8.5 : 8, weight: .semibold))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .foregroundStyle(Color.secondary.opacity(chevronOpacity))
-                    .frame(width: level == 0 ? 14 : 12)
-                    .animation(disclosureAnimation, value: isExpanded)
+                if !trailingChevron { chevron }
                 content()
+                if trailingChevron { chevron }
             }
             .contentShape(Rectangle())
             .padding(contentInsets)
-            .frame(minHeight: minimumHeight)
+            .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .leading)
             .background(
-                Color.secondary.opacity(isHovered && isEnabled ? hoverOpacity : 0),
+                PortToolsTheme.hoverSurface(colorScheme).opacity(isHovered && isEnabled ? 1 : 0),
                 in: RoundedRectangle(cornerRadius: 8, style: .continuous)
             )
         }
@@ -1173,9 +1577,12 @@ struct ProjectTitleLink: View {
                     NSWorkspace.shared.open(destination)
                 } label: {
                     HStack(spacing: 3) {
-                        Text(title)
-                            .lineLimit(1)
-                            .underline(isHovered)
+                        HoverFullTitleText(
+                            title: title,
+                            font: .system(size: 13, weight: .semibold),
+                            nsFont: .systemFont(ofSize: 13, weight: .semibold),
+                            isUnderlined: isHovered
+                        )
                         Image(systemName: "arrow.up.right")
                             .font(.system(size: 7.5, weight: .semibold))
                             .foregroundStyle(Color.secondary.opacity(isHovered ? 0.52 : 0))
@@ -1189,8 +1596,11 @@ struct ProjectTitleLink: View {
                 .help("Open the current repository branch")
                 .accessibilityLabel("\(title), open current repository branch")
             } else {
-                Text(title)
-                    .lineLimit(1)
+                HoverFullTitleText(
+                    title: title,
+                    font: .system(size: 13, weight: .semibold),
+                    nsFont: .systemFont(ofSize: 13, weight: .semibold)
+                )
             }
         }
     }
@@ -1234,6 +1644,20 @@ struct BackgroundServiceButton: View {
     }
 }
 
+private struct RuntimeAgeLabel: View {
+    let age: String
+
+    var body: some View {
+        Text(age)
+            .font(.system(size: 9))
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 40, alignment: .trailing)
+            .help("Process has been running for \(age)")
+    }
+}
+
 struct ServiceRow: View {
     let service: ServiceRecord
     let displayName: String
@@ -1241,12 +1665,14 @@ struct ServiceRow: View {
     let repositoryURL: URL?
     let backgroundServiceCount: Int
     let backgroundServicesExpanded: Bool
+    let fillsProjectCard: Bool
     let onToggleBackgroundServices: (() -> Void)?
     let onRename: () -> Void
     let onRenameProject: (() -> Void)?
     let onSaveAlias: (String) -> Void
     let onRemoveAlias: (() -> Void)?
     let onEvidence: () -> Void
+    let onReviewStop: () -> Void
     let onMessage: (String) -> Void
 
     @State private var isHovered = false
@@ -1258,6 +1684,7 @@ struct ServiceRow: View {
     @State private var aliasEditorWindowNumber: Int?
     @State private var aliasClickMonitor: Any?
     @FocusState private var aliasFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     private var normalizedAlias: String {
         aliasDraft.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1293,11 +1720,7 @@ struct ServiceRow: View {
                 }
                 Spacer(minLength: 4)
                 if let age = relativeAge(service.process.started) {
-                    Text(age)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 36, alignment: .trailing)
-                        .help("Process has been running for \(age)")
+                    RuntimeAgeLabel(age: age)
                 }
 
                 Menu {
@@ -1315,6 +1738,7 @@ struct ServiceRow: View {
                         Button("Remove local address", systemImage: "link.badge.minus", role: .destructive, action: onRemoveAlias)
                     }
                     Button("Why this was detected", systemImage: "info.circle", action: onEvidence)
+                    Button("Review safe stop…", systemImage: "stop.circle", action: onReviewStop)
                     if let path = service.project?.root {
                         Divider()
                         Button("Reveal project in Finder", systemImage: "folder") {
@@ -1422,16 +1846,20 @@ struct ServiceRow: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            Color.secondary.opacity(isHovered ? 0.04 : 0),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            isHovered ? PortToolsTheme.hoverSurface(colorScheme) : Color.clear,
+            in: RoundedRectangle(cornerRadius: fillsProjectCard ? 12 : 8, style: .continuous)
         )
+        .zIndex(isHovered ? 5 : 0)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
         }
-        .onDisappear { removeAliasClickMonitor() }
+        .onDisappear {
+            removeAliasClickMonitor()
+        }
     }
 
     private func copyAddress() {
@@ -1501,6 +1929,7 @@ struct RelatedServiceRow: View {
     let onEvidence: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: onEvidence) {
@@ -1537,10 +1966,7 @@ struct RelatedServiceRow: View {
                 Spacer(minLength: 4)
                 HStack(spacing: 6) {
                     if let age = relativeAge(service.process.started) {
-                        Text(age)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                            .help("Process has been running for \(age)")
+                        RuntimeAgeLabel(age: age)
                     }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .semibold))
@@ -1554,7 +1980,7 @@ struct RelatedServiceRow: View {
         }
         .buttonStyle(.plain)
         .background(
-            Color.secondary.opacity(isHovered ? 0.035 : 0),
+            isHovered ? PortToolsTheme.hoverSurface(colorScheme) : Color.clear,
             in: RoundedRectangle(cornerRadius: 7, style: .continuous)
         )
         .onHover { hovering in
@@ -1570,6 +1996,7 @@ struct SecondaryServiceRow: View {
     let onDetails: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: onDetails) {
@@ -1593,10 +2020,7 @@ struct SecondaryServiceRow: View {
                 }
                 Spacer(minLength: 4)
                 if let age = relativeAge(service.process.started) {
-                    Text(age)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                        .help("Process has been running for \(age)")
+                    RuntimeAgeLabel(age: age)
                 }
                 Image(systemName: "info.circle")
                     .font(.system(size: 9))
@@ -1608,7 +2032,7 @@ struct SecondaryServiceRow: View {
         }
         .buttonStyle(.plain)
         .background(
-            Color.secondary.opacity(isHovered ? 0.035 : 0),
+            isHovered ? PortToolsTheme.hoverSurface(colorScheme) : Color.clear,
             in: RoundedRectangle(cornerRadius: 7, style: .continuous)
         )
         .onHover { hovering in
@@ -1621,11 +2045,16 @@ struct SecondaryServiceRow: View {
 struct InventoryView: View {
     @ObservedObject var store: InventoryStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.dark.rawValue
     @State private var expandedRelated = Set<String>()
+    @State private var collapsedProjects = Set<String>()
     @State private var expandedOtherWeb = false
     @State private var expandedOtherListeners = false
     @State private var evidenceService: ServiceRecord?
     @State private var renameTarget: RenameTarget?
+    @State private var stopReview: StopReview?
+    @State private var stopInProgress = false
     @State private var projectNames = UserDefaults.standard.dictionary(forKey: "projectDisplayNames") as? [String: String] ?? [:]
     @State private var serviceNames = UserDefaults.standard.dictionary(forKey: "serviceDisplayNames") as? [String: String] ?? [:]
     @State private var query = ""
@@ -1662,6 +2091,13 @@ struct InventoryView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
     private var isSearching: Bool { !searchNeedle.isEmpty }
+    private var preferredColorScheme: ColorScheme? {
+        switch AppearanceMode(rawValue: appearanceModeRaw) ?? .dark {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
     private var inventorySummary: String {
         let projectCount = Set(developmentPages.compactMap { $0.project?.root }).count
         let projectLabel = projectCount == 1 ? "project" : "projects"
@@ -1707,13 +2143,16 @@ struct InventoryView: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 7) {
-                        Text("Port Tools").font(.title3.weight(.bold))
+                        Text("Port Tools").font(.system(size: 18, weight: .bold))
                         HStack(spacing: 5) {
                             Circle().fill(Color.green).frame(width: 5, height: 5)
                             Text("LIVE")
                         }
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.green)
+                        .padding(.horizontal, 6)
+                        .frame(height: 18)
+                        .background(Color.green.opacity(colorScheme == .dark ? 0.12 : 0.09), in: Capsule())
                     }
                     Text(store.document == nil ? "Scanning local Web apps…" : inventorySummary)
                         .font(.caption2)
@@ -1734,13 +2173,22 @@ struct InventoryView: View {
                 }
                 .help("Refresh")
                 Menu {
+                    Picker("Appearance", selection: $appearanceModeRaw) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            Text(mode.title).tag(mode.rawValue)
+                        }
+                    }
+                    Divider()
                     Button("Quit Port Tools") { NSApplication.shared.terminate(nil) }
-                } label: { Image(systemName: "ellipsis") }
+                } label: { Image(systemName: "gearshape") }
                 .menuIndicator(.hidden)
+                .help("Settings")
+                .accessibilityLabel("Settings")
             }
             .buttonStyle(.borderless)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .background(PortToolsTheme.headerSurface(colorScheme))
 
             if searchVisible {
                 HStack(spacing: 7) {
@@ -1756,8 +2204,9 @@ struct InventoryView: View {
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 36)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .background(PortToolsTheme.groupSurface(colorScheme), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor.opacity(0.6)))
+                .shadow(color: Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.06), radius: 8, y: 2)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 7)
             }
@@ -1792,6 +2241,7 @@ struct InventoryView: View {
                         ForEach(filteredProjects) { project in
                             projectSection(project)
                                 .padding(.vertical, 2)
+                                .padding(.horizontal, 8)
                         }
 
                         Spacer(minLength: 2)
@@ -1814,6 +2264,7 @@ struct InventoryView: View {
                     }
                 }
                 .frame(width: inventoryPanelWidth, alignment: .leading)
+                .padding(.top, 5)
                 .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
             }
             .scrollIndicators(.hidden)
@@ -1832,9 +2283,10 @@ struct InventoryView: View {
             .foregroundStyle(.tertiary)
             .padding(.horizontal, 12)
             .frame(height: 25)
+            .background(PortToolsTheme.chromeSurface(colorScheme))
         }
         .frame(width: inventoryPanelWidth, height: inventoryPanelHeight)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(PortToolsTheme.panelBase(colorScheme))
         .overlay(alignment: .bottom) {
             if let message {
                 Label(message, systemImage: "checkmark")
@@ -1850,10 +2302,12 @@ struct InventoryView: View {
         .overlay {
             if let service = evidenceService {
                 ZStack {
-                    Color(nsColor: .windowBackgroundColor)
-                    ServiceDetailView(service: service) {
-                        hideServiceDetails()
-                    }
+                    PortToolsTheme.panelBase(colorScheme)
+                    ServiceDetailView(
+                        service: service,
+                        onBack: { hideServiceDetails() },
+                        onReviewStop: { reviewStop(service) }
+                    )
                 }
                 .id(service.id)
                 .transition(
@@ -1880,10 +2334,18 @@ struct InventoryView: View {
                 showMessage("Name saved")
             }
         }
+        .sheet(item: $stopReview) { review in
+            StopConfirmationView(
+                review: review,
+                isStopping: $stopInProgress,
+                onConfirm: { performStop(review) }
+            )
+        }
         .task {
             if store.document == nil { store.refresh() }
         }
         .onReceive(timer) { _ in store.refresh(silent: true) }
+        .preferredColorScheme(preferredColorScheme)
         .onKeyPress("k", phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             searchVisible = true
@@ -1907,6 +2369,7 @@ struct InventoryView: View {
         let inferredProjectName = project.name + (worktreeLabel(project.project).map { " · \($0)" } ?? "")
         let displayedProjectName = projectNames[project.id] ?? inferredProjectName
         let isSinglePage = pageServices.count == 1
+        let projectIsExpanded = isSearching || !collapsedProjects.contains(project.id)
 
         VStack(spacing: 0) {
             if isSinglePage, let service = pageServices.first {
@@ -1914,6 +2377,7 @@ struct InventoryView: View {
                     service,
                     projectContext: project.project == nil ? nil : compactProjectContext(project: project),
                     repositoryURL: repositoryWebURL(project.project),
+                    fillsProjectCard: true,
                     backgroundServiceCount: relatedServices.count,
                     backgroundServicesExpanded: relatedIsOpen,
                     onToggleBackgroundServices: {
@@ -1923,60 +2387,90 @@ struct InventoryView: View {
                         beginProjectRename(project, displayedProjectName: displayedProjectName)
                     }
                 )
-                .padding(.leading, 10)
-                .padding(.top, 2)
             } else {
                 projectHeader(
                     project,
                     displayedProjectName: displayedProjectName,
                     pageCount: pageServices.count,
                     applicationCount: pageApplications.count,
-                    backgroundServiceCount: relatedServices.count,
-                    backgroundServicesExpanded: relatedIsOpen,
-                    onToggleBackgroundServices: {
-                        if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
+                    isExpanded: projectIsExpanded,
+                    onToggle: {
+                        if collapsedProjects.contains(project.id) {
+                            collapsedProjects.remove(project.id)
+                        } else {
+                            collapsedProjects.insert(project.id)
+                        }
                     }
                 )
 
-                VStack(spacing: 0) {
-                    ForEach(project.applications) { application in
-                        let applicationPages = application.services.filter(isOpenablePage)
-                        if !applicationPages.isEmpty && pageApplications.count > 1 {
-                            HStack(spacing: 6) {
-                                Text(application.name).font(.system(size: 10, weight: .semibold))
-                                Text(application.application.map { "\($0.manifest) · \($0.relativePath)" } ?? "command path")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .padding(.leading, 46)
-                            .padding(.trailing, 10)
-                            .padding(.top, 5)
-                        }
-                        if !applicationPages.isEmpty {
-                            VStack(spacing: 2) {
-                                ForEach(applicationPages) { service in
-                                    mainServiceRow(
-                                        service,
-                                        projectContext: nil,
-                                        repositoryURL: nil,
-                                        backgroundServiceCount: 0,
-                                        backgroundServicesExpanded: false,
-                                        onToggleBackgroundServices: nil,
-                                        onRenameProject: nil
-                                    )
+                ExpandableContent(isExpanded: projectIsExpanded) {
+                    VStack(spacing: 0) {
+                        ForEach(project.applications) { application in
+                            let applicationPages = application.services.filter(isOpenablePage)
+                            if !applicationPages.isEmpty && pageApplications.count > 1 {
+                                HStack(spacing: 6) {
+                                    Text(application.name).font(.system(size: 10, weight: .semibold))
+                                    Text(application.application.map { "\($0.manifest) · \($0.relativePath)" } ?? "command path")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                    Spacer()
                                 }
+                                .padding(.leading, 46)
+                                .padding(.trailing, 10)
+                                .padding(.top, 5)
                             }
-                            .padding(.leading, 36)
-                            .padding(.trailing, 10)
+                            if !applicationPages.isEmpty {
+                                VStack(spacing: 2) {
+                                    ForEach(applicationPages) { service in
+                                        mainServiceRow(
+                                            service,
+                                            projectContext: nil,
+                                            repositoryURL: nil,
+                                            fillsProjectCard: false,
+                                            backgroundServiceCount: 0,
+                                            backgroundServicesExpanded: false,
+                                            onToggleBackgroundServices: nil,
+                                            onRenameProject: nil
+                                        )
+                                    }
+                                }
+                                .padding(.leading, 36)
+                                .padding(.trailing, 10)
+                            }
+                        }
+                        if !relatedServices.isEmpty {
+                            DisclosureRow(
+                                isExpanded: relatedIsOpen,
+                                level: 1,
+                                contentInsets: EdgeInsets(top: 3, leading: 38, bottom: 3, trailing: 10),
+                                minimumHeight: 26
+                            ) {
+                                if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
+                            } content: {
+                                Text("\(relatedServices.count) supporting service\(relatedServices.count == 1 ? "" : "s")")
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            ExpandableContent(isExpanded: relatedIsOpen) {
+                                VStack(spacing: 2) {
+                                    ForEach(relatedServices) { service in
+                                        RelatedServiceRow(service: service, parentName: displayedProjectName) {
+                                            showServiceDetails(service)
+                                        }
+                                    }
+                                }
+                                .padding(.leading, 48)
+                                .padding(.trailing, 10)
+                            }
                         }
                     }
+                    .padding(.top, 2)
                 }
-                .padding(.top, 2)
             }
 
-            if relatedIsOpen && !relatedServices.isEmpty {
+            if isSinglePage && relatedIsOpen && !relatedServices.isEmpty {
                 VStack(spacing: 2) {
                     ForEach(relatedServices) { service in
                         RelatedServiceRow(
@@ -1990,7 +2484,13 @@ struct InventoryView: View {
                 .transition(disclosureContentTransition)
             }
         }
-        .padding(.bottom, 2)
+        .padding(.bottom, isSinglePage ? 0 : 2)
+        .background(PortToolsTheme.groupSurface(colorScheme), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(PortToolsTheme.groupBorder(colorScheme), lineWidth: 0.75)
+        )
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.11 : 0.035), radius: 7, y: 2)
     }
 
     private func beginProjectRename(_ project: ProjectGroup, displayedProjectName: String) {
@@ -2014,51 +2514,64 @@ struct InventoryView: View {
         displayedProjectName: String,
         pageCount: Int,
         applicationCount: Int,
-        backgroundServiceCount: Int,
-        backgroundServicesExpanded: Bool,
-        onToggleBackgroundServices: @escaping () -> Void
+        isExpanded: Bool,
+        onToggle: @escaping () -> Void
     ) -> some View {
         let countText = applicationCount > 1
             ? "\(applicationCount) apps"
             : "\(pageCount) pages"
-        HStack(spacing: 7) {
-            Circle()
-                .fill(Color.green)
-                .frame(width: 6, height: 6)
+        DisclosureRow(
+            isExpanded: isExpanded,
+            level: 0,
+            contentInsets: EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 8),
+            minimumHeight: 50,
+            trailingChevron: true,
+            action: onToggle
+        ) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    ProjectTitleLink(title: displayedProjectName, destination: repositoryWebURL(project.project))
-                    if backgroundServiceCount > 0 {
-                        BackgroundServiceButton(
-                            count: backgroundServiceCount,
-                            isExpanded: backgroundServicesExpanded,
-                            action: onToggleBackgroundServices
-                        )
-                    }
+                HStack(spacing: 7) {
+                    HoverFullTitleText(
+                        title: displayedProjectName,
+                        font: .system(size: 13, weight: .semibold),
+                        nsFont: .systemFont(ofSize: 13, weight: .semibold)
+                    )
+                    Image(systemName: "checkmark.shield.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.green.opacity(0.72))
+                        .help("All visible Web pages responded successfully")
                 }
-                    .font(.system(size: 15, weight: .semibold))
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.branch")
-                    Text(project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"))
-                    if let remote = compactRepositoryLabel(project.project?.remoteUrl) {
-                        Text("·")
-                        Text(remote).lineLimit(1)
-                    }
+                    Text(
+                        [
+                            project.project?.branch ?? (project.project?.isWorktree == true ? "Codex worktree" : "No Git branch"),
+                            compactRepositoryLabel(project.project?.remoteUrl)
+                        ]
+                        .compactMap { $0 }
+                        .joined(separator: " · ")
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 }
-                .font(.system(size: 10))
+                .font(.system(size: 9.5))
                 .foregroundStyle(.secondary)
             }
+            .layoutPriority(1)
             Spacer(minLength: 5)
             Text(countText)
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(Color.secondary)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
                 .background(Color.secondary.opacity(0.1), in: Capsule())
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
         .contextMenu {
+            if let repositoryURL = repositoryWebURL(project.project) {
+                Button("Open repository", systemImage: "arrow.up.right") {
+                    NSWorkspace.shared.open(repositoryURL)
+                }
+            }
             Button("Rename project…", systemImage: "pencil") {
                 beginProjectRename(project, displayedProjectName: displayedProjectName)
             }
@@ -2069,6 +2582,7 @@ struct InventoryView: View {
         _ service: ServiceRecord,
         projectContext: String?,
         repositoryURL: URL?,
+        fillsProjectCard: Bool = false,
         backgroundServiceCount: Int,
         backgroundServicesExpanded: Bool,
         onToggleBackgroundServices: (() -> Void)?,
@@ -2081,6 +2595,7 @@ struct InventoryView: View {
             repositoryURL: repositoryURL,
             backgroundServiceCount: backgroundServiceCount,
             backgroundServicesExpanded: backgroundServicesExpanded,
+            fillsProjectCard: fillsProjectCard,
             onToggleBackgroundServices: onToggleBackgroundServices,
             onRename: {
                 renameTarget = RenameTarget(
@@ -2108,6 +2623,7 @@ struct InventoryView: View {
                 }
             },
             onEvidence: { showServiceDetails(service) },
+            onReviewStop: { reviewStop(service) },
             onMessage: showMessage
         )
     }
@@ -2125,7 +2641,7 @@ struct InventoryView: View {
                 isEnabled: !isSearching,
                 animatesContent: false,
                 level: 1,
-                contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8),
+                contentInsets: EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 8),
                 minimumHeight: 30,
                 contentSpacing: 0
             ) {
@@ -2171,6 +2687,35 @@ struct InventoryView: View {
         }
     }
 
+    private func reviewStop(_ service: ServiceRecord) {
+        store.stopPlan(for: service) { result in
+            switch result {
+            case .success(let plan):
+                stopReview = StopReview(service: service, plan: plan)
+            case .failure(let error):
+                showMessage(error.localizedDescription)
+            }
+        }
+    }
+
+    private func performStop(_ review: StopReview) {
+        guard let planToken = review.plan.planToken else { return }
+        stopInProgress = true
+        store.gracefulStop(review.service, planToken: planToken) { result in
+            stopInProgress = false
+            stopReview = nil
+            switch result {
+            case .success(let stopResult) where stopResult.success:
+                evidenceService = nil
+                showMessage("Service stopped and listener released")
+            case .success(let stopResult):
+                showMessage(stopResult.reasons.first ?? "Service could not be stopped safely")
+            case .failure(let error):
+                showMessage(error.localizedDescription)
+            }
+        }
+    }
+
     private func showMessage(_ value: String) {
         withAnimation { message = value }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
@@ -2188,6 +2733,13 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
     private var statusStore: InventoryStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do {
+            try CoreRuntime.shared.start()
+        } catch {
+            NSLog("Port Tools startup failed: %@", error.localizedDescription)
+            NSApp.terminate(nil)
+            return
+        }
         if CommandLine.arguments.contains("--preview-window") {
             showPreviewWindow()
         } else {
@@ -2262,10 +2814,6 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct PortToolsApp: App {
     @NSApplicationDelegateAdaptor(PortToolsAppDelegate.self) private var appDelegate
-
-    init() {
-        try? CoreRuntime.shared.start()
-    }
 
     var body: some Scene {
         Settings {

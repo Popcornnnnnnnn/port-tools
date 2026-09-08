@@ -122,7 +122,7 @@ func discoverListeners() ([]discoveredListener, error) {
 
 func pointer[T any](value T) *T { return &value }
 
-func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord, *ApplicationRecord) {
+func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord, *ApplicationRecord, string, []string) {
 	pid := strconv.Itoa(listener.PID)
 	command := runText("/bin/ps", "-p", pid, "-o", "command=")
 	parentText := runText("/bin/ps", "-p", pid, "-o", "ppid=")
@@ -156,7 +156,13 @@ func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord
 	}
 
 	project := findProject(cwd)
+	projectEvidence := ""
+	projectCandidates := []string{}
+	if project != nil {
+		projectEvidence = "cwd"
+	}
 	if project == nil {
+		candidateProjects := map[string]*ProjectRecord{}
 		for _, field := range strings.Fields(command) {
 			candidate := strings.Trim(field, `"'`)
 			if !filepath.IsAbs(candidate) && cwd != "" {
@@ -170,16 +176,109 @@ func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord
 				candidate = filepath.Dir(candidate)
 			}
 			if found := findProject(candidate); found != nil {
-				project = found
-				break
+				candidateProjects[found.Root] = found
 			}
+		}
+		for root := range candidateProjects {
+			projectCandidates = append(projectCandidates, root)
+		}
+		sort.Strings(projectCandidates)
+		if len(projectCandidates) == 1 {
+			project = candidateProjects[projectCandidates[0]]
+			projectEvidence = "command-path"
+		} else if len(projectCandidates) > 1 {
+			projectEvidence = "ambiguous-command-path"
 		}
 	}
 	var application *ApplicationRecord
 	if project != nil {
 		application = findApplication(cwd, command, project.Root)
 	}
-	return process, project, application
+	return process, project, application, projectEvidence, projectCandidates
+}
+
+func findDockerBinary() string {
+	if dockerPath, err := exec.LookPath("docker"); err == nil {
+		return dockerPath
+	}
+	for _, candidate := range []string{
+		"/usr/local/bin/docker",
+		"/opt/homebrew/bin/docker",
+		"/Applications/Docker.app/Contents/Resources/bin/docker",
+		"/Applications/OrbStack.app/Contents/MacOS/xbin/docker",
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func dockerPortMetadata() map[int]ManagementRecord {
+	dockerPath := findDockerBinary()
+	if dockerPath == "" {
+		return map[int]ManagementRecord{}
+	}
+	containerOutput := runText(dockerPath, "ps", "-q")
+	containerIDs := strings.Fields(containerOutput)
+	if len(containerIDs) == 0 {
+		return map[int]ManagementRecord{}
+	}
+	arguments := append([]string{"inspect"}, containerIDs...)
+	command := exec.Command(dockerPath, arguments...)
+	command.Stderr = io.Discard
+	output, err := command.Output()
+	if err != nil {
+		return map[int]ManagementRecord{}
+	}
+	var containers []struct {
+		ID     string `json:"Id"`
+		Name   string `json:"Name"`
+		Config struct {
+			Image  string            `json:"Image"`
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+		NetworkSettings struct {
+			Ports map[string][]struct {
+				HostPort string `json:"HostPort"`
+			} `json:"Ports"`
+		} `json:"NetworkSettings"`
+	}
+	if err := json.Unmarshal(output, &containers); err != nil {
+		return map[int]ManagementRecord{}
+	}
+	ports := map[int]ManagementRecord{}
+	for _, container := range containers {
+		safeLabels := map[string]string{}
+		for _, key := range []string{
+			"com.docker.compose.project",
+			"com.docker.compose.project.working_dir",
+			"com.docker.compose.service",
+			"dev.port-tools.project-root",
+		} {
+			if value := container.Config.Labels[key]; value != "" {
+				safeLabels[key] = value
+			}
+		}
+		for containerPort, bindings := range container.NetworkSettings.Ports {
+			for _, binding := range bindings {
+				hostPort, err := strconv.Atoi(binding.HostPort)
+				if err != nil {
+					continue
+				}
+				containerID := container.ID
+				if len(containerID) > 12 {
+					containerID = containerID[:12]
+				}
+				ports[hostPort] = ManagementRecord{
+					Source: "docker", ContainerID: containerID,
+					ContainerName: strings.TrimPrefix(container.Name, "/"), Image: container.Config.Image,
+					ContainerPort: containerPort, Labels: safeLabels,
+				}
+			}
+		}
+	}
+	return ports
 }
 
 func resolveGitDirectory(root string) (string, bool) {
@@ -396,7 +495,7 @@ func probeURL(listener discoveredListener, scheme string) (*HTTPRecord, []byte, 
 		},
 	}
 	request, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("%s://%s:%d/", scheme, host, listener.Port), nil)
-	request.Header.Set("User-Agent", "port-tools-core/0.1")
+	request.Header.Set("User-Agent", "port-tools-core/"+version)
 	request.Header.Set("Accept", "text/html,*/*;q=0.1")
 	response, err := client.Do(request)
 	if err != nil {
@@ -424,6 +523,82 @@ func probeURL(listener discoveredListener, scheme string) (*HTTPRecord, []byte, 
 		}
 	}
 	return record, body, nil
+}
+
+func rawProbe(listener discoveredListener) ([]byte, error) {
+	host := "127.0.0.1"
+	if listener.Address == "::1" {
+		host = "::1"
+	}
+	connection, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(listener.Port)), 350*time.Millisecond)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close()
+	if err := connection.SetDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		return nil, err
+	}
+	request := fmt.Sprintf(
+		"GET / HTTP/1.1\r\nHost: localhost:%d\r\nUser-Agent: port-tools-core/%s\r\nAccept: text/html,*/*;q=0.1\r\nConnection: close\r\n\r\n",
+		listener.Port,
+		version,
+	)
+	if _, err := io.WriteString(connection, request); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(connection, 4096))
+	if timeout, ok := err.(net.Error); ok && timeout.Timeout() && len(data) > 0 {
+		return data, nil
+	}
+	return data, err
+}
+
+func redisResponse(data []byte) bool {
+	lower := strings.ToLower(string(data))
+	return (bytesHasAnyPrefix(data, "-ERR", "-DENIED") &&
+		(strings.Contains(lower, "unknown command") ||
+			strings.Contains(lower, "wrong number of arguments") ||
+			strings.Contains(lower, "redis"))) || strings.HasPrefix(string(data), "+PONG")
+}
+
+func redisCandidate(process ProcessRecord, management ManagementRecord) bool {
+	identity := strings.ToLower(
+		valueOrEmpty(process.Name) + " " + valueOrEmpty(process.Command) + " " +
+			management.ContainerName + " " + management.Image,
+	)
+	return strings.Contains(identity, "redis")
+}
+
+func redisProbe(listener discoveredListener) ([]byte, error) {
+	host := "127.0.0.1"
+	if listener.Address == "::1" {
+		host = "::1"
+	}
+	connection, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(listener.Port)), 350*time.Millisecond)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close()
+	if err := connection.SetDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		return nil, err
+	}
+	if _, err := connection.Write([]byte("*1\r\n$4\r\nPING\r\n")); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(connection, 4096))
+	if timeout, ok := err.(net.Error); ok && timeout.Timeout() && len(data) > 0 {
+		return data, nil
+	}
+	return data, err
+}
+
+func bytesHasAnyPrefix(data []byte, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(string(data), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func detectFramework(command string, body []byte) *string {
@@ -475,7 +650,7 @@ func suspectedRole(hint string) string {
 	}
 }
 
-func observe(listener discoveredListener, process ProcessRecord) ObservationRecord {
+func observe(listener discoveredListener, process ProcessRecord, management ManagementRecord) ObservationRecord {
 	command := ""
 	if process.Command != nil {
 		command = *process.Command
@@ -496,13 +671,28 @@ func observe(listener discoveredListener, process ProcessRecord) ObservationReco
 		}
 		return ObservationRecord{Classification: "confirmed-web", Protocol: "https", Role: presentationRole(response, framework), Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
 	}
+	data, _ := rawProbe(listener)
+	if redisResponse(data) {
+		return ObservationRecord{Classification: "non-web", Protocol: "redis", Role: "service", Confidence: 0.99, Evidence: []EvidenceRecord{{Kind: "redis-response", Value: string(data[:min(len(data), 96)])}}}
+	}
+	if redisCandidate(process, management) {
+		if redisData, err := redisProbe(listener); err == nil && redisResponse(redisData) {
+			return ObservationRecord{Classification: "non-web", Protocol: "redis", Role: "service", Confidence: 0.99, Evidence: []EvidenceRecord{{Kind: "redis-response", Value: string(redisData[:min(len(redisData), 96)])}}}
+		}
+	}
+	if len(data) > 0 {
+		return ObservationRecord{Classification: "non-web", Protocol: "tcp", Role: "service", Confidence: 0.9, Evidence: []EvidenceRecord{{Kind: "invalid-http-response", Value: string(data[:min(len(data), 48)])}}}
+	}
 	if hint, ok := stringContainsAny(command, webCommandHints); ok {
 		return ObservationRecord{Classification: "suspected-web", Protocol: "unknown", Role: suspectedRole(hint), Confidence: 0.55, Evidence: []EvidenceRecord{{Kind: "command-hint", Value: hint}, {Kind: "probe-failed", Value: "no valid HTTP response"}}}
 	}
 	return ObservationRecord{Classification: "unknown", Protocol: "tcp", Role: "service", Confidence: 0.2, Evidence: []EvidenceRecord{{Kind: "no-valid-http-response", Value: "no response"}}}
 }
 
-func classifyRelevance(process ProcessRecord, project *ProjectRecord) RelevanceRecord {
+func classifyRelevance(process ProcessRecord, project *ProjectRecord, management ManagementRecord) RelevanceRecord {
+	if management.Source == "docker" {
+		return RelevanceRecord{Category: "developer-container", DeveloperRelevant: true, Confidence: 0.9, Evidence: []EvidenceRecord{{Kind: "docker-published-port", Value: management.ContainerName}}}
+	}
 	if project != nil {
 		return RelevanceRecord{Category: "developer-project", DeveloperRelevant: true, Confidence: 0.95, Evidence: []EvidenceRecord{{Kind: "git-project", Value: project.Root}}}
 	}
@@ -521,6 +711,7 @@ func scanServices() (ScanDocument, error) {
 	if err != nil {
 		return ScanDocument{}, err
 	}
+	dockerPorts := dockerPortMetadata()
 	services := make([]ServiceRecord, len(listeners))
 	semaphore := make(chan struct{}, 20)
 	var wait sync.WaitGroup
@@ -535,15 +726,39 @@ func scanServices() (ScanDocument, error) {
 			defer wait.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			process, project, application := processMetadata(listener)
+			process, project, application, projectEvidence, projectCandidates := processMetadata(listener)
+			management := ManagementRecord{Source: "unmanaged"}
+			var hostProcessProject *ProjectRecord
+			if docker, exists := dockerPorts[listener.Port]; exists {
+				management = docker
+				hostProcessProject = project
+				project = nil
+				application = nil
+				projectCandidates = []string{}
+				projectEvidence = "docker-unattributed"
+				projectRoot := docker.Labels["com.docker.compose.project.working_dir"]
+				if projectRoot == "" {
+					projectRoot = docker.Labels["dev.port-tools.project-root"]
+				}
+				if projectRoot != "" {
+					if dockerProject := findProject(projectRoot); dockerProject != nil {
+						project = dockerProject
+						projectEvidence = "docker-compose-working-directory"
+					}
+				}
+			}
 			services[index] = ServiceRecord{
-				ID:          stableServiceID(listener),
-				Listener:    ListenerRecord{Address: listener.Address, Port: listener.Port, BindScope: listener.BindScope},
-				Process:     process,
-				Project:     project,
-				Application: application,
-				Observation: observe(listener, process),
-				Relevance:   classifyRelevance(process, project),
+				ID:                 stableServiceID(listener),
+				Listener:           ListenerRecord{Address: listener.Address, Port: listener.Port, BindScope: listener.BindScope},
+				Process:            process,
+				Project:            project,
+				Application:        application,
+				ProjectEvidence:    projectEvidence,
+				ProjectCandidates:  projectCandidates,
+				HostProcessProject: hostProcessProject,
+				Management:         management,
+				Observation:        observe(listener, process, management),
+				Relevance:          classifyRelevance(process, project, management),
 			}
 		}()
 	}

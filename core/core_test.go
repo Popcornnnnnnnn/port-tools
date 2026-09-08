@@ -11,6 +11,37 @@ import (
 	"testing"
 )
 
+func startTCPProbeFixture(t *testing.T, response func([]byte) []byte) discoveredListener {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer connection.Close()
+				buffer := make([]byte, 4096)
+				count, readError := connection.Read(buffer)
+				if readError == nil && count > 0 {
+					_, _ = connection.Write(response(buffer[:count]))
+				}
+			}()
+		}
+	}()
+	return discoveredListener{
+		PID:       os.Getpid() + 1000,
+		Address:   "127.0.0.1",
+		Port:      listener.Addr().(*net.TCPAddr).Port,
+		BindScope: "loopback",
+	}
+}
+
 func TestParseEndpoint(t *testing.T) {
 	tests := []struct {
 		input   string
@@ -51,6 +82,22 @@ func TestPresentationRoleSeparatesPagesFromHTTPServices(t *testing.T) {
 	}
 	if role := presentationRole(&HTTPRecord{Status: &notFound, Title: &title}, pointer("vite")); role != "service" {
 		t.Fatalf("404 role = %q", role)
+	}
+}
+
+func TestObserveClassifiesExplicitNonHTTPResponses(t *testing.T) {
+	echo := startTCPProbeFixture(t, func(data []byte) []byte { return data })
+	echoObservation := observe(echo, ProcessRecord{}, ManagementRecord{})
+	if echoObservation.Classification != "non-web" || echoObservation.Protocol != "tcp" {
+		t.Fatalf("echo observation = %#v", echoObservation)
+	}
+
+	redis := startTCPProbeFixture(t, func([]byte) []byte {
+		return []byte("-ERR unknown command 'GET', with args beginning with: '/'\r\n")
+	})
+	redisObservation := observe(redis, ProcessRecord{}, ManagementRecord{})
+	if redisObservation.Classification != "non-web" || redisObservation.Protocol != "redis" {
+		t.Fatalf("redis observation = %#v", redisObservation)
 	}
 }
 
@@ -159,6 +206,66 @@ func TestRemoveSocketIfOwnedDoesNotRemoveReplacement(t *testing.T) {
 	removeSocketIfOwned(socketPath, replacementInfo)
 	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
 		t.Fatalf("owned socket still exists: %v", err)
+	}
+}
+
+func TestPrepareUnixSocketRefusesLiveOwner(t *testing.T) {
+	temporaryRoot, err := os.MkdirTemp("/tmp", "pt-live-socket-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(temporaryRoot) })
+	socketPath := filepath.Join(temporaryRoot, "core.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.(*net.UnixListener).SetUnlinkOnClose(false)
+	defer listener.Close()
+
+	if err := prepareUnixSocket(socketPath); err == nil {
+		t.Fatal("live Unix socket owner was not refused")
+	}
+	if _, err := os.Stat(socketPath); err != nil {
+		t.Fatalf("live Unix socket was removed: %v", err)
+	}
+}
+
+func TestPrepareUnixSocketRemovesStaleSocket(t *testing.T) {
+	temporaryRoot, err := os.MkdirTemp("/tmp", "pt-stale-socket-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(temporaryRoot) })
+	socketPath := filepath.Join(temporaryRoot, "core.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.(*net.UnixListener).SetUnlinkOnClose(false)
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := prepareUnixSocket(socketPath); err != nil {
+		t.Fatalf("stale Unix socket was not accepted: %v", err)
+	}
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Fatalf("stale Unix socket still exists: %v", err)
+	}
+}
+
+func TestPrepareUnixSocketRefusesRegularFile(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "core.sock")
+	if err := os.WriteFile(socketPath, []byte("preserve me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareUnixSocket(socketPath); err == nil {
+		t.Fatal("regular file at socket path was not refused")
+	}
+	data, err := os.ReadFile(socketPath)
+	if err != nil || string(data) != "preserve me" {
+		t.Fatalf("regular file was changed: data=%q err=%v", data, err)
 	}
 }
 

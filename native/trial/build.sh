@@ -6,6 +6,7 @@ repository_root="$(CDPATH= cd -- "$script_root/../.." && pwd)"
 build_root="$repository_root/native/.build"
 app="$build_root/Port Tools.app"
 go_binary="${GO_BIN:-$(command -v go || true)}"
+version="$(tr -d '[:space:]' < "$repository_root/VERSION")"
 
 if [ -z "$go_binary" ] || [ ! -x "$go_binary" ]; then
     echo "Set GO_BIN to an explicit Go compiler path." >&2
@@ -19,7 +20,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
     cd "$repository_root/core"
     "$go_binary" build \
         -trimpath \
-        -ldflags "-s -w -X main.version=0.2.0-dev" \
+        -ldflags "-s -w -X main.version=$version" \
         -o "$app/Contents/Helpers/port-tools-core" \
         .
 )
