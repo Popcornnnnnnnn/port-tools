@@ -62,10 +62,7 @@ def paste_panel(canvas: Image.Image, source_path: Path, x: int) -> None:
 
 def build_hero() -> None:
     width, height = 1600, 900
-    canvas = Image.new("RGBA", (width, height), "#eef1f6")
-    draw = ImageDraw.Draw(canvas)
-    draw.rectangle((800, 0, width, height), fill="#0b0f17")
-    draw.line((799, 0, 799, height), fill="#273143", width=2)
+    canvas = Image.new("RGBA", (width, height), "#252a34")
 
     paste_panel(canvas, OUT / "interface-light.png", 176)
     paste_panel(canvas, OUT / "interface-dark.png", 890)
