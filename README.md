@@ -8,7 +8,7 @@
 </div>
 
 <p align="center">
-  <img src="design/marketing/github-hero-en.png" width="100%" alt="Port Tools turns localhost ports into projects, worktrees, apps, service types, and verified URLs">
+  <img src="design/marketing/github-hero.png" width="100%" alt="Port Tools in light and dark appearance with six local Web apps">
 </p>
 
 ## `lsof` finds a PID. Port Tools finds the project behind it.
