@@ -35,6 +35,9 @@ struct PreferencesView: View {
                     }
                 }
             Toggle("Automatically check for updates", isOn: $automaticChecks)
+                .onChange(of: automaticChecks) { _, enabled in
+                    if enabled { _ = UpdaterBridge.shared }
+                }
             Button("Check for Updates…") { UpdaterBridge.shared.checkForUpdates() }
 
             Section("Ignored") {

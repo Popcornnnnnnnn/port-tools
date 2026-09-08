@@ -86,7 +86,9 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppMaintenance.migrateTrialPreferences()
-        _ = UpdaterBridge.shared
+        if UserDefaults.standard.bool(forKey: "SUEnableAutomaticChecks") {
+            _ = UpdaterBridge.shared
+        }
         do {
             try CoreRuntime.shared.start()
         } catch {
@@ -116,6 +118,7 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         alert.addButton(withTitle: portToolsString("Not Now"))
         if alert.runModal() == .alertFirstButtonReturn {
             defaults.set(true, forKey: "SUEnableAutomaticChecks")
+            _ = UpdaterBridge.shared
         }
     }
 
