@@ -52,6 +52,7 @@ python3 evaluation/fixtures/verify_force_stop.py
 
 mkdir -p "$dist_root"
 (cd "$native_root" && xcodegen generate --spec project.yml)
+"$repository_root/scripts/normalize-xcode-project.sh" "$native_root/PortTools.xcodeproj/project.pbxproj"
 xcodebuild archive \
   -project "$native_root/PortTools.xcodeproj" \
   -scheme PortTools \

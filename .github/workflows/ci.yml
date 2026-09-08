@@ -40,7 +40,9 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         working-directory: native
-        run: xcodegen generate --spec project.yml
+        run: |
+          xcodegen generate --spec project.yml
+          ../scripts/normalize-xcode-project.sh PortTools.xcodeproj/project.pbxproj
       - name: Build unsigned Apple Silicon app
         working-directory: native
         run: >-

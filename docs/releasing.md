@@ -4,6 +4,9 @@ Public releases are built only on the maintainer's Apple Silicon Mac. GitHub
 Actions performs unsigned tests and smoke builds; it does not hold Apple or
 Sparkle private keys.
 
+The generated project is normalized to Xcode 15.3 format so the tracked
+project and free `macos-14` GitHub runner remain compatible with Xcode 15.4.
+
 ## One-time setup
 
 1. Install a `Developer ID Application` certificate in the login keychain.

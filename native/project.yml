@@ -1,4 +1,6 @@
 name: PortTools
+xcodeVersion: "15.4"
+projectFormat: xcode15_3
 options:
   minimumXcodeGenVersion: 2.44.1
   deploymentTarget:
