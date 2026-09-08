@@ -66,7 +66,7 @@ def build_hero() -> None:
 
     paste_panel(canvas, OUT / "interface-light.png", 176)
     paste_panel(canvas, OUT / "interface-dark.png", 890)
-    canvas.convert("RGB").save(OUT / "github-hero.png", optimize=True)
+    canvas.convert("RGB").save(OUT / "github-hero-unified.png", optimize=True)
 
 
 def main() -> None:

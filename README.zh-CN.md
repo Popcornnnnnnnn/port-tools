@@ -8,7 +8,7 @@
 </div>
 
 <p align="center">
-  <img src="design/marketing/github-hero.png" width="100%" alt="Port Tools 深色与浅色界面，同时展示六个本地 Web 应用">
+  <img src="design/marketing/github-hero-unified.png" width="100%" alt="Port Tools 深色与浅色界面，同时展示六个本地 Web 应用">
 </p>
 
 ## `lsof` 找到 PID，Port Tools 找到 PID 背后的项目
