@@ -159,8 +159,8 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
 
         statusStore = store
         statusItem = item
-        backgroundScanTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.statusStore?.refresh(silent: true) }
+        backgroundScanTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak store] _ in
+            Task { @MainActor [weak store] in store?.refresh(silent: true) }
         }
     }
 
@@ -184,8 +184,8 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             statusStore.refresh(silent: true)
             statusPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             openScanTimer?.invalidate()
-            openScanTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.statusStore?.refresh(silent: true) }
+            openScanTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak statusStore] _ in
+                Task { @MainActor [weak statusStore] in statusStore?.refresh(silent: true) }
             }
         }
     }
