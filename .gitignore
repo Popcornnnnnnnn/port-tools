@@ -4,4 +4,5 @@ node_modules/
 evaluation/fixtures/.runtime/
 architecture/.build/
 native/.build/
+dist/
 .port-tools-spike/

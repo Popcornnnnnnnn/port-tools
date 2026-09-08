@@ -1,0 +1,6 @@
+/appcast.xml
+  Cache-Control: public, max-age=300
+  Content-Type: application/xml; charset=utf-8
+
+/release-notes/*
+  Cache-Control: public, max-age=3600

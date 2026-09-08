@@ -3,7 +3,7 @@
   "$id": "https://github.com/Popcornnnnnnnn/port-tools/docs/service-record.schema.json",
   "title": "port-tools scan document",
   "type": "object",
-  "required": ["schemaVersion", "generatedAt", "host", "services", "groups"],
+  "required": ["schemaVersion", "generatedAt", "host", "services"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "generatedAt": { "type": "string", "format": "date-time" },
@@ -48,9 +48,10 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "listener", "process", "application", "management", "observation", "relevance"],
+        "required": ["id", "logicalId", "listener", "process", "management", "observation", "relevance", "history", "preferences", "staleness"],
         "properties": {
           "id": { "type": "string" },
+          "logicalId": { "type": "string", "minLength": 1 },
           "listener": {
             "type": "object",
             "required": ["address", "port", "bindScope"],
@@ -109,6 +110,36 @@
               "framework": { "type": ["string", "null"] },
               "http": { "type": "object" },
               "evidence": { "type": "array", "minItems": 1 }
+            }
+          },
+          "history": {
+            "type": "object",
+            "required": ["firstSeen", "lastSeen", "consecutiveProbeFailures"],
+            "properties": {
+              "firstSeen": { "type": "string", "format": "date-time" },
+              "lastSeen": { "type": "string", "format": "date-time" },
+              "lastSuccessfulProbe": { "type": "string", "format": "date-time" },
+              "firstFailedProbe": { "type": "string", "format": "date-time" },
+              "consecutiveProbeFailures": { "type": "integer", "minimum": 0 },
+              "initialParentPid": { "type": "integer", "minimum": 1 }
+            }
+          },
+          "preferences": {
+            "type": "object",
+            "required": ["pinned", "ignored"],
+            "properties": {
+              "displayName": { "type": "string" },
+              "pinned": { "type": "boolean" },
+              "ignored": { "type": "boolean" },
+              "classificationOverride": { "enum": ["", "auto", "page", "service", "listener"] }
+            }
+          },
+          "staleness": {
+            "type": "object",
+            "required": ["possiblyForgotten", "reasons"],
+            "properties": {
+              "possiblyForgotten": { "type": "boolean" },
+              "reasons": { "type": "array", "items": { "type": "string" } }
             }
           },
           "relevance": {

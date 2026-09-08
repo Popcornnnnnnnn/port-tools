@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 APP = REPO_ROOT / "native" / ".build" / "Port Tools.app"
 EXECUTABLE = APP / "Contents" / "MacOS" / "PortTools"
 CORE = APP / "Contents" / "Helpers" / "port-tools-core"
-SWIFT_SOURCE = REPO_ROOT / "native" / "trial" / "PortToolsApp.swift"
+SWIFT_SOURCES = sorted((REPO_ROOT / "native" / "PortTools").glob("*.swift"))
 
 
 def run(command):
@@ -189,7 +189,7 @@ def main() -> None:
     run(["codesign", "--verify", "--strict", CORE])
     info = plistlib.loads((APP / "Contents" / "Info.plist").read_bytes())
     expected_version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    swift_source = SWIFT_SOURCE.read_text(encoding="utf-8")
+    swift_source = "\n".join(path.read_text(encoding="utf-8") for path in SWIFT_SOURCES)
     title_hover_contract_passed = all(
         fragment in swift_source
         for fragment in (

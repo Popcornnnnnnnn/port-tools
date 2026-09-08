@@ -59,11 +59,19 @@ Port Tools 不打算替代开发者已经信任的工具，而是连接它们之
 
 原生 SwiftUI 菜单栏界面通过私有、仅当前用户可访问的 Unix socket 与内置 Go 核心通信。Go 核心负责发现监听端口、检查进程树和工作目录、读取 Git 与 application manifest 证据、探测 HTTP/HTTPS 行为、原子化保存别名，并运行仅绑定 loopback 的反向代理。
 
-安全停止刻意比 `kill -9` 更保守：Docker、其他用户、共享 runtime 和无法确认归属的目标会被拒绝。符合条件的目标会获得与进程身份绑定的计划令牌，在发送 `SIGTERM` 前再次进行完整验证；只有目标监听端口真正释放后，才会报告成功。目前没有实现强制停止。
+安全停止保持严格边界：Docker、其他用户、共享 runtime 和无法确认归属的目标会被拒绝。符合条件的目标会获得与进程身份绑定的计划令牌，在发送 `SIGTERM` 前再次进行完整验证；只有目标监听端口真正释放后，才会报告成功。如果明确归属的 unmanaged 服务忽略 SIGTERM，用户需要经过独立的 3 秒红色确认页，core 才会签发第二个一次性计划并精确执行 SIGKILL。
 
-## 构建当前 v1.0 候选版
+## 构建 v1.0
 
 构建需要 Go 和 Xcode Command Line Tools。生成的应用是自包含的，运行时不需要 Python、Node.js、npm、Homebrew、Docker 或独立代理。
+
+正式 Xcode 工程固定使用 Sparkle 2.9.4；调整工程结构后可从 `native/project.yml` 重新生成：
+
+```bash
+cd native
+xcodegen generate --spec project.yml
+xcodebuild -project PortTools.xcodeproj -scheme PortTools -configuration Debug build
+```
 
 ```bash
 git clone https://github.com/Popcornnnnnnnn/port-tools.git
@@ -83,9 +91,10 @@ python3 native/trial/verify.py
 当前候选版刻意保持本地化和保守策略：
 
 - macOS 14 或更高版本；
+- 正式 Release 仅支持 Apple Silicon；
 - IPv4/IPv6 loopback 上的非特权端口代理；
 - 不修改 `/etc/hosts`，不安装本地受信任 CA，不占用 80/443；
-- 没有特权 helper，也不会强制结束进程；
+- 没有特权 helper；强制结束仅限独立确认并再次复核的 unmanaged 服务；
 - 代码和自动测试不能代替真实的菜单栏交互验收。
 
 ## 工程资料
@@ -94,5 +103,6 @@ python3 native/trial/verify.py
 - [架构决策](docs/ADR-0001-production-architecture.md)
 - [技术验证](docs/technical-spike.md)
 - [打包要求](docs/packaging-requirements.md)
+- [发布与公证流程](docs/releasing.md)
 
 Port Tools v1.0 正在接近第一次公开发布，欢迎提交 Issue 或参与早期体验。

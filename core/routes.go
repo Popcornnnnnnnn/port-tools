@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"sync"
+	"time"
 )
 
 var aliasPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -66,16 +67,24 @@ func (manager *routeManager) load() error {
 		return err
 	}
 	var state routeState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return fmt.Errorf("decode route state: %w", err)
-	}
-	if state.SchemaVersion != 1 || state.Routes == nil {
-		return errors.New("unsupported route state")
+	if decodeError := json.Unmarshal(data, &state); decodeError != nil ||
+		(state.SchemaVersion != 1 && state.SchemaVersion != 2) || state.Routes == nil {
+		backup := fmt.Sprintf("%s.corrupt-%d", manager.statePath, time.Now().Unix())
+		if renameError := os.Rename(manager.statePath, backup); renameError != nil {
+			return fmt.Errorf("backup invalid route state: %w", renameError)
+		}
+		return nil
 	}
 	for alias, route := range state.Routes {
 		route.Alias = alias
+		if route.LastResolvedPort == 0 {
+			route.LastResolvedPort = route.Port
+		}
 		route.URL = manager.routeURL(alias)
 		manager.routes[alias] = route
+	}
+	if state.SchemaVersion == 1 {
+		return manager.persistLocked()
 	}
 	return nil
 }
@@ -84,7 +93,7 @@ func (manager *routeManager) persistLocked() error {
 	if err := os.MkdirAll(filepath.Dir(manager.statePath), 0o700); err != nil {
 		return err
 	}
-	state := routeState{SchemaVersion: 1, Routes: manager.routes}
+	state := routeState{SchemaVersion: 2, Routes: manager.routes}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -140,6 +149,7 @@ func (manager *routeManager) put(alias string, proposed RouteRecord, previousAli
 		return RouteRecord{}, errors.New("TLS policy must be verify or insecure-local")
 	}
 	proposed.Alias = normalized
+	proposed.LastResolvedPort = proposed.Port
 	proposed.URL = manager.routeURL(normalized)
 
 	manager.mutex.Lock()
@@ -156,7 +166,11 @@ func (manager *routeManager) put(alias string, proposed RouteRecord, previousAli
 		}
 	}
 	if existing, exists := manager.routes[normalized]; exists {
-		if existing.Port != proposed.Port || existing.ProjectRoot != proposed.ProjectRoot || existing.ApplicationRoot != proposed.ApplicationRoot {
+		if existing.LogicalServiceID != "" && proposed.LogicalServiceID != "" {
+			if existing.LogicalServiceID != proposed.LogicalServiceID {
+				return RouteRecord{}, errors.New("alias already belongs to a different service")
+			}
+		} else if existing.Port != proposed.Port || existing.ProjectRoot != proposed.ProjectRoot || existing.ApplicationRoot != proposed.ApplicationRoot {
 			return RouteRecord{}, errors.New("alias already belongs to a different service")
 		}
 	}
@@ -217,7 +231,13 @@ func (manager *routeManager) list() []RouteRecord {
 }
 
 func (manager *routeManager) attach(document *ScanDocument) {
-	routes := manager.list()
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+	changed := false
+	logicalCounts := map[string]int{}
+	for _, service := range document.Services {
+		logicalCounts[service.LogicalID]++
+	}
 	for serviceIndex := range document.Services {
 		service := &document.Services[serviceIndex]
 		projectRoot := ""
@@ -228,12 +248,23 @@ func (manager *routeManager) attach(document *ScanDocument) {
 		if service.Application != nil {
 			applicationRoot = service.Application.Root
 		}
-		for routeIndex := range routes {
-			route := routes[routeIndex]
-			if route.Port == service.Listener.Port && route.ProjectRoot == projectRoot && route.ApplicationRoot == applicationRoot {
+		for alias, route := range manager.routes {
+			logicalMatch := route.LogicalServiceID != "" && route.LogicalServiceID == service.LogicalID && logicalCounts[service.LogicalID] == 1
+			legacyMatch := route.LogicalServiceID == "" && route.Port == service.Listener.Port && route.ProjectRoot == projectRoot && route.ApplicationRoot == applicationRoot
+			if logicalMatch || legacyMatch {
+				if logicalMatch && route.Port != service.Listener.Port {
+					route.Port = service.Listener.Port
+					route.LastResolvedPort = service.Listener.Port
+					manager.routes[alias] = route
+					changed = true
+				}
+				route.URL = manager.routeURL(alias)
 				service.Route = &route
 				break
 			}
 		}
+	}
+	if changed {
+		_ = manager.persistLocked()
 	}
 }

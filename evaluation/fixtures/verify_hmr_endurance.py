@@ -21,7 +21,8 @@ FIXTURE_ROOT = Path(__file__).resolve().parent
 RUNTIME_ROOT = FIXTURE_ROOT / ".runtime"
 ENDURANCE_ROOT = RUNTIME_ROOT / "hmr-endurance"
 CLI = REPO_ROOT / "bin" / "port-tools"
-PROXY_PORT = 17890
+CORE = REPO_ROOT / "native" / ".build" / "Port Tools.app" / "Contents" / "Helpers" / "port-tools-core"
+PROXY_PORT = 17892
 VITE_PORT = 51752
 NEXT_PORT = 51753
 
@@ -82,6 +83,17 @@ def run_cli(arguments) -> None:
         stderr=subprocess.PIPE,
         text=True,
         check=True,
+    )
+
+
+def add_route(alias: str, port: int, state: Path, socket_path: Path, engine: str) -> None:
+    if engine == "prototype":
+        run_cli(["alias", "add", alias, port, "--state", state])
+        return
+    body = json.dumps({"port": port, "scheme": "http", "hostMode": "rewrite", "tlsPolicy": "verify"})
+    subprocess.run(
+        [str(CORE), "request", "--socket", str(socket_path), "--method", "PUT", "--path", f"/v1/routes/{alias}", "--body", body],
+        cwd=str(REPO_ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=True,
     )
 
 
@@ -245,7 +257,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--duration", type=int, default=900)
     parser.add_argument("--heartbeat", type=int, default=30)
+    parser.add_argument("--engine", choices=("go", "prototype"), default="go")
+    parser.add_argument("--proxy-port", type=int, default=17892)
     args = parser.parse_args()
+    global PROXY_PORT
+    PROXY_PORT = args.proxy_port
     if args.duration < 12:
         raise SystemExit("duration must be at least 12 seconds")
 
@@ -257,6 +273,7 @@ def main() -> None:
     vite_root = copy_app("vite")
     next_root = copy_app("next")
     state = ENDURANCE_ROOT / "routes.json"
+    socket_path = ENDURANCE_ROOT / "core.sock"
     processes = []
     sockets = []
     results = {"updates": []}
@@ -278,15 +295,22 @@ def main() -> None:
         wait_for_port(VITE_PORT, True)
         wait_for_port(NEXT_PORT, True)
 
-        run_cli(["alias", "add", "vite-endurance", VITE_PORT, "--state", state])
-        run_cli(["alias", "add", "next-endurance", NEXT_PORT, "--state", state])
+        if args.engine == "go" and not CORE.exists():
+            raise RuntimeError("build the native app first: native/trial/build.sh")
+        proxy_command = (
+            [str(CORE), "serve", "--socket", str(socket_path), "--state", str(state), "--proxy", f"127.0.0.1:{PROXY_PORT}", "--instance-token", "hmr-endurance"]
+            if args.engine == "go"
+            else [str(CLI), "proxy", "--listen", "127.0.0.1:{}".format(PROXY_PORT), "--state", str(state)]
+        )
         proxy = start_process(
-            [str(CLI), "proxy", "--listen", "127.0.0.1:{}".format(PROXY_PORT), "--state", str(state)],
+            proxy_command,
             REPO_ROOT,
             "proxy.log",
         )
         processes.append(proxy)
         wait_for_port(PROXY_PORT, True)
+        add_route("vite-endurance", VITE_PORT, state, socket_path, args.engine)
+        add_route("next-endurance", NEXT_PORT, state, socket_path, args.engine)
 
         if not wait_for_content("vite-endurance", "/", "port-tools Vite fixture", timeout=20):
             raise RuntimeError("Vite did not become HTTP-ready")

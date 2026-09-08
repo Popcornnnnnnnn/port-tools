@@ -92,7 +92,37 @@ type GracefulStopResult struct {
 	RemainingListeners                      []StopListenerTarget `json:"remainingListeners"`
 	ForceStopPerformed                      bool                 `json:"forceStopPerformed"`
 	ForceStopRequiresSeparateExplicitAction bool                 `json:"forceStopRequiresSeparateExplicitAction"`
+	ForceStopAvailable                      bool                 `json:"forceStopAvailable"`
+	GracefulAttemptToken                    string               `json:"gracefulAttemptToken,omitempty"`
 	Success                                 bool                 `json:"success"`
+}
+
+type ForceStopPlanRecord struct {
+	SchemaVersion              int                  `json:"schemaVersion"`
+	Mode                       string               `json:"mode"`
+	Decision                   string               `json:"decision"`
+	Reasons                    []string             `json:"reasons"`
+	Service                    StopServiceSummary   `json:"service"`
+	Processes                  []StopProcessRecord  `json:"processes"`
+	VerifyListenersReleased    []StopListenerTarget `json:"verifyListenersReleased"`
+	RequiresSecondConfirmation bool                 `json:"requiresSecondConfirmation"`
+	PlanToken                  string               `json:"planToken,omitempty"`
+	ExpiresAt                  string               `json:"expiresAt,omitempty"`
+}
+
+type ForceStopResult struct {
+	SchemaVersion      int                  `json:"schemaVersion"`
+	Mode               string               `json:"mode"`
+	Service            StopServiceSummary   `json:"service"`
+	Decision           string               `json:"decision"`
+	Reasons            []string             `json:"reasons"`
+	Signal             string               `json:"signal"`
+	SignalSent         bool                 `json:"signalSent"`
+	SignaledPIDs       []int                `json:"signaledPids"`
+	ListenersReleased  bool                 `json:"listenersReleased"`
+	RemainingListeners []StopListenerTarget `json:"remainingListeners"`
+	ForceStopPerformed bool                 `json:"forceStopPerformed"`
+	Success            bool                 `json:"success"`
 }
 
 type storedStopPlan struct {
@@ -102,17 +132,44 @@ type storedStopPlan struct {
 	ExpiresAt   time.Time
 }
 
+type storedGracefulAttempt struct {
+	ServiceID   string
+	Fingerprint string
+	Plan        StopPlanRecord
+	ExpiresAt   time.Time
+}
+
+type storedForcePlan struct {
+	ServiceID   string
+	Fingerprint string
+	Plan        StopPlanRecord
+	ExpiresAt   time.Time
+}
+
 type stopManager struct {
-	mutex sync.Mutex
-	plans map[string]storedStopPlan
+	mutex            sync.Mutex
+	plans            map[string]storedStopPlan
+	gracefulAttempts map[string]storedGracefulAttempt
+	forcePlans       map[string]storedForcePlan
+	scan             func() (ScanDocument, error)
 }
 
 func newStopManager() *stopManager {
-	return &stopManager{plans: map[string]storedStopPlan{}}
+	return &stopManager{
+		plans:            map[string]storedStopPlan{},
+		gracefulAttempts: map[string]storedGracefulAttempt{},
+		forcePlans:       map[string]storedForcePlan{},
+	}
 }
 
-func findServiceByID(id string) (ServiceRecord, error) {
-	document, err := scanServices()
+func (manager *stopManager) findServiceByID(id string) (ServiceRecord, error) {
+	var document ScanDocument
+	var err error
+	if manager.scan != nil {
+		document, err = manager.scan()
+	} else {
+		document, err = scanServices()
+	}
 	if err != nil {
 		return ServiceRecord{}, err
 	}
@@ -352,7 +409,7 @@ func buildStopPlan(service ServiceRecord) (StopPlanRecord, string) {
 }
 
 func (manager *stopManager) createPlan(serviceID string) (StopPlanRecord, error) {
-	service, err := findServiceByID(serviceID)
+	service, err := manager.findServiceByID(serviceID)
 	if err != nil {
 		return StopPlanRecord{}, err
 	}
@@ -424,7 +481,7 @@ func (manager *stopManager) gracefulStop(serviceID, token string, timeoutSeconds
 		RemainingListeners:                      append([]StopListenerTarget(nil), stored.Plan.GracefulPlan.VerifyListenersReleased...),
 		ForceStopRequiresSeparateExplicitAction: true,
 	}
-	service, err := findServiceByID(serviceID)
+	service, err := manager.findServiceByID(serviceID)
 	if err != nil {
 		result.Decision = "refused"
 		result.Reasons = append(result.Reasons, "target disappeared during final revalidation")
@@ -462,5 +519,170 @@ func (manager *stopManager) gracefulStop(serviceID, token string, timeoutSeconds
 	result.RemainingListeners = remaining
 	result.ListenersReleased = len(remaining) == 0
 	result.Success = result.Decision == "eligible" && result.ListenersReleased
+	if result.Decision == "eligible" && !result.ListenersReleased {
+		attemptTokenBytes := make([]byte, 32)
+		if _, err := rand.Read(attemptTokenBytes); err == nil {
+			attemptToken := hex.EncodeToString(attemptTokenBytes)
+			result.ForceStopAvailable = true
+			result.GracefulAttemptToken = attemptToken
+			manager.mutex.Lock()
+			manager.gracefulAttempts[attemptToken] = storedGracefulAttempt{
+				ServiceID:   serviceID,
+				Fingerprint: fingerprint,
+				Plan:        confirmation,
+				ExpiresAt:   time.Now().Add(2 * time.Minute),
+			}
+			manager.mutex.Unlock()
+		}
+	}
+	return result, nil
+}
+
+func randomStopToken() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func sameStopRootIdentity(original, current StopPlanRecord) bool {
+	return original.Service.ID == current.Service.ID &&
+		original.Service.Listener == current.Service.Listener &&
+		original.Service.ProjectRoot == current.Service.ProjectRoot &&
+		original.Service.ApplicationRoot == current.Service.ApplicationRoot &&
+		original.RootProcess.PID == current.RootProcess.PID &&
+		valueOrEmpty(original.RootProcess.Started) == valueOrEmpty(current.RootProcess.Started) &&
+		valueOrEmpty(original.RootProcess.Command) == valueOrEmpty(current.RootProcess.Command) &&
+		valueOrEmpty(original.RootProcess.Owner) == valueOrEmpty(current.RootProcess.Owner)
+}
+
+func (manager *stopManager) createForcePlan(serviceID, gracefulAttemptToken string) (ForceStopPlanRecord, error) {
+	manager.mutex.Lock()
+	attempt, exists := manager.gracefulAttempts[gracefulAttemptToken]
+	delete(manager.gracefulAttempts, gracefulAttemptToken)
+	manager.mutex.Unlock()
+	if !exists || attempt.ServiceID != serviceID {
+		return ForceStopPlanRecord{}, errors.New("graceful attempt token is invalid or already used")
+	}
+	if time.Now().After(attempt.ExpiresAt) {
+		return ForceStopPlanRecord{}, errors.New("graceful attempt expired; review the service again")
+	}
+	record := ForceStopPlanRecord{
+		SchemaVersion:              1,
+		Mode:                       "force-plan",
+		Decision:                   "eligible",
+		Reasons:                    []string{},
+		Service:                    attempt.Plan.Service,
+		Processes:                  append(append([]StopProcessRecord{}, attempt.Plan.Descendants...), attempt.Plan.RootProcess),
+		VerifyListenersReleased:    append([]StopListenerTarget(nil), attempt.Plan.GracefulPlan.VerifyListenersReleased...),
+		RequiresSecondConfirmation: true,
+	}
+	if attempt.Plan.Service.ManagementSource != "unmanaged" {
+		record.Decision = "refused"
+		record.Reasons = append(record.Reasons, "force stop is limited to unmanaged current-user processes")
+		return record, nil
+	}
+	if len(attempt.Plan.Exclusions) > 0 {
+		record.Decision = "refused"
+		record.Reasons = append(record.Reasons, "force stop is refused because one or more related processes have ambiguous ownership")
+		return record, nil
+	}
+	remaining := remainingStopListeners(attempt.Plan.GracefulPlan.VerifyListenersReleased)
+	if len(remaining) == 0 {
+		record.Decision = "refused"
+		record.Reasons = append(record.Reasons, "listeners were already released")
+		return record, nil
+	}
+	service, err := manager.findServiceByID(serviceID)
+	if err != nil {
+		record.Decision = "refused"
+		record.Reasons = append(record.Reasons, "target disappeared before force-stop review")
+		return record, nil
+	}
+	confirmation, fingerprint := buildStopPlan(service)
+	if confirmation.Decision != "eligible" || !sameStopRootIdentity(attempt.Plan, confirmation) {
+		record.Decision = "refused"
+		record.Reasons = append(record.Reasons, "target process tree changed after graceful stop")
+		return record, nil
+	}
+	token, err := randomStopToken()
+	if err != nil {
+		return ForceStopPlanRecord{}, err
+	}
+	expiresAt := time.Now().Add(30 * time.Second)
+	record.PlanToken = token
+	record.ExpiresAt = expiresAt.UTC().Format(time.RFC3339Nano)
+	manager.mutex.Lock()
+	manager.forcePlans[token] = storedForcePlan{ServiceID: serviceID, Fingerprint: fingerprint, Plan: confirmation, ExpiresAt: expiresAt}
+	manager.mutex.Unlock()
+	return record, nil
+}
+
+func (manager *stopManager) forceStop(serviceID, token string) (ForceStopResult, error) {
+	manager.mutex.Lock()
+	stored, exists := manager.forcePlans[token]
+	delete(manager.forcePlans, token)
+	manager.mutex.Unlock()
+	if !exists || stored.ServiceID != serviceID {
+		return ForceStopResult{}, errors.New("force-stop token is invalid or already used")
+	}
+	if time.Now().After(stored.ExpiresAt) {
+		return ForceStopResult{}, errors.New("force-stop token expired; review the service again")
+	}
+	result := ForceStopResult{
+		SchemaVersion:      1,
+		Mode:               "force",
+		Service:            stored.Plan.Service,
+		Decision:           "eligible",
+		Reasons:            []string{},
+		Signal:             "SIGKILL",
+		SignaledPIDs:       []int{},
+		RemainingListeners: append([]StopListenerTarget(nil), stored.Plan.GracefulPlan.VerifyListenersReleased...),
+	}
+	if stored.Plan.Service.ManagementSource != "unmanaged" {
+		result.Decision = "refused"
+		result.Reasons = append(result.Reasons, "force stop is limited to unmanaged current-user processes")
+		return result, nil
+	}
+	if len(stored.Plan.Exclusions) > 0 {
+		result.Decision = "refused"
+		result.Reasons = append(result.Reasons, "force stop is refused because one or more related processes have ambiguous ownership")
+		return result, nil
+	}
+	service, err := manager.findServiceByID(serviceID)
+	if err != nil {
+		result.Decision = "refused"
+		result.Reasons = append(result.Reasons, "target disappeared during force-stop revalidation")
+		return result, nil
+	}
+	confirmation, fingerprint := buildStopPlan(service)
+	if confirmation.Decision != "eligible" || fingerprint != stored.Fingerprint {
+		result.Decision = "refused"
+		result.Reasons = append(result.Reasons, "target process tree changed during force-stop revalidation")
+		return result, nil
+	}
+	for _, pid := range confirmation.GracefulPlan.PIDs {
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				continue
+			}
+			result.Decision = "partial"
+			result.Reasons = append(result.Reasons, fmt.Sprintf("failed to force-stop PID %d: %v", pid, err))
+			break
+		}
+		result.SignalSent = true
+		result.ForceStopPerformed = true
+		result.SignaledPIDs = append(result.SignaledPIDs, pid)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	remaining := remainingStopListeners(confirmation.GracefulPlan.VerifyListenersReleased)
+	for len(remaining) > 0 && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		remaining = remainingStopListeners(confirmation.GracefulPlan.VerifyListenersReleased)
+	}
+	result.RemainingListeners = remaining
+	result.ListenersReleased = len(remaining) == 0
+	result.Success = result.Decision == "eligible" && result.ForceStopPerformed && result.ListenersReleased
 	return result, nil
 }

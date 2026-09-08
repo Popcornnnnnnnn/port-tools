@@ -1,4 +1,5 @@
 import unittest
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -126,14 +127,21 @@ class ProjectIdentityTests(unittest.TestCase):
         self.assertEqual(project["name"], "port-tools")
 
     def test_multiple_project_paths_are_ambiguous(self) -> None:
-        candidates = project_candidates_from_command(
-            "tool {}/README.md {}/AGENTS.md".format(
-                Path(__file__).resolve().parents[1],
-                Path(__file__).resolve().parents[2] / "Boonray",
-            ),
-            "/tmp",
-        )
-        self.assertEqual(len(candidates), 2)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = []
+            for name in ("first", "second"):
+                project = root / name
+                project.mkdir()
+                subprocess.run(["git", "init", "-q", str(project)], check=True)
+                marker = project / "README.md"
+                marker.write_text("fixture\n", encoding="utf-8")
+                paths.append(marker)
+            candidates = project_candidates_from_command(
+                "tool {} {}".format(*paths),
+                "/tmp",
+            )
+            self.assertEqual(len(candidates), 2)
 
     def test_nearest_application_manifest_below_project_root(self) -> None:
         with TemporaryDirectory() as directory:

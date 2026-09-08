@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Go test
+        working-directory: core
+        run: go test ./...
+      - name: Go race
+        working-directory: core
+        run: go test -race ./...
+      - name: Go vet
+        working-directory: core
+        run: go vet ./...
+      - name: Legacy compatibility tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+  macos-app:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: native
+        run: xcodegen generate --spec project.yml
+      - name: Build unsigned Apple Silicon app
+        working-directory: native
+        run: >-
+          xcodebuild -project PortTools.xcodeproj -scheme PortTools
+          -configuration Release -derivedDataPath .build/CI
+          CODE_SIGNING_ALLOWED=NO ARCHS=arm64 build
+      - name: Smoke-check bundle
+        run: |
+          app="native/.build/CI/Build/Products/Release/Port Tools.app"
+          test -x "$app/Contents/MacOS/PortTools"
+          test -x "$app/Contents/Helpers/port-tools-core"
+          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "xyz.popcornnn.PortTools"
+          lipo "$app/Contents/MacOS/PortTools" -verify_arch arm64
+          lipo "$app/Contents/Helpers/port-tools-core" -verify_arch arm64
+      - name: Proxy and force-stop integration
+        run: |
+          PORT_TOOLS_ARCH="$(uname -m)" native/trial/build.sh
+          python3 evaluation/fixtures/verify_proxy.py --engine go
+          python3 evaluation/fixtures/verify_force_stop.py

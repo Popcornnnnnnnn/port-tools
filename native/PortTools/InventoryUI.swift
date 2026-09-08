@@ -3,470 +3,6 @@ import Combine
 import Foundation
 import SwiftUI
 
-struct ListenerRecord: Codable, Sendable {
-    let address: String
-    let port: Int
-    let bindScope: String
-}
-
-struct ProcessRecord: Codable, Sendable {
-    let pid: Int
-    let name: String?
-    let command: String?
-    let cwd: String?
-    let started: String?
-}
-
-struct ProjectRecord: Codable, Sendable {
-    let root: String
-    let name: String
-    let repositoryName: String?
-    let worktreeName: String?
-    let branch: String?
-    let remoteUrl: String?
-    let isWorktree: Bool?
-}
-
-struct ApplicationRecord: Codable, Sendable {
-    let root: String
-    let relativePath: String
-    let name: String
-    let manifest: String
-}
-
-struct HTTPRecord: Codable, Sendable {
-    let status: Int?
-    let title: String?
-    let contentType: String?
-}
-
-struct EvidenceRecord: Codable, Identifiable, Sendable {
-    let kind: String
-    var id: String { kind }
-}
-
-struct ObservationRecord: Codable, Sendable {
-    let classification: String
-    let `protocol`: String
-    let role: String?
-    let framework: String?
-    let http: HTTPRecord?
-    let evidence: [EvidenceRecord]
-}
-
-struct RelevanceRecord: Codable, Sendable {
-    let developerRelevant: Bool
-}
-
-struct RouteRecord: Codable, Sendable {
-    let alias: String
-    let port: Int
-    let scheme: String
-    let hostMode: String
-    let tlsPolicy: String
-    let projectRoot: String?
-    let applicationRoot: String?
-    let url: String
-}
-
-struct ServiceRecord: Codable, Identifiable, Sendable {
-    let id: String
-    let listener: ListenerRecord
-    let process: ProcessRecord
-    let project: ProjectRecord?
-    let application: ApplicationRecord?
-    let observation: ObservationRecord
-    let relevance: RelevanceRecord
-    let route: RouteRecord?
-}
-
-struct ScanDocument: Codable, Sendable {
-    let generatedAt: String
-    let services: [ServiceRecord]
-}
-
-struct StopProcessRecord: Codable, Sendable {
-    let pid: Int
-    let name: String?
-    let owner: String?
-    let command: String?
-    let projectRoot: String?
-    let applicationRoot: String?
-    let reason: String?
-}
-
-struct StopListenerTarget: Codable, Sendable {
-    let pid: Int
-    let address: String
-    let port: Int
-    let currentPids: [Int]?
-}
-
-struct GracefulStopPlan: Codable, Sendable {
-    let signal: String
-    let pids: [Int]
-    let verifyListenersReleased: [StopListenerTarget]
-}
-
-struct StopPlanRecord: Codable, Sendable {
-    let decision: String
-    let reasons: [String]
-    let rootProcess: StopProcessRecord
-    let descendants: [StopProcessRecord]
-    let exclusions: [StopProcessRecord]
-    let gracefulPlan: GracefulStopPlan
-    let planToken: String?
-    let expiresAt: String?
-}
-
-struct GracefulStopResult: Codable, Sendable {
-    let decision: String
-    let reasons: [String]
-    let signalSent: Bool
-    let signaledPids: [Int]
-    let listenersReleased: Bool
-    let forceStopPerformed: Bool
-    let success: Bool
-}
-
-struct ApplicationGroup: Identifiable {
-    let id: String
-    let name: String
-    let application: ApplicationRecord?
-    var services: [ServiceRecord]
-}
-
-struct ProjectGroup: Identifiable {
-    let id: String
-    let name: String
-    let project: ProjectRecord?
-    var applications: [ApplicationGroup]
-
-    var services: [ServiceRecord] {
-        applications.flatMap(\.services)
-    }
-}
-
-enum CoreError: LocalizedError {
-    case missingResource
-    case alreadyRunning
-    case failed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .missingResource:
-            return "Bundled Port Tools core is missing."
-        case .alreadyRunning:
-            return "Another Port Tools instance is already running."
-        case .failed(let message):
-            return message
-        }
-    }
-}
-
-protocol InventoryProviding: Sendable {
-    func scan() throws -> ScanDocument
-    func assignAlias(_ alias: String, to service: ServiceRecord) throws -> RouteRecord
-    func removeAlias(_ alias: String) throws
-    func stopPlan(for service: ServiceRecord) throws -> StopPlanRecord
-    func gracefulStop(_ service: ServiceRecord, planToken: String) throws -> GracefulStopResult
-}
-
-final class CoreRuntime: @unchecked Sendable {
-    static let shared = CoreRuntime()
-
-    private let lock = NSLock()
-    private var process: Process?
-    private var logHandle: FileHandle?
-    private var activeInstanceToken: String?
-
-    private var executableURL: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/port-tools-core")
-    }
-
-    private var stateRoot: URL {
-        if let override = ProcessInfo.processInfo.environment["PORT_TOOLS_STATE_ROOT"], !override.isEmpty {
-            return URL(fileURLWithPath: override, isDirectory: true)
-        }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Port Tools", isDirectory: true)
-    }
-
-    private var socketURL: URL { stateRoot.appendingPathComponent("runtime/core.sock") }
-    private var routeStateURL: URL { stateRoot.appendingPathComponent("routes.json") }
-    private var logURL: URL {
-        if ProcessInfo.processInfo.environment["PORT_TOOLS_STATE_ROOT"] != nil {
-            return stateRoot.appendingPathComponent("core.log")
-        }
-        return FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Logs/Port Tools/core.log")
-    }
-
-    private init() {}
-
-    func start() throws {
-        lock.lock()
-        defer { lock.unlock() }
-        var lastError: Error = CoreError.failed("Port Tools core could not start.")
-        for attempt in 0..<8 {
-            do {
-                try startLocked()
-                return
-            } catch CoreError.missingResource {
-                throw CoreError.missingResource
-            } catch CoreError.alreadyRunning {
-                throw CoreError.alreadyRunning
-            } catch {
-                lastError = error
-                if attempt < 7 { Thread.sleep(forTimeInterval: 0.35) }
-            }
-        }
-        throw lastError
-    }
-
-    private func socketInstanceToken() -> String? {
-        guard FileManager.default.fileExists(atPath: socketURL.path) else { return nil }
-        let probe = Process()
-        let output = Pipe()
-        let errors = Pipe()
-        probe.executableURL = executableURL
-        probe.arguments = ["request", "--socket", socketURL.path, "--path", "/v1/health"]
-        probe.standardOutput = output
-        probe.standardError = errors
-        do {
-            try probe.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            probe.waitUntilExit()
-            guard probe.terminationStatus == 0,
-                  let document = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { return nil }
-            return document["instanceToken"] as? String
-        } catch {
-            return nil
-        }
-    }
-
-    private func clearChild() {
-        process = nil
-        activeInstanceToken = nil
-        try? logHandle?.close()
-        logHandle = nil
-    }
-
-    private func startLocked() throws {
-        if let process, process.isRunning {
-            if let activeInstanceToken, socketInstanceToken() == activeInstanceToken { return }
-            process.terminate()
-            process.waitUntilExit()
-            clearChild()
-        }
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
-            throw CoreError.missingResource
-        }
-        if socketInstanceToken() != nil {
-            throw CoreError.alreadyRunning
-        }
-        try FileManager.default.createDirectory(at: socketURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try FileManager.default.createDirectory(at: routeStateURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        }
-        let logHandle = try FileHandle(forWritingTo: logURL)
-        try logHandle.seekToEnd()
-
-        let task = Process()
-        let instanceToken = UUID().uuidString
-        task.executableURL = executableURL
-        task.arguments = [
-            "serve",
-            "--socket", socketURL.path,
-            "--state", routeStateURL.path,
-            "--proxy", ProcessInfo.processInfo.environment["PORT_TOOLS_PROXY_ADDRESS"] ?? "127.0.0.1:17890",
-            "--parent-pid", String(ProcessInfo.processInfo.processIdentifier),
-            "--instance-token", instanceToken,
-        ]
-        task.standardOutput = logHandle
-        task.standardError = logHandle
-        try task.run()
-        process = task
-        self.logHandle = logHandle
-
-        for _ in 0..<80 {
-            if !task.isRunning {
-                clearChild()
-                throw CoreError.failed("Port Tools core exited during startup. See \(logURL.path).")
-            }
-            if socketInstanceToken() == instanceToken {
-                activeInstanceToken = instanceToken
-                return
-            }
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        task.terminate()
-        task.waitUntilExit()
-        clearChild()
-        throw CoreError.failed("Port Tools core did not become ready.")
-    }
-
-    func stop() {
-        lock.lock()
-        defer { lock.unlock() }
-        if let process, process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-        }
-        clearChild()
-    }
-
-    func request(method: String = "GET", path: String, body: Data? = nil) throws -> Data {
-        try start()
-        let task = Process()
-        let output = Pipe()
-        let errors = Pipe()
-        task.executableURL = executableURL
-        var arguments = ["request", "--socket", socketURL.path, "--method", method, "--path", path]
-        if let body, let value = String(data: body, encoding: .utf8) {
-            arguments += ["--body", value]
-        }
-        task.arguments = arguments
-        task.standardOutput = output
-        task.standardError = errors
-        try task.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errors.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        guard task.terminationStatus == 0 else {
-            let apiMessage = (try? JSONSerialization.jsonObject(with: data))
-                .flatMap { $0 as? [String: Any] }?["error"] as? String
-            let stderr = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CoreError.failed(apiMessage ?? stderr ?? "Port Tools core request failed.")
-        }
-        return data
-    }
-}
-
-struct BundledGoInventoryProvider: InventoryProviding {
-    func scan() throws -> ScanDocument {
-        let data = try CoreRuntime.shared.request(path: "/v1/services")
-        return try JSONDecoder().decode(ScanDocument.self, from: data)
-    }
-
-    func assignAlias(_ alias: String, to service: ServiceRecord) throws -> RouteRecord {
-        let body: [String: Any] = [
-            "port": service.listener.port,
-            "scheme": service.observation.protocol == "https" ? "https" : "http",
-            "hostMode": "rewrite",
-            "tlsPolicy": "verify",
-            "projectRoot": service.project?.root ?? "",
-            "applicationRoot": service.application?.root ?? "",
-            "previousAlias": service.route?.alias ?? "",
-        ]
-        let requestBody = try JSONSerialization.data(withJSONObject: body)
-        let encodedAlias = alias.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? alias
-        let data = try CoreRuntime.shared.request(method: "PUT", path: "/v1/routes/\(encodedAlias)", body: requestBody)
-        return try JSONDecoder().decode(RouteRecord.self, from: data)
-    }
-
-    func removeAlias(_ alias: String) throws {
-        let encodedAlias = alias.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? alias
-        _ = try CoreRuntime.shared.request(method: "DELETE", path: "/v1/routes/\(encodedAlias)")
-    }
-
-    func stopPlan(for service: ServiceRecord) throws -> StopPlanRecord {
-        let data = try CoreRuntime.shared.request(method: "POST", path: "/v1/services/\(service.id)/stop-plan")
-        return try JSONDecoder().decode(StopPlanRecord.self, from: data)
-    }
-
-    func gracefulStop(_ service: ServiceRecord, planToken: String) throws -> GracefulStopResult {
-        let body = try JSONSerialization.data(withJSONObject: [
-            "planToken": planToken,
-            "timeoutSeconds": 5,
-        ])
-        let data = try CoreRuntime.shared.request(
-            method: "POST",
-            path: "/v1/services/\(service.id)/graceful-stop",
-            body: body
-        )
-        return try JSONDecoder().decode(GracefulStopResult.self, from: data)
-    }
-}
-
-@MainActor
-final class InventoryStore: ObservableObject {
-    @Published private(set) var document: ScanDocument?
-    @Published private(set) var isRefreshing = false
-    @Published private(set) var errorMessage: String?
-
-    private let provider: InventoryProviding = BundledGoInventoryProvider()
-
-    func refresh(silent: Bool = false) {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        let provider = provider
-        DispatchQueue.global(qos: silent ? .utility : .userInitiated).async {
-            let result = Result { try provider.scan() }
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let document):
-                    self.document = document
-                    self.errorMessage = nil
-                    NSLog("Port Tools scan loaded %d listeners", document.services.count)
-                case .failure(let error):
-                    self.errorMessage = error.localizedDescription
-                    NSLog("Port Tools scan failed: %@", error.localizedDescription)
-                }
-                self.isRefreshing = false
-            }
-        }
-    }
-
-    func assignAlias(_ alias: String, to service: ServiceRecord, completion: @escaping (Result<RouteRecord, Error>) -> Void) {
-        let provider = provider
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try provider.assignAlias(alias, to: service) }
-            DispatchQueue.main.async {
-                completion(result)
-                if case .success = result { self.refresh() }
-            }
-        }
-    }
-
-    func removeAlias(_ alias: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        let provider = provider
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try provider.removeAlias(alias) }
-            DispatchQueue.main.async {
-                completion(result)
-                if case .success = result { self.refresh() }
-            }
-        }
-    }
-
-    func stopPlan(for service: ServiceRecord, completion: @escaping (Result<StopPlanRecord, Error>) -> Void) {
-        let provider = provider
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try provider.stopPlan(for: service) }
-            DispatchQueue.main.async { completion(result) }
-        }
-    }
-
-    func gracefulStop(
-        _ service: ServiceRecord,
-        planToken: String,
-        completion: @escaping (Result<GracefulStopResult, Error>) -> Void
-    ) {
-        let provider = provider
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try provider.gracefulStop(service, planToken: planToken) }
-            DispatchQueue.main.async {
-                completion(result)
-                if case .success = result { self.refresh() }
-            }
-        }
-    }
-}
-
 private let webClassifications = Set(["confirmed-web", "suspected-web"])
 
 func commandApplicationName(_ service: ServiceRecord) -> String? {
@@ -483,6 +19,7 @@ func commandApplicationName(_ service: ServiceRecord) -> String? {
 }
 
 func serviceName(_ service: ServiceRecord) -> String {
+    if let name = service.preferences.displayName, !name.isEmpty { return name }
     if let title = service.observation.http?.title, !title.isEmpty { return title }
     if let name = service.application?.name, !name.isEmpty { return name }
     if let framework = service.observation.framework, !framework.isEmpty { return framework }
@@ -491,6 +28,8 @@ func serviceName(_ service: ServiceRecord) -> String {
 }
 
 func isOpenablePage(_ service: ServiceRecord) -> Bool {
+    if service.preferences.classificationOverride == "page" { return true }
+    if ["service", "listener"].contains(service.preferences.classificationOverride ?? "") { return false }
     if let role = service.observation.role { return role == "page" }
     guard let status = service.observation.http?.status else {
         return service.observation.classification == "suspected-web"
@@ -913,7 +452,7 @@ struct ServiceDetailView: View {
     }
 }
 
-enum RenameKind {
+enum RenameKind: Equatable {
     case project
     case service
 }
@@ -929,6 +468,12 @@ struct StopReview: Identifiable {
     let id = UUID()
     let service: ServiceRecord
     let plan: StopPlanRecord
+}
+
+struct ForceStopReview: Identifiable {
+    let id = UUID()
+    let service: ServiceRecord
+    let plan: ForceStopPlanRecord
 }
 
 struct StopConfirmationView: View {
@@ -1017,6 +562,75 @@ struct StopConfirmationView: View {
     }
 }
 
+struct ForceStopConfirmationView: View {
+    let review: ForceStopReview
+    @Binding var isStopping: Bool
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var secondsRemaining = 3
+
+    private var isEligible: Bool {
+        review.plan.decision == "eligible" && review.plan.planToken != nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.octagon.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(isEligible ? "Force stop this service?" : "Force stop refused")
+                        .font(.headline)
+                    Text("SIGKILL cannot be handled or postponed by the app. Port Tools will revalidate every PID and listener again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ServiceDetailRow(
+                    label: "PID order",
+                    value: review.plan.processes.map { String($0.pid) }.joined(separator: " → "),
+                    monospaced: true
+                )
+                ServiceDetailRow(
+                    label: "Listeners",
+                    value: review.plan.verifyListenersReleased.map { "\($0.address):\($0.port)" }.joined(separator: ", "),
+                    monospaced: true
+                )
+            }
+
+            ForEach(review.plan.reasons, id: \.self) { reason in
+                Label(reason, systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button(isEligible ? "Cancel" : "Done") { dismiss() }
+                    .disabled(isStopping)
+                if isEligible {
+                    Button(secondsRemaining > 0 ? "Force stop in \(secondsRemaining)…" : "Force stop now", role: .destructive) {
+                        onConfirm()
+                    }
+                    .disabled(isStopping || secondsRemaining > 0)
+                }
+            }
+        }
+        .padding(18)
+        .frame(width: 450)
+        .interactiveDismissDisabled(isStopping)
+        .task {
+            while secondsRemaining > 0 {
+                try? await Task.sleep(for: .seconds(1))
+                secondsRemaining -= 1
+            }
+        }
+    }
+}
+
 struct RenameView: View {
     let target: RenameTarget
     let onSave: (String) -> Void
@@ -1069,10 +683,10 @@ private let disclosureContentTransition = AnyTransition.asymmetric(
     insertion: .offset(y: -4).combined(with: .opacity),
     removal: .opacity
 )
-private let inventoryPanelWidth: CGFloat = 382
-private let inventoryPanelHeight: CGFloat = 640
+let inventoryPanelWidth: CGFloat = 382
+let inventoryPanelHeight: CGFloat = 640
 
-private enum AppearanceMode: String, CaseIterable, Identifiable {
+enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
     case light
     case dark
@@ -1081,9 +695,9 @@ private enum AppearanceMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: return "System"
-        case .light: return "Light"
-        case .dark: return "Dark"
+        case .system: return portToolsString("System")
+        case .light: return portToolsString("Light")
+        case .dark: return portToolsString("Dark")
         }
     }
 }
@@ -1673,6 +1287,9 @@ struct ServiceRow: View {
     let onRemoveAlias: (() -> Void)?
     let onEvidence: () -> Void
     let onReviewStop: () -> Void
+    let onTogglePin: () -> Void
+    let onIgnore: () -> Void
+    let onClassification: (String) -> Void
     let onMessage: (String) -> Void
 
     @State private var isHovered = false
@@ -1711,6 +1328,18 @@ struct ServiceRow: View {
                         .foregroundStyle(.green.opacity(0.72))
                         .help("HTTP or HTTPS response verified")
                 }
+                if service.preferences.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.blue)
+                        .help("Pinned")
+                }
+                if service.staleness.possiblyForgotten {
+                    Image(systemName: "clock.badge.exclamationmark.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.orange)
+                        .help("Possibly forgotten: \(service.staleness.reasons.joined(separator: ", "))")
+                }
                 if backgroundServiceCount > 0, let onToggleBackgroundServices {
                     BackgroundServiceButton(
                         count: backgroundServiceCount,
@@ -1726,6 +1355,7 @@ struct ServiceRow: View {
                 Menu {
                     Button("Copy address", systemImage: "doc.on.doc") { copyAddress() }
                     Button("Rename display name…", systemImage: "pencil", action: onRename)
+                    Button(service.preferences.pinned ? "Unpin" : "Pin", systemImage: service.preferences.pinned ? "pin.slash" : "pin", action: onTogglePin)
                     if let onRenameProject {
                         Button("Rename project…", systemImage: "folder.badge.gearshape", action: onRenameProject)
                     }
@@ -1738,7 +1368,15 @@ struct ServiceRow: View {
                         Button("Remove local address", systemImage: "link.badge.minus", role: .destructive, action: onRemoveAlias)
                     }
                     Button("Why this was detected", systemImage: "info.circle", action: onEvidence)
+                    Menu("Display as") {
+                        Button("Automatic") { onClassification("auto") }
+                        Button("Page") { onClassification("page") }
+                        Button("Service") { onClassification("service") }
+                        Button("Listener") { onClassification("listener") }
+                    }
                     Button("Review safe stop…", systemImage: "stop.circle", action: onReviewStop)
+                    Divider()
+                    Button("Ignore", systemImage: "eye.slash", action: onIgnore)
                     if let path = service.project?.root {
                         Divider()
                         Button("Reveal project in Finder", systemImage: "folder") {
@@ -2054,9 +1692,11 @@ struct InventoryView: View {
     @State private var evidenceService: ServiceRecord?
     @State private var renameTarget: RenameTarget?
     @State private var stopReview: StopReview?
+    @State private var forceStopReview: ForceStopReview?
     @State private var stopInProgress = false
     @State private var projectNames = UserDefaults.standard.dictionary(forKey: "projectDisplayNames") as? [String: String] ?? [:]
     @State private var serviceNames = UserDefaults.standard.dictionary(forKey: "serviceDisplayNames") as? [String: String] ?? [:]
+    @State private var pinnedProjects = Set(UserDefaults.standard.stringArray(forKey: "pinnedProjectIDs") ?? [])
     @State private var query = ""
     @State private var searchVisible = false
     @State private var message: String?
@@ -2065,9 +1705,20 @@ struct InventoryView: View {
 
     private let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
-    private var allServices: [ServiceRecord] { store.document?.services ?? [] }
+    private var allServices: [ServiceRecord] {
+        (store.document?.services ?? [])
+            .filter { !$0.preferences.ignored }
+            .sorted {
+                if $0.preferences.pinned != $1.preferences.pinned { return $0.preferences.pinned }
+                return $0.listener.port < $1.listener.port
+            }
+    }
     private var webServices: [ServiceRecord] {
-        allServices.filter { webClassifications.contains($0.observation.classification) }
+        allServices.filter {
+            if $0.preferences.classificationOverride == "listener" { return false }
+            if ["page", "service"].contains($0.preferences.classificationOverride ?? "") { return true }
+            return webClassifications.contains($0.observation.classification)
+        }
     }
     private var primaryWebServices: [ServiceRecord] {
         webServices.filter { $0.relevance.developerRelevant || isHighConfidenceStandalonePage($0) }
@@ -2076,7 +1727,14 @@ struct InventoryView: View {
         primaryWebServices.filter(isOpenablePage)
     }
     private var projects: [ProjectGroup] {
-        groupServices(primaryWebServices).filter { $0.services.contains(where: isOpenablePage) }
+        groupServices(primaryWebServices)
+            .filter { $0.services.contains(where: isOpenablePage) }
+            .sorted {
+                let leftPinned = pinnedProjects.contains($0.id)
+                let rightPinned = pinnedProjects.contains($1.id)
+                if leftPinned != rightPinned { return leftPinned }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
     }
     private var displayedProjectServiceIDs: Set<String> {
         Set(projects.flatMap(\.services).map(\.id))
@@ -2085,7 +1743,11 @@ struct InventoryView: View {
         webServices.filter { !displayedProjectServiceIDs.contains($0.id) }
     }
     private var otherListenerServices: [ServiceRecord] {
-        allServices.filter { !webClassifications.contains($0.observation.classification) }
+        allServices.filter { service in
+            service.preferences.classificationOverride == "listener" ||
+                (!["page", "service"].contains(service.preferences.classificationOverride ?? "") &&
+                    !webClassifications.contains(service.observation.classification))
+        }
     }
     private var searchNeedle: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -2179,6 +1841,7 @@ struct InventoryView: View {
                         }
                     }
                     Divider()
+                    SettingsLink { Text("Settings…") }
                     Button("Quit Port Tools") { NSApplication.shared.terminate(nil) }
                 } label: { Image(systemName: "gearshape") }
                 .menuIndicator(.hidden)
@@ -2328,10 +1991,14 @@ struct InventoryView: View {
                     projectNames[target.key] = value
                     UserDefaults.standard.set(projectNames, forKey: "projectDisplayNames")
                 case .service:
-                    serviceNames[target.key] = value
-                    UserDefaults.standard.set(serviceNames, forKey: "serviceDisplayNames")
+                    if let service = allServices.first(where: { serviceRenameKey($0) == target.key }) {
+                        updatePreferences(service, ["displayName": value], message: "Name saved")
+                    } else {
+                        serviceNames[target.key] = value
+                        UserDefaults.standard.set(serviceNames, forKey: "serviceDisplayNames")
+                    }
                 }
-                showMessage("Name saved")
+                if target.kind == .project { showMessage("Name saved") }
             }
         }
         .sheet(item: $stopReview) { review in
@@ -2339,6 +2006,13 @@ struct InventoryView: View {
                 review: review,
                 isStopping: $stopInProgress,
                 onConfirm: { performStop(review) }
+            )
+        }
+        .sheet(item: $forceStopReview) { review in
+            ForceStopConfirmationView(
+                review: review,
+                isStopping: $stopInProgress,
+                onConfirm: { performForceStop(review) }
             )
         }
         .task {
@@ -2530,6 +2204,11 @@ struct InventoryView: View {
         ) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
+                    if pinnedProjects.contains(project.id) {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
                     HoverFullTitleText(
                         title: displayedProjectName,
                         font: .system(size: 13, weight: .semibold),
@@ -2574,6 +2253,17 @@ struct InventoryView: View {
             }
             Button("Rename project…", systemImage: "pencil") {
                 beginProjectRename(project, displayedProjectName: displayedProjectName)
+            }
+            Button(
+                pinnedProjects.contains(project.id) ? "Unpin" : "Pin",
+                systemImage: pinnedProjects.contains(project.id) ? "pin.slash" : "pin"
+            ) {
+                if pinnedProjects.contains(project.id) {
+                    pinnedProjects.remove(project.id)
+                } else {
+                    pinnedProjects.insert(project.id)
+                }
+                UserDefaults.standard.set(Array(pinnedProjects).sorted(), forKey: "pinnedProjectIDs")
             }
         }
     }
@@ -2624,6 +2314,9 @@ struct InventoryView: View {
             },
             onEvidence: { showServiceDetails(service) },
             onReviewStop: { reviewStop(service) },
+            onTogglePin: { updatePreferences(service, ["pinned": !service.preferences.pinned], message: service.preferences.pinned ? "Unpinned" : "Pinned") },
+            onIgnore: { updatePreferences(service, ["ignored": true], message: "Moved to Ignored") },
+            onClassification: { value in updatePreferences(service, ["classificationOverride": value], message: "Display role updated") },
             onMessage: showMessage
         )
     }
@@ -2709,9 +2402,43 @@ struct InventoryView: View {
                 evidenceService = nil
                 showMessage("Service stopped and listener released")
             case .success(let stopResult):
-                showMessage(stopResult.reasons.first ?? "Service could not be stopped safely")
+                if stopResult.forceStopAvailable, let token = stopResult.gracefulAttemptToken {
+                    store.forceStopPlan(review.service, gracefulAttemptToken: token) { forceResult in
+                        switch forceResult {
+                        case .success(let plan): self.forceStopReview = ForceStopReview(service: review.service, plan: plan)
+                        case .failure(let error): self.showMessage(error.localizedDescription)
+                        }
+                    }
+                } else {
+                    showMessage(stopResult.reasons.first ?? "Service could not be stopped safely")
+                }
             case .failure(let error):
                 showMessage(error.localizedDescription)
+            }
+        }
+    }
+
+    private func performForceStop(_ review: ForceStopReview) {
+        guard let token = review.plan.planToken else { return }
+        stopInProgress = true
+        store.forceStop(review.service, planToken: token) { result in
+            stopInProgress = false
+            forceStopReview = nil
+            switch result {
+            case .success(let value) where value.success:
+                evidenceService = nil
+                showMessage("Service force-stopped and listener released")
+            case .success(let value): showMessage(value.reasons.first ?? "Force stop could not complete")
+            case .failure(let error): showMessage(error.localizedDescription)
+            }
+        }
+    }
+
+    private func updatePreferences(_ service: ServiceRecord, _ patch: [String: Any], message: String) {
+        store.updatePreferences(service, patch: patch) { result in
+            switch result {
+            case .success: showMessage(message)
+            case .failure(let error): showMessage(error.localizedDescription)
             }
         }
     }
@@ -2720,104 +2447,6 @@ struct InventoryView: View {
         withAnimation { message = value }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             withAnimation { if message == value { message = nil } }
-        }
-    }
-}
-
-@MainActor
-final class PortToolsAppDelegate: NSObject, NSApplicationDelegate {
-    private var previewWindow: NSWindow?
-    private var previewStore: InventoryStore?
-    private var statusItem: NSStatusItem?
-    private var statusPopover: NSPopover?
-    private var statusStore: InventoryStore?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        do {
-            try CoreRuntime.shared.start()
-        } catch {
-            NSLog("Port Tools startup failed: %@", error.localizedDescription)
-            NSApp.terminate(nil)
-            return
-        }
-        if CommandLine.arguments.contains("--preview-window") {
-            showPreviewWindow()
-        } else {
-            installStatusItem()
-        }
-    }
-
-    private func showPreviewWindow() {
-        let store = InventoryStore()
-        store.refresh()
-        let host = NSHostingView(rootView: InventoryView(store: store))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: inventoryPanelWidth, height: inventoryPanelHeight),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Port Tools Preview"
-        window.contentView = host
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        previewStore = store
-        previewWindow = window
-    }
-
-    private func installStatusItem() {
-        let store = InventoryStore()
-        store.refresh()
-
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = true
-        popover.contentSize = NSSize(width: inventoryPanelWidth, height: inventoryPanelHeight)
-        popover.contentViewController = NSHostingController(rootView: InventoryView(store: store))
-
-        let item = NSStatusBar.system.statusItem(withLength: 24)
-        if let button = item.button {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-            let image = NSImage(systemSymbolName: "network", accessibilityDescription: "Port Tools")?
-                .withSymbolConfiguration(configuration)
-            image?.isTemplate = true
-            image?.size = NSSize(width: 16, height: 16)
-            button.image = image
-            button.imageScaling = .scaleNone
-            button.imagePosition = .imageOnly
-            button.toolTip = "Port Tools"
-            button.target = self
-            button.action = #selector(toggleStatusPopover(_:))
-        }
-
-        statusStore = store
-        statusPopover = popover
-        statusItem = item
-    }
-
-    @objc private func toggleStatusPopover(_ sender: Any?) {
-        guard let button = statusItem?.button, let statusPopover else { return }
-        if statusPopover.isShown {
-            statusPopover.performClose(sender)
-        } else {
-            statusStore?.refresh(silent: true)
-            statusPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        CoreRuntime.shared.stop()
-    }
-}
-
-@main
-struct PortToolsApp: App {
-    @NSApplicationDelegateAdaptor(PortToolsAppDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        Settings {
-            EmptyView()
         }
     }
 }

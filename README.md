@@ -59,11 +59,19 @@ Port Tools does not replace the tools developers already trust. It connects the 
 
 The native SwiftUI menu-bar app talks to a bundled Go core over a private, owner-only Unix socket. The Go core discovers listeners, inspects process ancestry and working directories, reads Git and application-manifest evidence, probes HTTP/HTTPS behavior, persists aliases atomically, and runs a loopback-only reverse proxy.
 
-Safe stop is intentionally narrower than `kill -9`: Docker, other-user, shared-runtime, and unattributed targets are refused. Eligible targets receive an identity-bound plan token, are revalidated immediately before `SIGTERM`, and count as stopped only when their listeners are actually gone. Force stop is not implemented.
+Safe stop is intentionally narrow: Docker, other-user, shared-runtime, and unattributed targets are refused. Eligible targets receive an identity-bound plan token, are revalidated immediately before `SIGTERM`, and count as stopped only when their listeners are actually gone. If an owned unmanaged service ignores SIGTERM, a separate 3-second confirmation can issue a second single-use plan for narrowly scoped SIGKILL.
 
-## Build the current v1.0 candidate
+## Build v1.0
 
 Building requires Go and Xcode Command Line Tools. The resulting app is self-contained and does not require Python, Node.js, npm, Homebrew, Docker, or a separate proxy at runtime.
+
+The checked-in Xcode project pins Sparkle 2.9.4. Regenerate it from `native/project.yml` after changing project structure:
+
+```bash
+cd native
+xcodegen generate --spec project.yml
+xcodebuild -project PortTools.xcodeproj -scheme PortTools -configuration Debug build
+```
 
 ```bash
 git clone https://github.com/Popcornnnnnnnn/port-tools.git
@@ -83,9 +91,10 @@ python3 native/trial/verify.py
 The current candidate is deliberately local and conservative:
 
 - macOS 14 or later;
+- Apple Silicon only for public Release builds;
 - IPv4/IPv6 loopback proxy on an unprivileged port;
 - no `/etc/hosts` edits, trusted local CA, or ports 80/443;
-- no privileged helper and no force termination;
+- no privileged helper; force termination is limited to the separately confirmed, revalidated unmanaged-service path;
 - no claim that code-level tests replace real menu-bar interaction testing.
 
 ## Engineering notes
@@ -94,5 +103,6 @@ The current candidate is deliberately local and conservative:
 - [Architecture decision](docs/ADR-0001-production-architecture.md)
 - [Technical spike](docs/technical-spike.md)
 - [Packaging requirements](docs/packaging-requirements.md)
+- [Release and notarization](docs/releasing.md)
 
 Port Tools v1.0 is approaching its first public release. Issues and early feedback are welcome.

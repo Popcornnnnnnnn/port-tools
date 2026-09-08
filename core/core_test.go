@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -9,7 +10,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func makeGitFixture(t *testing.T, root string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "refs", "heads"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
 
 func startTCPProbeFixture(t *testing.T, response func([]byte) []byte) discoveredListener {
 	t.Helper()
@@ -133,6 +146,40 @@ func TestProjectAndApplicationWithoutGitExecutable(t *testing.T) {
 	}
 }
 
+func TestCommandProjectCandidatesIgnoreInterpreterRepository(t *testing.T) {
+	interpreterRoot := makeGitFixture(t, filepath.Join(t.TempDir(), "runtime-repository"))
+	projectRoot := makeGitFixture(t, filepath.Join(t.TempDir(), "application-repository"))
+	interpreter := filepath.Join(interpreterRoot, "bin", "python")
+	script := filepath.Join(projectRoot, "server.py")
+	if err := os.MkdirAll(filepath.Dir(interpreter), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{interpreter, script} {
+		if err := os.WriteFile(path, []byte("fixture"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	candidates := projectCandidatesFromCommand(interpreter+" "+script+" --port 5173", "/tmp")
+	if len(candidates) != 1 || candidates[projectRoot] == nil {
+		t.Fatalf("candidate projects = %#v", candidates)
+	}
+}
+
+func TestLogicalIdentitySurvivesPIDAndPortChange(t *testing.T) {
+	projectRoot := makeGitFixture(t, t.TempDir())
+	project := findProject(projectRoot)
+	command := filepath.Join(projectRoot, "server.py") + " --port 5173"
+	if err := os.WriteFile(filepath.Join(projectRoot, "server.py"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	process := ProcessRecord{Name: pointer("Python"), Command: &command, CWD: &projectRoot}
+	first := stableLogicalID(discoveredListener{PID: 10, Port: 5173}, process, project, nil, ManagementRecord{Source: "unmanaged"})
+	second := stableLogicalID(discoveredListener{PID: 20, Port: 6173}, process, project, nil, ManagementRecord{Source: "unmanaged"})
+	if first != second {
+		t.Fatalf("logical identity changed: %q != %q", first, second)
+	}
+}
+
 func TestRoutePersistenceAndCollision(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "routes.json")
 	manager, err := newRouteManager(statePath, 17890)
@@ -163,6 +210,97 @@ func TestRoutePersistenceAndCollision(t *testing.T) {
 	info, err := os.Stat(statePath)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("route state permissions = %v, err=%v", info.Mode().Perm(), err)
+	}
+}
+
+func TestRouteStateMigrationAndLogicalRebind(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "routes.json")
+	legacy := `{"schemaVersion":1,"routes":{"demo":{"port":4317,"scheme":"http","hostMode":"rewrite","tlsPolicy":"verify","projectRoot":"/project"}}}`
+	if err := os.WriteFile(statePath, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := newRouteManager(statePath, 17890)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(statePath)
+	var migrated routeState
+	if err := json.Unmarshal(data, &migrated); err != nil || migrated.SchemaVersion != 2 {
+		t.Fatalf("route migration failed: %s, %v", data, err)
+	}
+	if _, err := manager.put("stable", RouteRecord{Port: 5000, LogicalServiceID: "logical-1", ProjectRoot: "/project"}); err != nil {
+		t.Fatal(err)
+	}
+	document := ScanDocument{Services: []ServiceRecord{{
+		ID: "instance-2", LogicalID: "logical-1", Listener: ListenerRecord{Port: 6000},
+		Project: &ProjectRecord{Root: "/project"},
+	}}}
+	manager.attach(&document)
+	if document.Services[0].Route == nil || document.Services[0].Route.Port != 6000 {
+		t.Fatalf("logical route was not rebound: %#v", document.Services[0].Route)
+	}
+}
+
+func TestCorruptRouteStateIsBackedUp(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "routes.json")
+	if err := os.WriteFile(statePath, []byte("not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := newRouteManager(statePath, 17890)
+	if err != nil || len(manager.list()) != 0 {
+		t.Fatalf("manager = %#v, error = %v", manager, err)
+	}
+	matches, err := filepath.Glob(statePath + ".corrupt-*")
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("corrupt backup matches = %v, error = %v", matches, err)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("invalid original route state still exists: %v", err)
+	}
+}
+
+func TestInventoryPreferencesAndConservativeStaleness(t *testing.T) {
+	manager, err := newInventoryStateManager(filepath.Join(t.TempDir(), "inventory.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := 42
+	started := time.Now().Add(-25 * time.Hour).Format("Mon Jan 2 15:04:05 2006")
+	if _, ok := parseProcessStarted(&started); !ok {
+		t.Fatalf("test process start did not parse: %q", started)
+	}
+	document := ScanDocument{Services: []ServiceRecord{{
+		ID: "instance", LogicalID: "logical", Process: ProcessRecord{ParentPID: &parent, Started: &started},
+		Management: ManagementRecord{Source: "unmanaged"}, Observation: ObservationRecord{Classification: "confirmed-web"},
+	}}}
+	if err := manager.apply(&document); err != nil {
+		t.Fatal(err)
+	}
+	pinned := true
+	name := "Pinned app"
+	if _, err := manager.updatePreferences("logical", servicePreferencesPatch{Pinned: &pinned, DisplayName: &name}); err != nil {
+		t.Fatal(err)
+	}
+	newParent := 1
+	document.Services[0].Process.ParentPID = &newParent
+	if err := manager.apply(&document); err != nil {
+		t.Fatal(err)
+	}
+	service := document.Services[0]
+	if !service.Preferences.Pinned || service.Preferences.DisplayName != name || service.Staleness.PossiblyForgotten {
+		t.Fatalf("unexpected persisted state: %#v", service)
+	}
+	unpinned := false
+	empty := ""
+	if _, err := manager.updatePreferences("logical", servicePreferencesPatch{Pinned: &unpinned, DisplayName: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.apply(&document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.Services[0].Staleness.PossiblyForgotten {
+		t.Fatalf("old reparented service was not marked possibly forgotten: %#v", document.Services[0].Staleness)
 	}
 }
 
@@ -312,5 +450,72 @@ func TestReverseProxyAndMissingUpstreamDiagnostic(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "Local app unavailable") {
 		t.Fatalf("missing-upstream response = %d %q", response.StatusCode, body)
+	}
+}
+
+func TestInventoryEventDigestIgnoresVolatileTimestamps(t *testing.T) {
+	document := ScanDocument{Services: []ServiceRecord{{
+		ID: "instance", LogicalID: "logical",
+		Listener:    ListenerRecord{Address: "127.0.0.1", Port: 4000},
+		Observation: ObservationRecord{Classification: "confirmed-web", Protocol: "http", ProbedAt: "first"},
+		History:     ServiceHistoryRecord{FirstSeen: "old", LastSeen: "first"},
+	}}}
+	first := inventoryEventDigest(document)
+	document.GeneratedAt = "later"
+	document.Services[0].History.LastSeen = "later"
+	document.Services[0].Observation.ProbedAt = "later"
+	second := inventoryEventDigest(document)
+	if first != second {
+		t.Fatal("volatile scan timestamps changed the inventory event digest")
+	}
+	document.Services[0].Listener.Port = 4001
+	if inventoryEventDigest(document) == first {
+		t.Fatal("listener change did not change the inventory event digest")
+	}
+}
+
+func TestStopTokensExpireAndAreSingleUse(t *testing.T) {
+	manager := newStopManager()
+	manager.plans["expired-graceful"] = storedStopPlan{
+		ServiceID: "service", ExpiresAt: time.Now().Add(-time.Second),
+	}
+	if _, err := manager.gracefulStop("service", "expired-graceful", 1); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expired graceful token error = %v", err)
+	}
+	if _, err := manager.gracefulStop("service", "expired-graceful", 1); err == nil || !strings.Contains(err.Error(), "already used") {
+		t.Fatalf("reused graceful token error = %v", err)
+	}
+
+	manager.forcePlans["expired-force"] = storedForcePlan{
+		ServiceID: "service", ExpiresAt: time.Now().Add(-time.Second),
+	}
+	if _, err := manager.forceStop("service", "expired-force"); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expired force token error = %v", err)
+	}
+	if _, err := manager.forceStop("service", "expired-force"); err == nil || !strings.Contains(err.Error(), "already used") {
+		t.Fatalf("reused force token error = %v", err)
+	}
+}
+
+func TestForcePlanRefusesManagedAndAmbiguousTargets(t *testing.T) {
+	for name, plan := range map[string]StopPlanRecord{
+		"managed": {
+			Service: StopServiceSummary{ID: "service", ManagementSource: "docker"},
+		},
+		"ambiguous": {
+			Service:    StopServiceSummary{ID: "service", ManagementSource: "unmanaged"},
+			Exclusions: []StopProcessRecord{{PID: 42, Reason: "same-project ownership not established"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			manager := newStopManager()
+			manager.gracefulAttempts[name] = storedGracefulAttempt{
+				ServiceID: "service", Plan: plan, ExpiresAt: time.Now().Add(time.Minute),
+			}
+			record, err := manager.createForcePlan("service", name)
+			if err != nil || record.Decision != "refused" {
+				t.Fatalf("force plan = %#v, error = %v", record, err)
+			}
+		})
 	}
 }

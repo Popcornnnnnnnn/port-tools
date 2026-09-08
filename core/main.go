@@ -15,15 +15,20 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: port-tools-core <serve|request|scan|self-test> [options]")
+	fmt.Fprintln(os.Stderr, "usage: port-tools-core <serve|request|watch|scan|self-test> [options]")
 }
 
-func requestUnix(socketPath, method, path, body string) ([]byte, int, error) {
-	transport := &http.Transport{
+func unixTransport(socketPath string) *http.Transport {
+	return &http.Transport{
 		DialContext: func(contextValue context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(contextValue, "unix", socketPath)
 		},
 	}
+}
+
+func requestUnix(socketPath, method, path, body string) ([]byte, int, error) {
+	transport := unixTransport(socketPath)
+	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 8 * time.Second}
 	request, err := http.NewRequest(method, "http://port-tools"+path, bytes.NewBufferString(body))
 	if err != nil {
@@ -41,6 +46,23 @@ func requestUnix(socketPath, method, path, body string) ([]byte, int, error) {
 	return data, response.StatusCode, err
 }
 
+func watchUnix(socketPath string) error {
+	transport := unixTransport(socketPath)
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport}
+	request, _ := http.NewRequest(http.MethodGet, "http://port-tools/v1/events", nil)
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("watch failed with status %d", response.StatusCode)
+	}
+	_, err = io.Copy(os.Stdout, response.Body)
+	return err
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -52,7 +74,7 @@ func main() {
 			"schemaVersion": 1,
 			"version":       version,
 			"runtime":       "self-contained-go-binary",
-			"capabilities":  []string{"services", "routes", "reverse-proxy", "safe-stop"},
+			"capabilities":  []string{"services", "events", "preferences", "routes", "reverse-proxy", "safe-stop", "force-stop"},
 		})
 	case "scan":
 		document, err := scanServices()
@@ -96,6 +118,18 @@ func main() {
 		_, _ = os.Stdout.Write(data)
 		if status < 200 || status >= 300 {
 			fmt.Fprintln(os.Stderr, "request failed with status "+strconv.Itoa(status))
+			os.Exit(1)
+		}
+	case "watch":
+		flags := flag.NewFlagSet("watch", flag.ExitOnError)
+		socketPath := flags.String("socket", "", "private Unix socket path")
+		_ = flags.Parse(os.Args[2:])
+		if *socketPath == "" {
+			fmt.Fprintln(os.Stderr, "watch requires --socket")
+			os.Exit(2)
+		}
+		if err := watchUnix(*socketPath); err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 	default:

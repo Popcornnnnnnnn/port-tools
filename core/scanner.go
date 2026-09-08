@@ -32,6 +32,22 @@ var webCommandHints = []string{
 
 var applicationManifests = []string{"package.json", "pyproject.toml", "Cargo.toml", "go.mod", "Gemfile"}
 
+type cachedObservation struct {
+	observation ObservationRecord
+	expiresAt   time.Time
+}
+
+var observationCache = struct {
+	sync.Mutex
+	entries map[string]cachedObservation
+}{entries: map[string]cachedObservation{}}
+
+var dockerMetadataCache = struct {
+	sync.Mutex
+	ports     map[int]ManagementRecord
+	expiresAt time.Time
+}{ports: map[int]ManagementRecord{}}
+
 type discoveredListener struct {
 	PID         int
 	ProcessName string
@@ -43,7 +59,13 @@ type discoveredListener struct {
 }
 
 func runText(name string, arguments ...string) string {
-	command := exec.Command(name, arguments...)
+	return runTextWithTimeout(2*time.Second, name, arguments...)
+}
+
+func runTextWithTimeout(timeout time.Duration, name string, arguments ...string) string {
+	contextValue, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	command := exec.CommandContext(contextValue, name, arguments...)
 	command.Stderr = io.Discard
 	output, err := command.Output()
 	if err != nil {
@@ -122,6 +144,32 @@ func discoverListeners() ([]discoveredListener, error) {
 
 func pointer[T any](value T) *T { return &value }
 
+func projectCandidatesFromCommand(command, cwd string) map[string]*ProjectRecord {
+	candidateProjects := map[string]*ProjectRecord{}
+	for index, field := range strings.Fields(command) {
+		// argv[0] is the interpreter/runtime, not project evidence. Homebrew and
+		// other package managers may themselves live in Git repositories.
+		if index == 0 {
+			continue
+		}
+		candidate := strings.Trim(field, `"'`)
+		if !filepath.IsAbs(candidate) && cwd != "" {
+			candidate = filepath.Join(cwd, candidate)
+		}
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
+			candidate = filepath.Dir(candidate)
+		}
+		if found := findProject(candidate); found != nil {
+			candidateProjects[found.Root] = found
+		}
+	}
+	return candidateProjects
+}
+
 func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord, *ApplicationRecord, string, []string) {
 	pid := strconv.Itoa(listener.PID)
 	command := runText("/bin/ps", "-p", pid, "-o", "command=")
@@ -162,23 +210,7 @@ func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord
 		projectEvidence = "cwd"
 	}
 	if project == nil {
-		candidateProjects := map[string]*ProjectRecord{}
-		for _, field := range strings.Fields(command) {
-			candidate := strings.Trim(field, `"'`)
-			if !filepath.IsAbs(candidate) && cwd != "" {
-				candidate = filepath.Join(cwd, candidate)
-			}
-			info, err := os.Stat(candidate)
-			if err != nil {
-				continue
-			}
-			if !info.IsDir() {
-				candidate = filepath.Dir(candidate)
-			}
-			if found := findProject(candidate); found != nil {
-				candidateProjects[found.Root] = found
-			}
-		}
+		candidateProjects := projectCandidatesFromCommand(command, cwd)
 		for root := range candidateProjects {
 			projectCandidates = append(projectCandidates, root)
 		}
@@ -215,17 +247,37 @@ func findDockerBinary() string {
 }
 
 func dockerPortMetadata() map[int]ManagementRecord {
+	now := time.Now()
+	dockerMetadataCache.Lock()
+	if now.Before(dockerMetadataCache.expiresAt) {
+		cached := dockerMetadataCache.ports
+		dockerMetadataCache.Unlock()
+		return cached
+	}
+	dockerMetadataCache.Unlock()
+
+	ports := dockerPortMetadataFresh()
+	dockerMetadataCache.Lock()
+	dockerMetadataCache.ports = ports
+	dockerMetadataCache.expiresAt = now.Add(30 * time.Second)
+	dockerMetadataCache.Unlock()
+	return ports
+}
+
+func dockerPortMetadataFresh() map[int]ManagementRecord {
 	dockerPath := findDockerBinary()
 	if dockerPath == "" {
 		return map[int]ManagementRecord{}
 	}
-	containerOutput := runText(dockerPath, "ps", "-q")
+	containerOutput := runTextWithTimeout(750*time.Millisecond, dockerPath, "ps", "-q")
 	containerIDs := strings.Fields(containerOutput)
 	if len(containerIDs) == 0 {
 		return map[int]ManagementRecord{}
 	}
 	arguments := append([]string{"inspect"}, containerIDs...)
-	command := exec.Command(dockerPath, arguments...)
+	contextValue, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+	defer cancel()
+	command := exec.CommandContext(contextValue, dockerPath, arguments...)
 	command.Stderr = io.Discard
 	output, err := command.Output()
 	if err != nil {
@@ -463,6 +515,68 @@ func stableServiceID(listener discoveredListener) string {
 	return hex.EncodeToString(digest[:])[:12]
 }
 
+func normalizedCommandIdentity(process ProcessRecord, project *ProjectRecord, application *ApplicationRecord) string {
+	command := strings.Fields(valueOrEmpty(process.Command))
+	parts := []string{strings.ToLower(filepath.Base(valueOrEmpty(process.Name)))}
+	for index, field := range command {
+		candidate := strings.Trim(field, `"'`)
+		if index == 0 {
+			parts = append(parts, strings.ToLower(filepath.Base(candidate)))
+			continue
+		}
+		if strings.HasPrefix(candidate, "-") {
+			continue
+		}
+		if _, err := strconv.Atoi(candidate); err == nil {
+			continue
+		}
+		if !filepath.IsAbs(candidate) && process.CWD != nil && *process.CWD != "" {
+			candidate = filepath.Join(*process.CWD, candidate)
+		}
+		if project != nil && pathWithin(candidate, project.Root) {
+			relative, _ := filepath.Rel(project.Root, candidate)
+			parts = append(parts, filepath.ToSlash(relative))
+			continue
+		}
+		if application != nil && pathWithin(candidate, application.Root) {
+			relative, _ := filepath.Rel(application.Root, candidate)
+			parts = append(parts, filepath.ToSlash(relative))
+			continue
+		}
+		if filepath.IsAbs(candidate) {
+			continue
+		}
+		if strings.Contains(candidate, "/") || strings.Contains(candidate, ".") {
+			parts = append(parts, filepath.Base(candidate))
+		}
+	}
+	return strings.Join(parts, "|")
+}
+
+func stableLogicalID(listener discoveredListener, process ProcessRecord, project *ProjectRecord, application *ApplicationRecord, management ManagementRecord) string {
+	projectRoot := ""
+	applicationRoot := ""
+	if project != nil {
+		projectRoot = project.Root
+	}
+	if application != nil {
+		applicationRoot = application.Root
+	}
+	identity := strings.Join([]string{
+		management.Source,
+		management.ContainerName,
+		management.ContainerPort,
+		projectRoot,
+		applicationRoot,
+		normalizedCommandIdentity(process, project, application),
+	}, "\x00")
+	if projectRoot == "" && applicationRoot == "" && management.ContainerName == "" {
+		identity += fmt.Sprintf("\x00unattributed-port:%d", listener.Port)
+	}
+	digest := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(digest[:])[:16]
+}
+
 func stringContainsAny(value string, needles []string) (string, bool) {
 	lower := strings.ToLower(value)
 	for _, needle := range needles {
@@ -689,6 +803,33 @@ func observe(listener discoveredListener, process ProcessRecord, management Mana
 	return ObservationRecord{Classification: "unknown", Protocol: "tcp", Role: "service", Confidence: 0.2, Evidence: []EvidenceRecord{{Kind: "no-valid-http-response", Value: "no response"}}}
 }
 
+func observeCached(listener discoveredListener, process ProcessRecord, management ManagementRecord) ObservationRecord {
+	cacheKey := strings.Join([]string{
+		strconv.Itoa(listener.PID), listener.Address, strconv.Itoa(listener.Port),
+		valueOrEmpty(process.Started), valueOrEmpty(process.Command),
+		management.Source, management.ContainerID, management.ContainerPort,
+	}, "\x00")
+	now := time.Now()
+	observationCache.Lock()
+	if cached, exists := observationCache.entries[cacheKey]; exists && now.Before(cached.expiresAt) {
+		observationCache.Unlock()
+		return cached.observation
+	}
+	for key, cached := range observationCache.entries {
+		if now.After(cached.expiresAt.Add(2 * time.Minute)) {
+			delete(observationCache.entries, key)
+		}
+	}
+	observationCache.Unlock()
+
+	observation := observe(listener, process, management)
+	observation.ProbedAt = now.UTC().Format(time.RFC3339Nano)
+	observationCache.Lock()
+	observationCache.entries[cacheKey] = cachedObservation{observation: observation, expiresAt: now.Add(30 * time.Second)}
+	observationCache.Unlock()
+	return observation
+}
+
 func classifyRelevance(process ProcessRecord, project *ProjectRecord, management ManagementRecord) RelevanceRecord {
 	if management.Source == "docker" {
 		return RelevanceRecord{Category: "developer-container", DeveloperRelevant: true, Confidence: 0.9, Evidence: []EvidenceRecord{{Kind: "docker-published-port", Value: management.ContainerName}}}
@@ -749,6 +890,7 @@ func scanServices() (ScanDocument, error) {
 			}
 			services[index] = ServiceRecord{
 				ID:                 stableServiceID(listener),
+				LogicalID:          stableLogicalID(listener, process, project, application, management),
 				Listener:           ListenerRecord{Address: listener.Address, Port: listener.Port, BindScope: listener.BindScope},
 				Process:            process,
 				Project:            project,
@@ -757,8 +899,9 @@ func scanServices() (ScanDocument, error) {
 				ProjectCandidates:  projectCandidates,
 				HostProcessProject: hostProcessProject,
 				Management:         management,
-				Observation:        observe(listener, process, management),
+				Observation:        observeCached(listener, process, management),
 				Relevance:          classifyRelevance(process, project, management),
+				Staleness:          StalenessRecord{Reasons: []string{}},
 			}
 		}()
 	}

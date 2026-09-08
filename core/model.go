@@ -56,6 +56,7 @@ type ObservationRecord struct {
 	Framework      *string          `json:"framework,omitempty"`
 	HTTP           *HTTPRecord      `json:"http,omitempty"`
 	Evidence       []EvidenceRecord `json:"evidence"`
+	ProbedAt       string           `json:"probedAt"`
 }
 
 type RelevanceRecord struct {
@@ -75,29 +76,56 @@ type ManagementRecord struct {
 }
 
 type RouteRecord struct {
-	Alias           string `json:"alias"`
-	Port            int    `json:"port"`
-	Scheme          string `json:"scheme"`
-	HostMode        string `json:"hostMode"`
-	TLSPolicy       string `json:"tlsPolicy"`
-	ProjectRoot     string `json:"projectRoot,omitempty"`
-	ApplicationRoot string `json:"applicationRoot,omitempty"`
-	URL             string `json:"url"`
+	Alias            string `json:"alias"`
+	Port             int    `json:"port"`
+	LastResolvedPort int    `json:"lastResolvedPort,omitempty"`
+	Scheme           string `json:"scheme"`
+	HostMode         string `json:"hostMode"`
+	TLSPolicy        string `json:"tlsPolicy"`
+	LogicalServiceID string `json:"logicalServiceId,omitempty"`
+	ProjectRoot      string `json:"projectRoot,omitempty"`
+	ApplicationRoot  string `json:"applicationRoot,omitempty"`
+	URL              string `json:"url"`
+}
+
+type ServiceHistoryRecord struct {
+	FirstSeen                string `json:"firstSeen"`
+	LastSeen                 string `json:"lastSeen"`
+	LastSuccessfulProbe      string `json:"lastSuccessfulProbe,omitempty"`
+	FirstFailedProbe         string `json:"firstFailedProbe,omitempty"`
+	ConsecutiveProbeFailures int    `json:"consecutiveProbeFailures"`
+	InitialParentPID         *int   `json:"initialParentPid,omitempty"`
+}
+
+type ServicePreferencesRecord struct {
+	DisplayName            string `json:"displayName,omitempty"`
+	Pinned                 bool   `json:"pinned"`
+	Ignored                bool   `json:"ignored"`
+	ClassificationOverride string `json:"classificationOverride,omitempty"`
+}
+
+type StalenessRecord struct {
+	PossiblyForgotten bool     `json:"possiblyForgotten"`
+	Reasons           []string `json:"reasons"`
 }
 
 type ServiceRecord struct {
-	ID                 string             `json:"id"`
-	Listener           ListenerRecord     `json:"listener"`
-	Process            ProcessRecord      `json:"process"`
-	Project            *ProjectRecord     `json:"project,omitempty"`
-	Application        *ApplicationRecord `json:"application,omitempty"`
-	ProjectEvidence    string             `json:"projectEvidence,omitempty"`
-	ProjectCandidates  []string           `json:"projectCandidates"`
-	HostProcessProject *ProjectRecord     `json:"hostProcessProject,omitempty"`
-	Management         ManagementRecord   `json:"management"`
-	Observation        ObservationRecord  `json:"observation"`
-	Relevance          RelevanceRecord    `json:"relevance"`
-	Route              *RouteRecord       `json:"route,omitempty"`
+	ID                 string                   `json:"id"`
+	LogicalID          string                   `json:"logicalId"`
+	Listener           ListenerRecord           `json:"listener"`
+	Process            ProcessRecord            `json:"process"`
+	Project            *ProjectRecord           `json:"project,omitempty"`
+	Application        *ApplicationRecord       `json:"application,omitempty"`
+	ProjectEvidence    string                   `json:"projectEvidence,omitempty"`
+	ProjectCandidates  []string                 `json:"projectCandidates"`
+	HostProcessProject *ProjectRecord           `json:"hostProcessProject,omitempty"`
+	Management         ManagementRecord         `json:"management"`
+	Observation        ObservationRecord        `json:"observation"`
+	Relevance          RelevanceRecord          `json:"relevance"`
+	History            ServiceHistoryRecord     `json:"history"`
+	Preferences        ServicePreferencesRecord `json:"preferences"`
+	Staleness          StalenessRecord          `json:"staleness"`
+	Route              *RouteRecord             `json:"route,omitempty"`
 }
 
 type ScanDocument struct {

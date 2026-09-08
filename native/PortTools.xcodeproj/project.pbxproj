@@ -1,0 +1,398 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2DE8323E36A455659DB5A589 /* InventoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D798DC65FD31648DA30D461D /* InventoryStore.swift */; };
+		374D5C26C5AF256171A29179 /* AppLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39EDD5D5E5069E9F6CD68CA7 /* AppLifecycle.swift */; };
+		460D6E96AA2616CB8264F837 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402B36ACABAE4ECE977CB31 /* Models.swift */; };
+		471910942FCD55B69E6C20DC /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A7E98527B3115EECD2F246 /* Localization.swift */; };
+		47301CE46CB2566CACB4D291 /* InventoryUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72997AE1632587BD87A696A0 /* InventoryUI.swift */; };
+		50A73BA18A2D488055488F65 /* CoreClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2338C3ACB10F00228F4E2985 /* CoreClient.swift */; };
+		5A3433644161B14812FB9F86 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086B37F447B3D33A598E2461 /* Settings.swift */; };
+		B5DAF6D2F49A99E90DD1918F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B9E279C041608567C30D35E1 /* Sparkle */; };
+		FB9E0B2D91D751AE73A3FA59 /* Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A96BDBF876D9F94D05C250 /* Updates.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		086B37F447B3D33A598E2461 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		2338C3ACB10F00228F4E2985 /* CoreClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreClient.swift; sourceTree = "<group>"; };
+		39EDD5D5E5069E9F6CD68CA7 /* AppLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycle.swift; sourceTree = "<group>"; };
+		72997AE1632587BD87A696A0 /* InventoryUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InventoryUI.swift; sourceTree = "<group>"; };
+		D3A7E98527B3115EECD2F246 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		D402B36ACABAE4ECE977CB31 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		D4BB8E6280C24E4E2FAAAD17 /* PortTools.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortTools.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D798DC65FD31648DA30D461D /* InventoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InventoryStore.swift; sourceTree = "<group>"; };
+		D8A96BDBF876D9F94D05C250 /* Updates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updates.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		CA85BCC5EC877FA380EE46BC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B5DAF6D2F49A99E90DD1918F /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		075A59DE98CD3BA6C8B73953 = {
+			isa = PBXGroup;
+			children = (
+				6328721261BE16BDF22FBE86 /* PortTools */,
+				754C47FEC380A2B7F7D6434A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6328721261BE16BDF22FBE86 /* PortTools */ = {
+			isa = PBXGroup;
+			children = (
+				39EDD5D5E5069E9F6CD68CA7 /* AppLifecycle.swift */,
+				2338C3ACB10F00228F4E2985 /* CoreClient.swift */,
+				D798DC65FD31648DA30D461D /* InventoryStore.swift */,
+				72997AE1632587BD87A696A0 /* InventoryUI.swift */,
+				D3A7E98527B3115EECD2F246 /* Localization.swift */,
+				D402B36ACABAE4ECE977CB31 /* Models.swift */,
+				086B37F447B3D33A598E2461 /* Settings.swift */,
+				D8A96BDBF876D9F94D05C250 /* Updates.swift */,
+			);
+			path = PortTools;
+			sourceTree = "<group>";
+		};
+		754C47FEC380A2B7F7D6434A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D4BB8E6280C24E4E2FAAAD17 /* PortTools.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7F3B830B71142F02D2A785D4 /* PortTools */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DC35A7559086610E8AFC8A4F /* Build configuration list for PBXNativeTarget "PortTools" */;
+			buildPhases = (
+				A9F0CE2009070A5B3485476D /* Build embedded Go core */,
+				7EC28519FD8FBB2574B637C2 /* Sources */,
+				CA85BCC5EC877FA380EE46BC /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PortTools;
+			packageProductDependencies = (
+				B9E279C041608567C30D35E1 /* Sparkle */,
+			);
+			productName = PortTools;
+			productReference = D4BB8E6280C24E4E2FAAAD17 /* PortTools.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		45557ED5235769F9293CCABE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					7F3B830B71142F02D2A785D4 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 393F29030DFCE48748091588 /* Build configuration list for PBXProject "PortTools" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 075A59DE98CD3BA6C8B73953;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				447257D8F2D828014E83D82E /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7F3B830B71142F02D2A785D4 /* PortTools */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A9F0CE2009070A5B3485476D /* Build embedded Go core */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build embedded Go core";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nrepository_root=\"$(cd \"$SRCROOT/..\" && pwd)\"\nhelper_dir=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Helpers\"\nmkdir -p \"$helper_dir\"\ncd \"$repository_root/core\"\nCGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \\\n  -trimpath \\\n  -ldflags \"-s -w -X main.version=$MARKETING_VERSION\" \\\n  -o \"$helper_dir/port-tools-core\" \\\n  .\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7EC28519FD8FBB2574B637C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				374D5C26C5AF256171A29179 /* AppLifecycle.swift in Sources */,
+				50A73BA18A2D488055488F65 /* CoreClient.swift in Sources */,
+				2DE8323E36A455659DB5A589 /* InventoryStore.swift in Sources */,
+				47301CE46CB2566CACB4D291 /* InventoryUI.swift in Sources */,
+				471910942FCD55B69E6C20DC /* Localization.swift in Sources */,
+				460D6E96AA2616CB8264F837 /* Models.swift in Sources */,
+				5A3433644161B14812FB9F86 /* Settings.swift in Sources */,
+				FB9E0B2D91D751AE73A3FA59 /* Updates.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		11B84674AA7DD6748A933AF9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = trial/PortTools.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 28;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXECUTABLE_NAME = PortTools;
+				INFOPLIST_FILE = trial/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.popcornnn.PortTools;
+				PRODUCT_MODULE_NAME = PortTools;
+				PRODUCT_NAME = "Port Tools";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8E003B92A0F691A2A7F98610 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		980BFFE80B3BD0B1B16AA4F5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		D14357A1234B8C926523DEC0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = trial/PortTools.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 28;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXECUTABLE_NAME = PortTools;
+				INFOPLIST_FILE = trial/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.popcornnn.PortTools;
+				PRODUCT_MODULE_NAME = PortTools;
+				PRODUCT_NAME = "Port Tools";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		393F29030DFCE48748091588 /* Build configuration list for PBXProject "PortTools" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E003B92A0F691A2A7F98610 /* Debug */,
+				980BFFE80B3BD0B1B16AA4F5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DC35A7559086610E8AFC8A4F /* Build configuration list for PBXNativeTarget "PortTools" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D14357A1234B8C926523DEC0 /* Debug */,
+				11B84674AA7DD6748A933AF9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		447257D8F2D828014E83D82E /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B9E279C041608567C30D35E1 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 447257D8F2D828014E83D82E /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 45557ED5235769F9293CCABE /* Project object */;
+}

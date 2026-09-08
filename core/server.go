@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -14,8 +15,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -24,8 +27,77 @@ var version = "development"
 
 type coreServer struct {
 	routes        *routeManager
+	state         *inventoryStateManager
 	stops         *stopManager
 	instanceToken string
+	scanMutex     sync.Mutex
+	cachedScan    ScanDocument
+	cachedScanAt  time.Time
+}
+
+type serviceEventIdentity struct {
+	ID          string                   `json:"id"`
+	LogicalID   string                   `json:"logicalId"`
+	Listener    ListenerRecord           `json:"listener"`
+	Process     ProcessRecord            `json:"process"`
+	Project     *ProjectRecord           `json:"project,omitempty"`
+	Application *ApplicationRecord       `json:"application,omitempty"`
+	Management  ManagementRecord         `json:"management"`
+	Observation ObservationRecord        `json:"observation"`
+	Preferences ServicePreferencesRecord `json:"preferences"`
+	Staleness   StalenessRecord          `json:"staleness"`
+	Route       *RouteRecord             `json:"route,omitempty"`
+}
+
+func inventoryEventDigest(document ScanDocument) [32]byte {
+	identities := make([]serviceEventIdentity, 0, len(document.Services))
+	for _, service := range document.Services {
+		observation := service.Observation
+		observation.ProbedAt = ""
+		identities = append(identities, serviceEventIdentity{
+			ID: service.ID, LogicalID: service.LogicalID, Listener: service.Listener,
+			Process: service.Process, Project: service.Project, Application: service.Application,
+			Management: service.Management, Observation: observation,
+			Preferences: service.Preferences, Staleness: service.Staleness, Route: service.Route,
+		})
+	}
+	encoded, _ := json.Marshal(identities)
+	return sha256.Sum256(encoded)
+}
+
+func (server *coreServer) scanFreshLocked() (ScanDocument, error) {
+	document, err := scanServices()
+	if err != nil {
+		return ScanDocument{}, err
+	}
+	if err := server.state.apply(&document); err != nil {
+		return ScanDocument{}, err
+	}
+	server.routes.attach(&document)
+	server.cachedScan = document
+	server.cachedScanAt = time.Now()
+	return document, nil
+}
+
+func (server *coreServer) scan() (ScanDocument, error) {
+	server.scanMutex.Lock()
+	defer server.scanMutex.Unlock()
+	if !server.cachedScanAt.IsZero() && time.Since(server.cachedScanAt) < time.Second {
+		return server.cachedScan, nil
+	}
+	return server.scanFreshLocked()
+}
+
+func (server *coreServer) scanFresh() (ScanDocument, error) {
+	server.scanMutex.Lock()
+	defer server.scanMutex.Unlock()
+	return server.scanFreshLocked()
+}
+
+func (server *coreServer) invalidateScan() {
+	server.scanMutex.Lock()
+	server.cachedScanAt = time.Time{}
+	server.scanMutex.Unlock()
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
@@ -49,19 +121,80 @@ func (server *coreServer) apiHandler() http.Handler {
 			"version":                 version,
 			"runtime":                 "self-contained-go-binary",
 			"apiVersions":             []string{"v1"},
-			"implementedCapabilities": []string{"health", "services", "routes", "reverse-proxy", "safe-stop"},
+			"implementedCapabilities": []string{"health", "services", "events", "preferences", "routes", "reverse-proxy", "safe-stop", "force-stop"},
 			"selectedProxyEngine":     "net/http/httputil.ReverseProxy",
 			"privileges":              "current-user-unprivileged",
 		})
 	})
 	mux.HandleFunc("GET /v1/services", func(response http.ResponseWriter, _ *http.Request) {
-		document, err := scanServices()
+		document, err := server.scan()
 		if err != nil {
 			writeError(response, http.StatusInternalServerError, err)
 			return
 		}
-		server.routes.attach(&document)
 		writeJSON(response, http.StatusOK, document)
+	})
+	mux.HandleFunc("GET /v1/services/{id}", func(response http.ResponseWriter, request *http.Request) {
+		document, err := server.scan()
+		if err != nil {
+			writeError(response, http.StatusInternalServerError, err)
+			return
+		}
+		for _, service := range document.Services {
+			if service.ID == request.PathValue("id") {
+				writeJSON(response, http.StatusOK, service)
+				return
+			}
+		}
+		writeError(response, http.StatusNotFound, errors.New("service no longer exists"))
+	})
+	mux.HandleFunc("GET /v1/events", func(response http.ResponseWriter, request *http.Request) {
+		flusher, ok := response.(http.Flusher)
+		if !ok {
+			writeError(response, http.StatusInternalServerError, errors.New("streaming is unavailable"))
+			return
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		response.Header().Set("Cache-Control", "no-store")
+		response.Header().Set("Connection", "keep-alive")
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		var previous [32]byte
+		for {
+			document, err := server.scan()
+			if err != nil {
+				encoded, _ := json.Marshal(map[string]string{"error": err.Error()})
+				_, _ = fmt.Fprintf(response, "event: error\ndata: %s\n\n", encoded)
+				flusher.Flush()
+			} else {
+				encoded, _ := json.Marshal(document)
+				digest := inventoryEventDigest(document)
+				if digest != previous {
+					_, _ = fmt.Fprintf(response, "event: inventory\ndata: %s\n\n", encoded)
+					flusher.Flush()
+					previous = digest
+				}
+			}
+			select {
+			case <-request.Context().Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	})
+	mux.HandleFunc("PATCH /v1/services/{logicalId}/preferences", func(response http.ResponseWriter, request *http.Request) {
+		var patch servicePreferencesPatch
+		if err := json.NewDecoder(io.LimitReader(request.Body, 64*1024)).Decode(&patch); err != nil {
+			writeError(response, http.StatusBadRequest, fmt.Errorf("invalid preferences: %w", err))
+			return
+		}
+		preferences, err := server.state.updatePreferences(request.PathValue("logicalId"), patch)
+		if err != nil {
+			writeError(response, http.StatusNotFound, err)
+			return
+		}
+		server.invalidateScan()
+		writeJSON(response, http.StatusOK, preferences)
 	})
 	mux.HandleFunc("GET /v1/routes", func(response http.ResponseWriter, _ *http.Request) {
 		writeJSON(response, http.StatusOK, map[string]any{"schemaVersion": 1, "routes": server.routes.list()})
@@ -80,6 +213,7 @@ func (server *coreServer) apiHandler() http.Handler {
 			writeError(response, http.StatusConflict, err)
 			return
 		}
+		server.invalidateScan()
 		writeJSON(response, http.StatusOK, route)
 	})
 	mux.HandleFunc("DELETE /v1/routes/{alias}", func(response http.ResponseWriter, request *http.Request) {
@@ -87,6 +221,7 @@ func (server *coreServer) apiHandler() http.Handler {
 			writeError(response, http.StatusNotFound, err)
 			return
 		}
+		server.invalidateScan()
 		writeJSON(response, http.StatusOK, map[string]any{"alias": request.PathValue("alias"), "removed": true})
 	})
 	mux.HandleFunc("POST /v1/services/{id}/stop-plan", func(response http.ResponseWriter, request *http.Request) {
@@ -111,6 +246,36 @@ func (server *coreServer) apiHandler() http.Handler {
 			return
 		}
 		result, err := server.stops.gracefulStop(request.PathValue("id"), mutation.PlanToken, mutation.TimeoutSeconds)
+		if err != nil {
+			writeError(response, http.StatusConflict, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/services/{id}/force-stop-plan", func(response http.ResponseWriter, request *http.Request) {
+		var mutation struct {
+			GracefulAttemptToken string `json:"gracefulAttemptToken"`
+		}
+		if err := json.NewDecoder(io.LimitReader(request.Body, 64*1024)).Decode(&mutation); err != nil {
+			writeError(response, http.StatusBadRequest, fmt.Errorf("invalid force plan request: %w", err))
+			return
+		}
+		plan, err := server.stops.createForcePlan(request.PathValue("id"), mutation.GracefulAttemptToken)
+		if err != nil {
+			writeError(response, http.StatusConflict, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, plan)
+	})
+	mux.HandleFunc("POST /v1/services/{id}/force-stop", func(response http.ResponseWriter, request *http.Request) {
+		var mutation struct {
+			PlanToken string `json:"planToken"`
+		}
+		if err := json.NewDecoder(io.LimitReader(request.Body, 64*1024)).Decode(&mutation); err != nil {
+			writeError(response, http.StatusBadRequest, fmt.Errorf("invalid force stop request: %w", err))
+			return
+		}
+		result, err := server.stops.forceStop(request.PathValue("id"), mutation.PlanToken)
 		if err != nil {
 			writeError(response, http.StatusConflict, err)
 			return
@@ -252,7 +417,13 @@ func serveCore(socketPath, statePath, proxyAddress string, parentPID int, instan
 	if err != nil {
 		return err
 	}
-	server := &coreServer{routes: routes, stops: newStopManager(), instanceToken: instanceToken}
+	state, err := newInventoryStateManager(filepath.Join(filepath.Dir(statePath), "inventory.json"))
+	if err != nil {
+		return err
+	}
+	stops := newStopManager()
+	server := &coreServer{routes: routes, state: state, stops: stops, instanceToken: instanceToken}
+	stops.scan = server.scanFresh
 	apiHTTP := &http.Server{Handler: server.apiHandler()}
 	proxyHTTP := &http.Server{Handler: server.proxyHandler()}
 	contextValue, cancel := context.WithCancel(context.Background())

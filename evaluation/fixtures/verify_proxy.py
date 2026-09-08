@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import hashlib
+import argparse
 import http.client
 import json
 import os
@@ -20,8 +21,11 @@ FIXTURE_ROOT = Path(__file__).resolve().parent
 RUNTIME_ROOT = FIXTURE_ROOT / ".runtime"
 MANAGER = FIXTURE_ROOT / "manage.py"
 CLI = REPO_ROOT / "bin" / "port-tools"
+CORE = REPO_ROOT / "native" / ".build" / "Port Tools.app" / "Contents" / "Helpers" / "port-tools-core"
 PROXY_PORT = 17890
 STATE = RUNTIME_ROOT / "proxy-routes.json"
+SOCKET = RUNTIME_ROOT / "core.sock"
+ENGINE = "go"
 
 
 def run(command, capture: bool = True):
@@ -85,6 +89,15 @@ def add_alias(
     scheme: str = "http",
     tls_policy: str = "verify",
 ) -> None:
+    if ENGINE == "go":
+        body = json.dumps({
+            "port": port,
+            "scheme": scheme,
+            "hostMode": host_mode,
+            "tlsPolicy": tls_policy,
+        })
+        run([CORE, "request", "--socket", SOCKET, "--method", "PUT", "--path", f"/v1/routes/{alias}", "--body", body])
+        return
     run(
         [
             CLI,
@@ -105,6 +118,9 @@ def add_alias(
 
 
 def remove_alias(alias: str) -> None:
+    if ENGINE == "go":
+        run([CORE, "request", "--socket", SOCKET, "--method", "DELETE", "--path", f"/v1/routes/{alias}"])
+        return
     run([CLI, "alias", "remove", alias, "--state", STATE])
 
 
@@ -130,17 +146,29 @@ def vite_websocket() -> bool:
 
 
 def main() -> None:
+    global ENGINE, PROXY_PORT
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--engine", choices=("go", "prototype"), default="go")
+    parser.add_argument("--proxy-port", type=int, default=17891)
+    args = parser.parse_args()
+    ENGINE = args.engine
+    PROXY_PORT = args.proxy_port
+    if ENGINE == "go" and not CORE.exists():
+        raise SystemExit("build the native app first: native/trial/build.sh")
     RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
     run(["python3", MANAGER, "start", "static-http"])
     run(["python3", MANAGER, "start", "vite-hmr"])
     run(["python3", MANAGER, "start", "self-signed-https"])
     STATE.unlink(missing_ok=True)
-    add_alias("static", 51739)
-    add_alias("vite", 51742)
-
+    SOCKET.unlink(missing_ok=True)
     log_handle = (RUNTIME_ROOT / "proxy.log").open("ab", buffering=0)
+    command = (
+        [str(CORE), "serve", "--socket", str(SOCKET), "--state", str(STATE), "--proxy", f"127.0.0.1:{PROXY_PORT}", "--instance-token", "proxy-verification"]
+        if ENGINE == "go"
+        else [str(CLI), "proxy", "--listen", "127.0.0.1:{}".format(PROXY_PORT), "--state", str(STATE)]
+    )
     proxy = subprocess.Popen(
-        [str(CLI), "proxy", "--listen", "127.0.0.1:{}".format(PROXY_PORT), "--state", str(STATE)],
+        command,
         cwd=str(REPO_ROOT),
         stdout=log_handle,
         stderr=subprocess.STDOUT,
@@ -150,16 +178,18 @@ def main() -> None:
     completed = False
     try:
         wait_for_port(PROXY_PORT, expected=True)
+        add_alias("static", 51739)
+        add_alias("vite", 51742)
         results["static_html"] = request("static")["status"] == 200
         results["unknown_alias"] = request("unknown")["status"] == 404
         rewritten = json.loads(request("static", "/inspect")["body"])
         results["host_rewrite"] = (
             rewritten["host"] == "127.0.0.1:51739"
-            and rewritten["x_forwarded_host"] == "static.localhost:17890"
+            and rewritten["x_forwarded_host"] == f"static.localhost:{PROXY_PORT}"
         )
         add_alias("preserve", 51739, host_mode="preserve")
         preserved = json.loads(request("preserve", "/inspect")["body"])
-        results["host_preserve"] = preserved["host"] == "preserve.localhost:17890"
+        results["host_preserve"] = preserved["host"] == f"preserve.localhost:{PROXY_PORT}"
         add_alias("secure", 51741, scheme="https", tls_policy="insecure-local")
         results["https_upstream"] = request("secure")["status"] == 200
         add_alias("secure-verify", 51741, scheme="https", tls_policy="verify")
