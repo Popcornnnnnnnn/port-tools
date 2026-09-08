@@ -5,9 +5,11 @@ import SwiftUI
 
 enum AppMaintenance {
     static let migrationMarker = "didMigrateDevPortToolsTrial"
+    static let launchAgentMigrationMarker = "didRetireDevPortToolsTrialLaunchAgent"
 
     static func migrateTrialPreferences() {
         let defaults = UserDefaults.standard
+        retireTrialLaunchAgent(defaults: defaults)
         guard !defaults.bool(forKey: migrationMarker) else { return }
         if let old = defaults.persistentDomain(forName: "dev.port-tools.trial") {
             for key in ["projectDisplayNames", "serviceDisplayNames", "appearanceMode", "language"]
@@ -16,6 +18,30 @@ enum AppMaintenance {
             }
         }
         defaults.set(true, forKey: migrationMarker)
+    }
+
+    private static func retireTrialLaunchAgent(defaults: UserDefaults) {
+        guard !defaults.bool(forKey: launchAgentMigrationMarker) else { return }
+        let manager = FileManager.default
+        let home = manager.homeDirectoryForCurrentUser
+        let source = home.appendingPathComponent("Library/LaunchAgents/dev.port-tools.trial.autostart.plist")
+        guard manager.fileExists(atPath: source.path) else {
+            defaults.set(true, forKey: launchAgentMigrationMarker)
+            return
+        }
+        let bootout = Process()
+        bootout.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        bootout.arguments = ["bootout", "gui/\(getuid())", source.path]
+        try? bootout.run()
+        bootout.waitUntilExit()
+
+        let archiveDirectory = home.appendingPathComponent("Library/Application Support/Port Tools/Migrated", isDirectory: true)
+        try? manager.createDirectory(at: archiveDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let destination = archiveDirectory.appendingPathComponent(source.lastPathComponent)
+        if !manager.fileExists(atPath: destination.path) {
+            try? manager.moveItem(at: source, to: destination)
+        }
+        defaults.set(true, forKey: launchAgentMigrationMarker)
     }
 
     @MainActor
