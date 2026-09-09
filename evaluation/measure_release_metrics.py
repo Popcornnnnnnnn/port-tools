@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import ctypes
+import errno
 import json
 import os
 from pathlib import Path
@@ -14,12 +16,48 @@ import time
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_APP = REPO_ROOT / "native" / ".build" / "Port Tools.app"
+RUSAGE_INFO_V0 = 0
+
+
+class RusageInfoV0(ctypes.Structure):
+    _fields_ = [
+        ("ri_uuid", ctypes.c_uint8 * 16),
+        ("ri_user_time", ctypes.c_uint64),
+        ("ri_system_time", ctypes.c_uint64),
+        ("ri_pkg_idle_wkups", ctypes.c_uint64),
+        ("ri_interrupt_wkups", ctypes.c_uint64),
+        ("ri_pageins", ctypes.c_uint64),
+        ("ri_wired_size", ctypes.c_uint64),
+        ("ri_resident_size", ctypes.c_uint64),
+        ("ri_phys_footprint", ctypes.c_uint64),
+        ("ri_proc_start_abstime", ctypes.c_uint64),
+        ("ri_proc_exit_abstime", ctypes.c_uint64),
+    ]
+
+
+LIBPROC = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+LIBPROC.proc_pid_rusage.argtypes = [
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.POINTER(RusageInfoV0),
+]
+LIBPROC.proc_pid_rusage.restype = ctypes.c_int
 
 
 def percentile(values, fraction):
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * fraction)))
     return ordered[index]
+
+
+def physical_footprint_kib(pid):
+    usage = RusageInfoV0()
+    if LIBPROC.proc_pid_rusage(pid, RUSAGE_INFO_V0, ctypes.byref(usage)) != 0:
+        error_number = ctypes.get_errno()
+        if error_number == errno.ESRCH:
+            return 0
+        raise OSError(error_number, os.strerror(error_number))
+    return usage.ri_phys_footprint // 1024
 
 
 def process_metrics(pids):
@@ -37,7 +75,8 @@ def process_metrics(pids):
         if len(fields) == 2:
             cpu += float(fields[0])
             rss_kib += int(fields[1])
-    return cpu, rss_kib
+    footprint_kib = sum(physical_footprint_kib(pid) for pid in pids)
+    return cpu, footprint_kib, rss_kib
 
 
 def descendants(root_pid):
@@ -79,11 +118,13 @@ def main():
 
             time.sleep(args.warmup)
             cpu_samples = []
+            footprint_samples = []
             rss_samples = []
             sample_deadline = time.monotonic() + args.duration
             while time.monotonic() < sample_deadline:
-                cpu, rss_kib = process_metrics(descendants(process.pid))
+                cpu, footprint_kib, rss_kib = process_metrics(descendants(process.pid))
                 cpu_samples.append(cpu)
+                footprint_samples.append(footprint_kib)
                 rss_samples.append(rss_kib)
                 time.sleep(args.interval)
 
@@ -91,7 +132,7 @@ def main():
             result = {
                 "passed": ready_seconds < 2 and statistics.median(cpu_samples) < 1
                 and percentile(cpu_samples, 0.95) < 3
-                and percentile(rss_samples, 0.95) < 80 * 1024,
+                and percentile(footprint_samples, 0.95) < 80 * 1024,
                 "version": info.get("CFBundleShortVersionString"),
                 "coldReadySeconds": round(ready_seconds, 3),
                 "durationSeconds": args.duration,
@@ -99,6 +140,9 @@ def main():
                 "sampleCount": len(cpu_samples),
                 "cpuMedianPercent": round(statistics.median(cpu_samples), 3),
                 "cpuP95Percent": round(percentile(cpu_samples, 0.95), 3),
+                "physicalFootprintMedianMiB": round(statistics.median(footprint_samples) / 1024, 2),
+                "physicalFootprintP95MiB": round(percentile(footprint_samples, 0.95) / 1024, 2),
+                "physicalFootprintPeakMiB": round(max(footprint_samples) / 1024, 2),
                 "rssMedianMiB": round(statistics.median(rss_samples) / 1024, 2),
                 "rssP95MiB": round(percentile(rss_samples, 0.95) / 1024, 2),
                 "rssPeakMiB": round(max(rss_samples) / 1024, 2),
