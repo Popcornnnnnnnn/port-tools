@@ -86,7 +86,8 @@ codesign --force --options runtime --timestamp \
 lipo "$app_path/Contents/MacOS/PortTools" -verify_arch arm64
 lipo "$app_path/Contents/Helpers/port-tools-core" -verify_arch arm64
 codesign --verify --deep --strict --verbose=2 "$app_path"
-codesign -dv --verbose=4 "$app_path/Contents/Helpers/port-tools-core" 2>&1 | grep -q 'flags=.*runtime'
+helper_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Helpers/port-tools-core" 2>&1)"
+grep -q 'flags=.*runtime' <<<"$helper_signature"
 
 staging="$dist_root/dmg-root"
 rw_dmg="$dist_root/Port-Tools-$release_version-rw.dmg"
