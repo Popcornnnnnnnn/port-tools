@@ -10,6 +10,16 @@ project_file="${1:?path to project.pbxproj required}"
 sed -i '' \
   -e 's/objectVersion = 77;/objectVersion = 60;/' \
   -e 's/preferredProjectObjectVersion = 77;/preferredProjectObjectVersion = 60;/' \
+  -e '/productRefGroup = .*\/\* Products \*\//d' \
   "$project_file"
 
+if ! grep -q 'compatibilityVersion = "Xcode 14.0";' "$project_file"; then
+  sed -i '' \
+    '/buildConfigurationList = .*PBXProject/a\
+			compatibilityVersion = "Xcode 14.0";
+' \
+    "$project_file"
+fi
+
 grep -q 'objectVersion = 60;' "$project_file"
+grep -q 'compatibilityVersion = "Xcode 14.0";' "$project_file"

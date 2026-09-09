@@ -85,24 +85,26 @@ hdiutil create -volname "Port Tools" -srcfolder "$staging" -ov -format UDRW "$rw
 mkdir -p "$mountpoint"
 hdiutil attach "$rw_dmg" -readwrite -noverify -noautoopen -mountpoint "$mountpoint" >/dev/null
 trap 'hdiutil detach "$mountpoint" >/dev/null 2>&1 || true' EXIT
-osascript <<'APPLESCRIPT'
-tell application "Finder"
-  tell disk "Port Tools"
-    open
-    set current view of container window to icon view
-    set toolbar visible of container window to false
-    set statusbar visible of container window to false
-    set bounds of container window to {100, 100, 700, 500}
-    set viewOptions to icon view options of container window
+osascript - "$mountpoint" <<'APPLESCRIPT'
+on run argv
+  set mountPath to item 1 of argv
+  set targetFolder to POSIX file mountPath as alias
+  tell application "Finder"
+    open targetFolder
+    set current view of container window of targetFolder to icon view
+    set toolbar visible of container window of targetFolder to false
+    set statusbar visible of container window of targetFolder to false
+    set bounds of container window of targetFolder to {100, 100, 700, 500}
+    set viewOptions to icon view options of container window of targetFolder
     set arrangement of viewOptions to not arranged
     set icon size of viewOptions to 96
-    set background picture of viewOptions to file ".background:background.png"
-    set position of item "Port Tools.app" of container window to {170, 210}
-    set position of item "Applications" of container window to {430, 210}
-    close
-    update without registering applications
+    set background picture of viewOptions to file ".background:background.png" of targetFolder
+    set position of item "Port Tools.app" of targetFolder to {170, 210}
+    set position of item "Applications" of targetFolder to {430, 210}
+    close container window of targetFolder
+    update targetFolder without registering applications
   end tell
-end tell
+end run
 APPLESCRIPT
 sync
 sleep 2
