@@ -74,9 +74,19 @@ xcodebuild -exportArchive \
   -exportPath "$export_path" \
   -exportOptionsPlist "$export_options"
 
+codesign --force --options runtime --timestamp \
+  --preserve-metadata=identifier,entitlements \
+  --sign "$developer_identity" \
+  "$app_path/Contents/Helpers/port-tools-core"
+codesign --force --options runtime --timestamp \
+  --preserve-metadata=identifier,entitlements \
+  --sign "$developer_identity" \
+  "$app_path"
+
 lipo "$app_path/Contents/MacOS/PortTools" -verify_arch arm64
 lipo "$app_path/Contents/Helpers/port-tools-core" -verify_arch arm64
 codesign --verify --deep --strict --verbose=2 "$app_path"
+codesign -dv --verbose=4 "$app_path/Contents/Helpers/port-tools-core" 2>&1 | grep -q 'flags=.*runtime'
 
 staging="$dist_root/dmg-root"
 rw_dmg="$dist_root/Port-Tools-$release_version-rw.dmg"
