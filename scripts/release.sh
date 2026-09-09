@@ -15,6 +15,7 @@ export_path="$dist_root/export"
 export_options="$repository_root/scripts/ExportOptions.plist"
 app_path="$export_path/Port Tools.app"
 dmg_path="$dist_root/Port-Tools-$release_version.dmg"
+volume_name="Port Tools $release_version"
 notary_profile="port-tools-notary"
 sparkle_root="$native_root/.build/ReleasePackages"
 sparkle_bin="$sparkle_root/SourcePackages/artifacts/sparkle/Sparkle/bin"
@@ -102,7 +103,7 @@ ln -s /Applications "$staging/Applications"
 cp "$repository_root/design/marketing/dmg-background@2x.png" "$staging/.background/background.png"
 [[ "$(sips -g pixelWidth "$staging/.background/background.png" | awk '/pixelWidth/ {print $2}')" == "1200" ]]
 [[ "$(sips -g pixelHeight "$staging/.background/background.png" | awk '/pixelHeight/ {print $2}')" == "800" ]]
-hdiutil create -volname "Port Tools" -srcfolder "$staging" -ov -format UDRW "$rw_dmg" >/dev/null
+hdiutil create -volname "$volume_name" -srcfolder "$staging" -ov -format UDRW "$rw_dmg" >/dev/null
 mkdir -p "$mountpoint"
 hdiutil attach "$rw_dmg" -readwrite -noverify -noautoopen -mountpoint "$mountpoint" >/dev/null
 trap 'hdiutil detach "$mountpoint" >/dev/null 2>&1 || true' EXIT
