@@ -4,13 +4,13 @@
         <title>Port Tools</title>
         <item>
             <title>1.0.0</title>
-            <pubDate>Wed, 09 Sep 2026 11:03:21 +0800</pubDate>
+            <pubDate>Wed, 09 Sep 2026 11:56:25 +0800</pubDate>
             <link>https://updates.popcornnn.xyz/appcast.xml</link>
-            <sparkle:version>202609090301</sparkle:version>
+            <sparkle:version>202609090354</sparkle:version>
             <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Popcornnnnnnnn/port-tools/releases/download/v1.0.0-rc.1/Port-Tools-1.0.0-rc.1.dmg" length="5713608" type="application/octet-stream" sparkle:edSignature="CXZQxcXoV/5y8HbQ8hriPRf0oBylenCbfTvjFjJA1F7amWLxMe/zH/prBcqHzDlY6lTKyxsaUUpHKI2LC3DcAg=="/>
+            <enclosure url="https://github.com/Popcornnnnnnnn/port-tools/releases/download/v1.0.0-rc.2/Port-Tools-1.0.0-rc.2.dmg" length="7324714" type="application/octet-stream" sparkle:edSignature="W3FX/u0l/+zsMUwzls3PwdvEE7NnuJvzLnh4H+A0J7kbeogLXarc4+ogqoOoEnVF56ilE00u+q1rMyyksWUaBw=="/>
         </item>
     </channel>
 </rss>
