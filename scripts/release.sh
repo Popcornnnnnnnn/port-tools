@@ -115,6 +115,7 @@ on run argv
     set current view of container window of targetFolder to icon view
     set toolbar visible of container window of targetFolder to false
     set statusbar visible of container window of targetFolder to false
+    set pathbar visible of container window of targetFolder to false
     set bounds of container window of targetFolder to {100, 100, 700, 500}
     set viewOptions to icon view options of container window of targetFolder
     set arrangement of viewOptions to not arranged
@@ -122,11 +123,14 @@ on run argv
     set background picture of viewOptions to file ".background:background.png" of targetFolder
     set position of item "Port Tools.app" of targetFolder to {170, 210}
     set position of item "Applications" of targetFolder to {430, 210}
-    close container window of targetFolder
     update targetFolder without registering applications
+    delay 2
+    close container window of targetFolder
+    delay 1
   end tell
 end run
 APPLESCRIPT
+[[ -f "$mountpoint/.DS_Store" ]] || { echo "Finder did not persist the DMG layout." >&2; exit 1; }
 sync
 sleep 2
 hdiutil detach "$mountpoint" >/dev/null
