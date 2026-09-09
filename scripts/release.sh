@@ -11,7 +11,9 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 native_root="$repository_root/native"
 dist_root="$repository_root/dist/$release_version"
 archive_path="$dist_root/PortTools.xcarchive"
-app_path="$archive_path/Products/Applications/Port Tools.app"
+export_path="$dist_root/export"
+export_options="$repository_root/scripts/ExportOptions.plist"
+app_path="$export_path/Port Tools.app"
 dmg_path="$dist_root/Port-Tools-$release_version.dmg"
 notary_profile="port-tools-notary"
 sparkle_root="$native_root/.build/ReleasePackages"
@@ -66,8 +68,12 @@ xcodebuild archive \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$developer_identity"
 
-codesign --force --options runtime --timestamp --sign "$developer_identity" "$app_path/Contents/Helpers/port-tools-core"
-codesign --force --options runtime --timestamp --sign "$developer_identity" "$app_path"
+rm -rf "$export_path"
+xcodebuild -exportArchive \
+  -archivePath "$archive_path" \
+  -exportPath "$export_path" \
+  -exportOptionsPlist "$export_options"
+
 lipo "$app_path/Contents/MacOS/PortTools" -verify_arch arm64
 lipo "$app_path/Contents/Helpers/port-tools-core" -verify_arch arm64
 codesign --verify --deep --strict --verbose=2 "$app_path"
@@ -113,7 +119,17 @@ trap - EXIT
 hdiutil convert "$rw_dmg" -format UDZO -o "$dmg_path" >/dev/null
 rm -f "$rw_dmg"
 codesign --force --timestamp --sign "$developer_identity" "$dmg_path"
-xcrun notarytool submit "$dmg_path" --keychain-profile "$notary_profile" --wait
+notary_result="$dist_root/notary-result.json"
+xcrun notarytool submit "$dmg_path" \
+  --keychain-profile "$notary_profile" \
+  --wait \
+  --output-format json | tee "$notary_result"
+notary_status="$(plutil -extract status raw "$notary_result")"
+if [[ "$notary_status" != "Accepted" ]]; then
+  notary_id="$(plutil -extract id raw "$notary_result")"
+  xcrun notarytool log "$notary_id" --keychain-profile "$notary_profile" >&2 || true
+  exit 1
+fi
 xcrun stapler staple "$dmg_path"
 xcrun stapler validate "$dmg_path"
 spctl --assess --type open --context context:primary-signature -v "$dmg_path"
