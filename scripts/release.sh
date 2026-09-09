@@ -85,6 +85,8 @@ codesign --force --options runtime --timestamp \
 
 lipo "$app_path/Contents/MacOS/PortTools" -verify_arch arm64
 lipo "$app_path/Contents/Helpers/port-tools-core" -verify_arch arm64
+[[ -f "$app_path/Contents/Resources/PortTools.icns" ]]
+[[ -d "$app_path/Contents/Resources/zh-Hans.lproj" ]]
 codesign --verify --deep --strict --verbose=2 "$app_path"
 helper_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Helpers/port-tools-core" 2>&1)"
 grep -q 'flags=.*runtime' <<<"$helper_signature"
@@ -97,7 +99,9 @@ rm -f "$rw_dmg" "$dmg_path"
 mkdir -p "$staging/.background"
 cp -R "$app_path" "$staging/Port Tools.app"
 ln -s /Applications "$staging/Applications"
-sips -z 400 600 "$repository_root/design/marketing/interface-dark.png" --out "$staging/.background/background.png" >/dev/null
+cp "$repository_root/design/marketing/dmg-background@2x.png" "$staging/.background/background.png"
+[[ "$(sips -g pixelWidth "$staging/.background/background.png" | awk '/pixelWidth/ {print $2}')" == "1200" ]]
+[[ "$(sips -g pixelHeight "$staging/.background/background.png" | awk '/pixelHeight/ {print $2}')" == "800" ]]
 hdiutil create -volname "Port Tools" -srcfolder "$staging" -ov -format UDRW "$rw_dmg" >/dev/null
 mkdir -p "$mountpoint"
 hdiutil attach "$rw_dmg" -readwrite -noverify -noautoopen -mountpoint "$mountpoint" >/dev/null

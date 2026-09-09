@@ -54,7 +54,10 @@ jobs:
           app="native/.build/CI/Build/Products/Release/Port Tools.app"
           test -x "$app/Contents/MacOS/PortTools"
           test -x "$app/Contents/Helpers/port-tools-core"
+          test -f "$app/Contents/Resources/PortTools.icns"
+          test -d "$app/Contents/Resources/zh-Hans.lproj"
           test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "xyz.popcornnn.PortTools"
+          test "$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist")" = "PortTools.icns"
           lipo "$app/Contents/MacOS/PortTools" -verify_arch arm64
           lipo "$app/Contents/Helpers/port-tools-core" -verify_arch arm64
       - name: Proxy and force-stop integration

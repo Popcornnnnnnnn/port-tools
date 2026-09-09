@@ -69,10 +69,79 @@ def build_hero() -> None:
     canvas.convert("RGB").save(OUT / "github-hero-unified.png", optimize=True)
 
 
+def build_dmg_background() -> None:
+    """Build a Retina Finder background for the 600 x 400 point DMG window."""
+    width, height = 1200, 800
+    top = (248, 250, 254)
+    bottom = (236, 242, 250)
+    canvas = Image.new("RGB", (width, height))
+    pixels = canvas.load()
+    for y in range(height):
+        mix = y / (height - 1)
+        color = tuple(round(a + (b - a) * mix) for a, b in zip(top, bottom))
+        for x in range(width):
+            pixels[x, y] = color
+
+    glow = Image.new("RGBA", canvas.size)
+    glow_draw = ImageDraw.Draw(glow)
+    glow_draw.ellipse((95, 140, 585, 630), fill=(0, 168, 255, 34))
+    glow_draw.ellipse((650, 135, 1140, 625), fill=(35, 214, 107, 28))
+    glow = glow.filter(ImageFilter.GaussianBlur(95))
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), glow)
+
+    draw = ImageDraw.Draw(canvas)
+    title_font = "/System/Library/Fonts/SFNS.ttf"
+    try:
+        from PIL import ImageFont
+
+        title = ImageFont.truetype(title_font, 44)
+        subtitle = ImageFont.truetype(title_font, 25)
+    except OSError:
+        title = None
+        subtitle = None
+
+    heading = "Install Port Tools"
+    guidance = "Drag Port Tools to Applications"
+    title_box = draw.textbbox((0, 0), heading, font=title)
+    subtitle_box = draw.textbbox((0, 0), guidance, font=subtitle)
+    draw.text(
+        ((width - (title_box[2] - title_box[0])) / 2, 64),
+        heading,
+        font=title,
+        fill=(20, 27, 42, 245),
+    )
+    draw.text(
+        ((width - (subtitle_box[2] - subtitle_box[0])) / 2, 124),
+        guidance,
+        font=subtitle,
+        fill=(91, 102, 124, 235),
+    )
+    draw.rounded_rectangle(
+        (125, 280, 555, 650),
+        radius=44,
+        fill=(255, 255, 255, 245),
+        outline=(21, 168, 235, 90),
+        width=2,
+    )
+    draw.rounded_rectangle(
+        (645, 280, 1075, 650),
+        radius=44,
+        fill=(255, 255, 255, 245),
+        outline=(34, 197, 94, 85),
+        width=2,
+    )
+    canvas.convert("RGB").save(
+        OUT / "dmg-background@2x.png",
+        optimize=True,
+        dpi=(144, 144),
+    )
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     build_logo()
     build_hero()
+    build_dmg_background()
 
 
 if __name__ == "__main__":

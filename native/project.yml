@@ -16,9 +16,10 @@ targets:
     platform: macOS
     sources:
       - path: PortTools
-    resources:
       - path: trial/Resources/PortTools.icns
+        buildPhase: resources
       - path: Localization
+        buildPhase: resources
     dependencies:
       - package: Sparkle
     preBuildScripts:

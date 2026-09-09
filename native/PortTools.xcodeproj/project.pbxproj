@@ -13,8 +13,10 @@
 		471910942FCD55B69E6C20DC /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A7E98527B3115EECD2F246 /* Localization.swift */; };
 		47301CE46CB2566CACB4D291 /* InventoryUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72997AE1632587BD87A696A0 /* InventoryUI.swift */; };
 		50A73BA18A2D488055488F65 /* CoreClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2338C3ACB10F00228F4E2985 /* CoreClient.swift */; };
+		52E959C1B4644A934658225D /* PortTools.icns in Resources */ = {isa = PBXBuildFile; fileRef = 42333808D75520D67A5643EC /* PortTools.icns */; };
 		5A3433644161B14812FB9F86 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086B37F447B3D33A598E2461 /* Settings.swift */; };
 		B5DAF6D2F49A99E90DD1918F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B9E279C041608567C30D35E1 /* Sparkle */; };
+		D7B153C7A22CE4EF25030C1D /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = E10AACC2D7D8703928F41C9C /* Localizable.strings */; };
 		FB9E0B2D91D751AE73A3FA59 /* Updates.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A96BDBF876D9F94D05C250 /* Updates.swift */; };
 /* End PBXBuildFile section */
 
@@ -22,12 +24,14 @@
 		086B37F447B3D33A598E2461 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		2338C3ACB10F00228F4E2985 /* CoreClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreClient.swift; sourceTree = "<group>"; };
 		39EDD5D5E5069E9F6CD68CA7 /* AppLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycle.swift; sourceTree = "<group>"; };
+		42333808D75520D67A5643EC /* PortTools.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = PortTools.icns; sourceTree = "<group>"; };
 		72997AE1632587BD87A696A0 /* InventoryUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InventoryUI.swift; sourceTree = "<group>"; };
 		D3A7E98527B3115EECD2F246 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		D402B36ACABAE4ECE977CB31 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		D4BB8E6280C24E4E2FAAAD17 /* PortTools.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortTools.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D798DC65FD31648DA30D461D /* InventoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InventoryStore.swift; sourceTree = "<group>"; };
 		D8A96BDBF876D9F94D05C250 /* Updates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updates.swift; sourceTree = "<group>"; };
+		E10AACC2D7D8703928F41C9C /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,7 +49,9 @@
 		075A59DE98CD3BA6C8B73953 = {
 			isa = PBXGroup;
 			children = (
+				A2698C88160429DC5866594C /* Localization */,
 				6328721261BE16BDF22FBE86 /* PortTools */,
+				9A796782D6154E597FE41F6A /* trial */,
 				754C47FEC380A2B7F7D6434A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -73,6 +79,30 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		9A796782D6154E597FE41F6A /* trial */ = {
+			isa = PBXGroup;
+			children = (
+				CFA86C4DDA90F42CD9BF9DC1 /* Resources */,
+			);
+			path = trial;
+			sourceTree = "<group>";
+		};
+		A2698C88160429DC5866594C /* Localization */ = {
+			isa = PBXGroup;
+			children = (
+				E10AACC2D7D8703928F41C9C /* Localizable.strings */,
+			);
+			path = Localization;
+			sourceTree = "<group>";
+		};
+		CFA86C4DDA90F42CD9BF9DC1 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				42333808D75520D67A5643EC /* PortTools.icns */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -82,6 +112,7 @@
 			buildPhases = (
 				A9F0CE2009070A5B3485476D /* Build embedded Go core */,
 				7EC28519FD8FBB2574B637C2 /* Sources */,
+				003B1BFF64DD1FAFDB12AC68 /* Resources */,
 				CA85BCC5EC877FA380EE46BC /* Frameworks */,
 			);
 			buildRules = (
@@ -118,6 +149,7 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
 			);
 			mainGroup = 075A59DE98CD3BA6C8B73953;
 			minimizedProjectReferenceProxies = 1;
@@ -132,6 +164,18 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		003B1BFF64DD1FAFDB12AC68 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D7B153C7A22CE4EF25030C1D /* Localizable.strings in Resources */,
+				52E959C1B4644A934658225D /* PortTools.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		A9F0CE2009070A5B3485476D /* Build embedded Go core */ = {
