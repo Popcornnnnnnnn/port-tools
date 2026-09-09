@@ -144,7 +144,7 @@ fi
 xcrun stapler staple "$dmg_path"
 xcrun stapler validate "$dmg_path"
 spctl --assess --type open --context context:primary-signature -v "$dmg_path"
-shasum -a 256 "$dmg_path" > "$dmg_path.sha256"
+(cd "$dist_root" && shasum -a 256 "$(basename "$dmg_path")" > "$(basename "$dmg_path").sha256")
 
 git tag -a "v$release_version" -m "Port Tools $release_version"
 git push origin "v$release_version"
