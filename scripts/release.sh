@@ -157,14 +157,16 @@ spctl --assess --type open --context context:primary-signature -v "$dmg_path"
 
 git tag -a "v$release_version" -m "Port Tools $release_version"
 git push origin "v$release_version"
-release_flags=()
 if [[ "$release_version" == *-* ]]; then
-  release_flags+=(--prerelease)
+  gh release create "v$release_version" "$dmg_path" "$dmg_path.sha256" \
+    --title "Port Tools $release_version" \
+    --notes-file "$repository_root/updates-site/release-notes/1.0.0.html" \
+    --prerelease
+else
+  gh release create "v$release_version" "$dmg_path" "$dmg_path.sha256" \
+    --title "Port Tools $release_version" \
+    --notes-file "$repository_root/updates-site/release-notes/1.0.0.html"
 fi
-gh release create "v$release_version" "$dmg_path" "$dmg_path.sha256" \
-  --title "Port Tools $release_version" \
-  --notes-file "$repository_root/updates-site/release-notes/1.0.0.html" \
-  "${release_flags[@]}"
 
 appcast_assets="$dist_root/appcast-assets"
 mkdir -p "$appcast_assets"
