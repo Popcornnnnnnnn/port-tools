@@ -74,7 +74,7 @@ func main() {
 			"schemaVersion": 1,
 			"version":       version,
 			"runtime":       "self-contained-go-binary",
-			"capabilities":  []string{"services", "events", "preferences", "routes", "reverse-proxy", "safe-stop", "force-stop"},
+			"capabilities":  []string{"services", "events", "preferences", "routes", "reverse-proxy", "portless-public-urls", "safe-stop", "force-stop"},
 		})
 	case "scan":
 		document, err := scanServices()

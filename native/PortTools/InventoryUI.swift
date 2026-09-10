@@ -1273,6 +1273,7 @@ private struct RuntimeAgeLabel: View {
 }
 
 struct ServiceRow: View {
+    @ObservedObject private var portless = PortlessServiceController.shared
     let service: ServiceRecord
     let displayName: String
     let projectContext: String?
@@ -1354,6 +1355,14 @@ struct ServiceRow: View {
 
                 Menu {
                     Button("Copy address", systemImage: "doc.on.doc") { copyAddress() }
+                    if service.route != nil {
+                        Button("Open original address", systemImage: "arrow.up.right.square") {
+                            openOriginalAddress()
+                        }
+                        Button("Copy original address", systemImage: "doc.on.doc") {
+                            copyOriginalAddress()
+                        }
+                    }
                     Button("Rename display name…", systemImage: "pencil", action: onRename)
                     Button(service.preferences.pinned ? "Unpin" : "Pin", systemImage: service.preferences.pinned ? "pin.slash" : "pin", action: onTogglePin)
                     if let onRenameProject {
@@ -1419,7 +1428,7 @@ struct ServiceRow: View {
                             .textFieldStyle(.plain)
                             .focused($aliasFocused)
                             .onSubmit { saveAlias() }
-                        Text(".localhost:17890")
+                        Text(portless.runtimeStatus == .active ? ".localhost" : ".localhost:17890")
                             .foregroundStyle(.secondary)
                     }
                     .font(.system(size: 10, design: .monospaced))
@@ -1504,6 +1513,16 @@ struct ServiceRow: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(primaryServiceURL(service)?.absoluteString ?? "", forType: .string)
         onMessage("Address copied")
+    }
+
+    private func openOriginalAddress() {
+        if let url = serviceURL(service) { NSWorkspace.shared.open(url) }
+    }
+
+    private func copyOriginalAddress() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(serviceURL(service)?.absoluteString ?? "", forType: .string)
+        onMessage(portToolsString("Original address copied"))
     }
 
     private func beginAliasEditing() {

@@ -18,6 +18,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 APP = REPO_ROOT / "native" / ".build" / "Port Tools.app"
 EXECUTABLE = APP / "Contents" / "MacOS" / "PortTools"
 CORE = APP / "Contents" / "Helpers" / "port-tools-core"
+PORTLESS_HELPER = APP / "Contents" / "Library" / "LaunchServices" / "port-tools-portless-helper"
+PORTLESS_PLIST = APP / "Contents" / "Library" / "LaunchDaemons" / "PortlessHelper.plist"
 SWIFT_SOURCES = sorted((REPO_ROOT / "native" / "PortTools").glob("*.swift"))
 
 
@@ -184,10 +186,80 @@ def verify_safe_stop(socket_path: Path) -> dict:
             fixture.wait(timeout=5)
 
 
+def verify_portless_helper(proxy_port: int) -> dict:
+    reservation = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM)
+    reservation.bind(("127.0.0.1", 0))
+    helper_port = reservation.getsockname()[1]
+    reservation.close()
+    helper = subprocess.Popen(
+        [
+            str(PORTLESS_HELPER),
+            "--listen-v4", f"127.0.0.1:{helper_port}",
+            "--listen-v6", "",
+            "--target", f"http://127.0.0.1:{proxy_port}",
+        ],
+        env={**dict(os.environ), "PORT_TOOLS_PORTLESS_TEST_MODE": "1"},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                with socket_module.create_connection(("127.0.0.1", helper_port), timeout=0.1):
+                    break
+            except OSError:
+                if helper.poll() is not None:
+                    return {"passed": False, "started": False}
+                time.sleep(0.05)
+
+        health_connection = http.client.HTTPConnection("127.0.0.1", helper_port, timeout=3)
+        health_connection.request("GET", "/__port_tools/health", headers={"Host": "port-tools.localhost"})
+        health_response = health_connection.getresponse()
+        health = json.loads(health_response.read())
+        health_connection.close()
+
+        route_connection = http.client.HTTPConnection("127.0.0.1", helper_port, timeout=3)
+        route_connection.request("GET", "/", headers={"Host": "verification.localhost"})
+        route_response = route_connection.getresponse()
+        route_body = route_response.read()
+        route_connection.close()
+        return {
+            "passed": (
+                health_response.status == 200
+                and health.get("service") == "port-tools-portless-helper"
+                and route_response.status == 200
+                and b"port-tools-route-ok" in route_body
+            ),
+            "started": True,
+            "healthStatus": health_response.status,
+            "routeStatus": route_response.status,
+        }
+    finally:
+        if helper.poll() is None:
+            helper.terminate()
+            helper.wait(timeout=5)
+
+
 def main() -> None:
     run(["codesign", "--verify", "--deep", "--strict", APP])
     run(["codesign", "--verify", "--strict", CORE])
+    run(["codesign", "--verify", "--strict", PORTLESS_HELPER])
     info = plistlib.loads((APP / "Contents" / "Info.plist").read_bytes())
+    portless_plist = plistlib.loads(PORTLESS_PLIST.read_bytes())
+    local_networking_allowed = (
+        info.get("NSAppTransportSecurity", {}).get("NSAllowsLocalNetworking") is True
+    )
+    localhost_exception = (
+        info.get("NSAppTransportSecurity", {})
+        .get("NSExceptionDomains", {})
+        .get("localhost", {})
+    )
+    localhost_subdomains_allowed = (
+        localhost_exception.get("NSIncludesSubdomains") is True
+        and localhost_exception.get("NSExceptionAllowsInsecureHTTPLoads") is True
+    )
+    helper_revision_is_declared = info.get("PortlessHelperRevision") == "1"
     expected_version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
     swift_source = "\n".join(path.read_text(encoding="utf-8") for path in SWIFT_SOURCES)
     title_hover_contract_passed = all(
@@ -207,7 +279,22 @@ def main() -> None:
             ".fixedSize(horizontal: true, vertical: false)",
         )
     )
+    portless_test_isolation_passed = all(
+        fragment in swift_source
+        for fragment in (
+            'ProcessInfo.processInfo.environment["PORT_TOOLS_DISABLE_PORTLESS"] == "1"',
+            "if isDisabledForTests",
+        )
+    )
     capabilities = json.loads(run([CORE, "self-test"]).stdout)
+    portless_capabilities = json.loads(run([PORTLESS_HELPER, "--self-test"]).stdout)
+    portless_packaging_passed = (
+        portless_plist.get("Label") == "xyz.popcornnn.PortTools.PortlessHelper"
+        and portless_plist.get("BundleProgram") == "Contents/Library/LaunchServices/port-tools-portless-helper"
+        and portless_plist.get("AssociatedBundleIdentifiers") == ["xyz.popcornnn.PortTools"]
+        and portless_capabilities.get("service") == "port-tools-portless-helper"
+        and portless_capabilities.get("version") == expected_version
+    )
     with tempfile.TemporaryDirectory(prefix="port-tools-native-") as directory:
         state_root = Path(directory)
         socket = state_root / "runtime" / "core.sock"
@@ -215,6 +302,7 @@ def main() -> None:
             **dict(os.environ),
             "PORT_TOOLS_STATE_ROOT": str(state_root),
             "PORT_TOOLS_PROXY_ADDRESS": "127.0.0.1:0",
+            "PORT_TOOLS_DISABLE_PORTLESS": "1",
         }
         process = subprocess.Popen([str(EXECUTABLE)], env=environment)
         upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
@@ -251,7 +339,30 @@ def main() -> None:
                 CORE, "request", "--socket", socket, "--method", "PUT",
                 "--path", "/v1/routes/verification", "--body", route_body,
             ]).stdout)
+            portless_setting = json.loads(run([
+                CORE, "request", "--socket", socket, "--method", "PUT",
+                "--path", "/v1/settings/public-port", "--body", json.dumps({"port": 80}),
+            ]).stdout)
+            portless_routes = json.loads(run([
+                CORE, "request", "--socket", socket, "--path", "/v1/routes",
+            ]).stdout)
+            portless_route_url = next(
+                item["url"] for item in portless_routes["routes"] if item["alias"] == "verification"
+            )
+            run([
+                CORE, "request", "--socket", socket, "--method", "PUT",
+                "--path", "/v1/settings/public-port", "--body", json.dumps({"port": 0}),
+            ])
+            fallback_routes = json.loads(run([
+                CORE, "request", "--socket", socket, "--path", "/v1/routes",
+            ]).stdout)
+            route = next(item for item in fallback_routes["routes"] if item["alias"] == "verification")
+            portless_url_switch_passed = (
+                portless_setting.get("portless") is True
+                and portless_route_url == "http://verification.localhost"
+            )
             proxy_port = urlparse(route["url"]).port
+            portless_helper_runtime = verify_portless_helper(proxy_port)
             connection = http.client.HTTPConnection("127.0.0.1", proxy_port, timeout=3)
             connection.request("GET", "/", headers={"Host": f"verification.localhost:{proxy_port}"})
             response = connection.getresponse()
@@ -275,6 +386,9 @@ def main() -> None:
             info.get("LSUIElement") is True
             and info.get("CFBundleName") == "Port Tools"
             and info.get("CFBundleShortVersionString") == expected_version
+            and local_networking_allowed
+            and localhost_subdomains_allowed
+            and helper_revision_is_declared
             and EXECUTABLE.is_file()
             and CORE.is_file()
             and len(scan.get("services", [])) > 0
@@ -285,12 +399,17 @@ def main() -> None:
             and capabilities.get("runtime") == "self-contained-go-binary"
             and capabilities.get("version") == expected_version
             and "safe-stop" in capabilities.get("capabilities", [])
+            and "portless-public-urls" in capabilities.get("capabilities", [])
             and route_proxy_passed
             and startup_retry_passed
             and duplicate_instance.get("passed") is True
             and safe_stop.get("passed") is True
             and title_hover_contract_passed
             and runtime_age_single_line_passed
+            and portless_test_isolation_passed
+            and portless_packaging_passed
+            and portless_url_switch_passed
+            and portless_helper_runtime.get("passed") is True
         ),
         "bundleBytes": sum(path.stat().st_size for path in APP.rglob("*") if path.is_file()),
         "menuBarProcessLaunched": alive,
@@ -309,6 +428,14 @@ def main() -> None:
         "safeStop": safe_stop,
         "titleHoverContractPassed": title_hover_contract_passed,
         "runtimeAgeSingleLinePassed": runtime_age_single_line_passed,
+        "portlessTestIsolationPassed": portless_test_isolation_passed,
+        "portlessHelperPackaged": portless_packaging_passed,
+        "localNetworkingAllowed": local_networking_allowed,
+        "localhostSubdomainsAllowed": localhost_subdomains_allowed,
+        "portlessHelperRevisionDeclared": helper_revision_is_declared,
+        "portlessURLSwitchPassed": portless_url_switch_passed,
+        "portlessHelperRuntimePassed": portless_helper_runtime.get("passed"),
+        "portlessHelperRuntime": portless_helper_runtime,
         "unixSocketCleanedUp": socket_removed,
         "adHocSignatureVerified": True,
     }

@@ -155,14 +155,19 @@ The updater is a separate implementation choice, but updates must verify a
 signature, replace the entire app atomically, migrate versioned state, and never
 download executable plug-ins at runtime.
 
-## Privileged HTTPS remains a separate gate
+## Port-free HTTP helper
 
-The current no-install trial keeps `http://<alias>.localhost:<high-port>` and
-performs no trust-store change. The product target is portless HTTP through an
-auditable, separately approved macOS helper or loopback redirect for port 80,
-with the high-port URL retained as an explicit fallback when port 80 is not
-available. A future polished HTTPS mode requires a new owner-approved design
-that:
+The app bundles a minimal LaunchDaemon registered through `SMAppService`. After
+one administrator approval in System Settings, it owns only IPv4 and IPv6
+loopback port 80 and forwards HTTP to the current-user Go core on port 17890.
+The daemon holds no route registry and accepts no configurable upstream target;
+Host-based route ownership remains in the unprivileged core. When the daemon is
+not approved, cannot start, or port 80 is occupied, the app publishes the
+explicit `:17890` fallback.
+
+The helper and its plist remain inside the signed app bundle. **Reset Local Data
+and Quit** unregisters the daemon before removing local Port Tools state. A
+future polished HTTPS mode remains a separate owner-approved design that:
 
 1. explains why trust is requested;
 2. inventories every certificate, key, helper, listener, and state path;
@@ -170,7 +175,7 @@ that:
 4. removes it by exact identity and verifies absence during uninstall.
 
 No architecture work may silently activate Caddy automatic HTTPS or introduce
-ports 80/443 before that gate.
+certificate trust before that gate.
 
 ## Required implementation gates
 

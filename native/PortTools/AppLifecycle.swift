@@ -49,6 +49,7 @@ enum AppMaintenance {
         if SMAppService.mainApp.status == .enabled {
             try? SMAppService.mainApp.unregister()
         }
+        PortlessServiceController.shared.disable()
         CoreRuntime.shared.stop()
         let manager = FileManager.default
         let home = manager.homeDirectoryForCurrentUser
@@ -96,12 +97,35 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             NSApp.terminate(nil)
             return
         }
+        PortlessServiceController.shared.refreshRouting()
         if CommandLine.arguments.contains("--preview-window") {
             showPreviewWindow()
         } else {
             installStatusItem()
         }
+        offerPortlessAddressesOnFirstLaunch()
         offerAutomaticUpdatesOnSecondLaunch()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        PortlessServiceController.shared.refreshRouting()
+    }
+
+    private func offerPortlessAddressesOnFirstLaunch() {
+        if ProcessInfo.processInfo.environment["PORT_TOOLS_DISABLE_PROMPTS"] == "1" { return }
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "didAskPortlessAddresses"),
+              !PortlessServiceController.shared.isRegistered
+        else { return }
+        defaults.set(true, forKey: "didAskPortlessAddresses")
+        let alert = NSAlert()
+        alert.messageText = portToolsString("Enable port-free local addresses?")
+        alert.informativeText = portToolsString("Port Tools uses an approved macOS helper so every saved name opens as app-name.localhost. The helper listens only on this Mac and forwards only to Port Tools.")
+        alert.addButton(withTitle: portToolsString("Enable"))
+        alert.addButton(withTitle: portToolsString("Use :17890"))
+        if alert.runModal() == .alertFirstButtonReturn {
+            PortlessServiceController.shared.enable()
+        }
     }
 
     private func offerAutomaticUpdatesOnSecondLaunch() {

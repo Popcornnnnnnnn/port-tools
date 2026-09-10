@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2BAEA0B73417D94CC1B936F2 /* PortlessService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49D4AB10903375E0AFD28057 /* PortlessService.swift */; };
 		2DE8323E36A455659DB5A589 /* InventoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D798DC65FD31648DA30D461D /* InventoryStore.swift */; };
 		374D5C26C5AF256171A29179 /* AppLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39EDD5D5E5069E9F6CD68CA7 /* AppLifecycle.swift */; };
 		460D6E96AA2616CB8264F837 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402B36ACABAE4ECE977CB31 /* Models.swift */; };
@@ -25,6 +26,7 @@
 		2338C3ACB10F00228F4E2985 /* CoreClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreClient.swift; sourceTree = "<group>"; };
 		39EDD5D5E5069E9F6CD68CA7 /* AppLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycle.swift; sourceTree = "<group>"; };
 		42333808D75520D67A5643EC /* PortTools.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = PortTools.icns; sourceTree = "<group>"; };
+		49D4AB10903375E0AFD28057 /* PortlessService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortlessService.swift; sourceTree = "<group>"; };
 		72997AE1632587BD87A696A0 /* InventoryUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InventoryUI.swift; sourceTree = "<group>"; };
 		D3A7E98527B3115EECD2F246 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		D402B36ACABAE4ECE977CB31 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -65,6 +67,7 @@
 				72997AE1632587BD87A696A0 /* InventoryUI.swift */,
 				D3A7E98527B3115EECD2F246 /* Localization.swift */,
 				D402B36ACABAE4ECE977CB31 /* Models.swift */,
+				49D4AB10903375E0AFD28057 /* PortlessService.swift */,
 				086B37F447B3D33A598E2461 /* Settings.swift */,
 				D8A96BDBF876D9F94D05C250 /* Updates.swift */,
 			);
@@ -195,7 +198,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\nrepository_root=\"$(cd \"$SRCROOT/..\" && pwd)\"\nhelper_dir=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Helpers\"\nmkdir -p \"$helper_dir\"\ncd \"$repository_root/core\"\nCGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \\\n  -trimpath \\\n  -ldflags \"-s -w -X main.version=$MARKETING_VERSION\" \\\n  -o \"$helper_dir/port-tools-core\" \\\n  .\n";
+			shellScript = "set -eu\nrepository_root=\"$(cd \"$SRCROOT/..\" && pwd)\"\nhelper_dir=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Helpers\"\nportless_dir=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchServices\"\ndaemon_dir=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchDaemons\"\nmkdir -p \"$helper_dir\"\nmkdir -p \"$portless_dir\" \"$daemon_dir\"\ncd \"$repository_root/core\"\nCGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \\\n  -trimpath \\\n  -ldflags \"-s -w -X main.version=$MARKETING_VERSION\" \\\n  -o \"$helper_dir/port-tools-core\" \\\n  .\ncd \"$repository_root/portless-helper\"\nCGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \\\n  -trimpath \\\n  -ldflags \"-s -w -X main.version=$MARKETING_VERSION\" \\\n  -o \"$portless_dir/port-tools-portless-helper\" \\\n  .\ncp \"$repository_root/native/PortlessHelper.plist\" \"$daemon_dir/PortlessHelper.plist\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -210,6 +213,7 @@
 				47301CE46CB2566CACB4D291 /* InventoryUI.swift in Sources */,
 				471910942FCD55B69E6C20DC /* Localization.swift in Sources */,
 				460D6E96AA2616CB8264F837 /* Models.swift in Sources */,
+				2BAEA0B73417D94CC1B936F2 /* PortlessService.swift in Sources */,
 				5A3433644161B14812FB9F86 /* Settings.swift in Sources */,
 				FB9E0B2D91D751AE73A3FA59 /* Updates.swift in Sources */,
 			);
@@ -238,7 +242,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.popcornnn.PortTools;
 				PRODUCT_MODULE_NAME = PortTools;
@@ -386,7 +390,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.popcornnn.PortTools;
 				PRODUCT_MODULE_NAME = PortTools;

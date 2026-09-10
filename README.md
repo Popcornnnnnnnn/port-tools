@@ -31,7 +31,7 @@ It turns a machine-level port table into a project-level map of your local devel
 | --- | --- |
 | “What project owns port `4178`?” | Follows process ancestry and working directories back to the repository, branch, worktree, and application. |
 | “Why are there four `node` processes for one repo?” | Groups applications by project and separates visible Web pages from supporting services. |
-| “The port changed again.” | Assigns a stable address such as `phone-studio.localhost:17890`. |
+| “The port changed again.” | Assigns a stable address such as `phone-studio.localhost`, with no port to remember. |
 | “Can I safely kill this old server?” | Shows a reviewed stop plan, revalidates process identity, sends `SIGTERM`, and confirms that the listeners were released. |
 
 ## How it compares
@@ -53,6 +53,8 @@ Port Tools does not replace the tools developers already trust. It connects the 
 2. **Identify** the process, repository, worktree, application, and service role.
 3. **Name** the service with a persistent `*.localhost` address.
 4. **Open or copy** the address directly from the menu bar.
+
+Port-free addresses use a bundled, loopback-only macOS helper. Enabling them requires one approval in System Settings; after that, Port Tools routes every saved `*.localhost` name automatically. If port 80 is unavailable, the app explicitly falls back to `:17890`.
 5. **Stop safely** only after reviewing and revalidating the target.
 
 ## How it works

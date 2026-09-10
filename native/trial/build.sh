@@ -31,6 +31,7 @@ fi
 
 rm -rf "$build_root"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
+mkdir -p "$app/Contents/Library/LaunchDaemons" "$app/Contents/Library/LaunchServices"
 
 (
     cd "$repository_root/core"
@@ -41,12 +42,22 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
         .
 )
 
+(
+    cd "$repository_root/portless-helper"
+    CGO_ENABLED=0 GOOS=darwin GOARCH="$go_arch" "$go_binary" build \
+        -trimpath \
+        -ldflags "-s -w -X main.version=$version" \
+        -o "$app/Contents/Library/LaunchServices/port-tools-portless-helper" \
+        .
+)
+
 xcrun swiftc \
     -parse-as-library \
     -O \
     -target "$swift_target" \
     "$repository_root/native/PortTools/Models.swift" \
     "$repository_root/native/PortTools/Localization.swift" \
+    "$repository_root/native/PortTools/PortlessService.swift" \
     "$repository_root/native/PortTools/CoreClient.swift" \
     "$repository_root/native/PortTools/InventoryStore.swift" \
     "$repository_root/native/PortTools/InventoryUI.swift" \
@@ -60,9 +71,12 @@ plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Inf
 plutil -replace CFBundleVersion -string "28" "$app/Contents/Info.plist"
 cp "$script_root/Resources/PortTools.icns" "$app/Contents/Resources/PortTools.icns"
 cp -R "$repository_root/native/Localization/zh-Hans.lproj" "$app/Contents/Resources/"
+cp "$repository_root/native/PortlessHelper.plist" "$app/Contents/Library/LaunchDaemons/PortlessHelper.plist"
 chmod 755 "$app/Contents/MacOS/PortTools"
 chmod 755 "$app/Contents/Helpers/port-tools-core"
+chmod 755 "$app/Contents/Library/LaunchServices/port-tools-portless-helper"
 codesign --force --sign - --options runtime "$app/Contents/Helpers/port-tools-core"
+codesign --force --sign - --options runtime "$app/Contents/Library/LaunchServices/port-tools-portless-helper"
 codesign --force --sign - --options runtime "$app"
 
 echo "$app"

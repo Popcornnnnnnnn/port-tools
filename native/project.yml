@@ -29,13 +29,23 @@ targets:
           set -eu
           repository_root="$(cd "$SRCROOT/.." && pwd)"
           helper_dir="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Helpers"
+          portless_dir="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchServices"
+          daemon_dir="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchDaemons"
           mkdir -p "$helper_dir"
+          mkdir -p "$portless_dir" "$daemon_dir"
           cd "$repository_root/core"
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
             -trimpath \
             -ldflags "-s -w -X main.version=$MARKETING_VERSION" \
             -o "$helper_dir/port-tools-core" \
             .
+          cd "$repository_root/portless-helper"
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -trimpath \
+            -ldflags "-s -w -X main.version=$MARKETING_VERSION" \
+            -o "$portless_dir/port-tools-portless-helper" \
+            .
+          cp "$repository_root/native/PortlessHelper.plist" "$daemon_dir/PortlessHelper.plist"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.popcornnn.PortTools
@@ -47,7 +57,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        MARKETING_VERSION: "1.0.0"
+        MARKETING_VERSION: "1.0.1"
         CURRENT_PROJECT_VERSION: "28"
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_APP_SANDBOX: NO

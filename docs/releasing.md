@@ -22,11 +22,12 @@ Sparkle private key.
 
 ## Release
 
-From a clean `release/v1.0.0` branch:
+From a clean branch matching the release version, for example
+`release/v1.0.1`:
 
 ```sh
-scripts/release.sh 1.0.0-rc.1
-scripts/release.sh 1.0.0
+scripts/release.sh 1.0.1-rc.1
+scripts/release.sh 1.0.1
 ```
 
 The command runs unit/race/vet/compatibility/proxy/force-stop tests, archives an
@@ -36,7 +37,7 @@ pushes the static update site to `updates`. The appcast moves only after the
 GitHub asset is public.
 
 Install the RC and complete a real Sparkle upgrade to final before accepting
-`v1.0.0`.
+the stable tag.
 
 Before tagging each public candidate, measure the release-shaped app for the
 full idle window:

@@ -121,7 +121,7 @@ func (server *coreServer) apiHandler() http.Handler {
 			"version":                 version,
 			"runtime":                 "self-contained-go-binary",
 			"apiVersions":             []string{"v1"},
-			"implementedCapabilities": []string{"health", "services", "events", "preferences", "routes", "reverse-proxy", "safe-stop", "force-stop"},
+			"implementedCapabilities": []string{"health", "services", "events", "preferences", "routes", "reverse-proxy", "portless-public-urls", "safe-stop", "force-stop"},
 			"selectedProxyEngine":     "net/http/httputil.ReverseProxy",
 			"privileges":              "current-user-unprivileged",
 		})
@@ -198,6 +198,25 @@ func (server *coreServer) apiHandler() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/routes", func(response http.ResponseWriter, _ *http.Request) {
 		writeJSON(response, http.StatusOK, map[string]any{"schemaVersion": 1, "routes": server.routes.list()})
+	})
+	mux.HandleFunc("PUT /v1/settings/public-port", func(response http.ResponseWriter, request *http.Request) {
+		var mutation struct {
+			Port int `json:"port"`
+		}
+		if err := json.NewDecoder(io.LimitReader(request.Body, 64*1024)).Decode(&mutation); err != nil {
+			writeError(response, http.StatusBadRequest, fmt.Errorf("invalid public port: %w", err))
+			return
+		}
+		if err := server.routes.setPublicPort(mutation.Port); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		server.invalidateScan()
+		writeJSON(response, http.StatusOK, map[string]any{
+			"schemaVersion": 1,
+			"port":          server.routes.currentPublicPort(),
+			"portless":      server.routes.currentPublicPort() == 80,
+		})
 	})
 	mux.HandleFunc("PUT /v1/routes/{alias}", func(response http.ResponseWriter, request *http.Request) {
 		var mutation struct {

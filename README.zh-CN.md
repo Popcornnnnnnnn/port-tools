@@ -31,8 +31,10 @@ Port Tools 扫描 Mac 上已经运行的监听端口，并尝试还原它们的�
 | --- | --- |
 | “`4178` 到底属于哪个项目？” | 沿进程父子关系和工作目录定位 repository、branch、worktree 与 application。 |
 | “为什么一个仓库跑出了四个 `node`？” | 按项目和应用组织服务，并区分可见 Web 页面与 supporting service。 |
-| “端口又变了。” | 为应用分配 `phone-studio.localhost:17890` 这样的稳定地址。 |
+| “端口又变了。” | 为应用分配 `phone-studio.localhost` 这样的无端口稳定地址。 |
 | “这个旧服务可以安全结束吗？” | 展示停止计划，重新验证进程身份，只发送 `SIGTERM`，并确认监听端口已经释放。 |
+
+无端口地址由 App 内置、仅监听本机回环地址的 macOS helper 提供。首次启用需要在系统设置中批准一次；之后 Port Tools 会自动维护所有 `*.localhost` 地址。如果端口 80 不可用，产品会明确退回 `:17890`。
 
 ## 和常见工具有什么区别
 

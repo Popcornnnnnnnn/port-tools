@@ -4,6 +4,7 @@ import SwiftUI
 
 struct PreferencesView: View {
     @StateObject private var store = InventoryStore()
+    @ObservedObject private var portless = PortlessServiceController.shared
     @AppStorage("appearanceMode") private var appearance = AppearanceMode.system.rawValue
     @AppStorage("language") private var language = "system"
     @AppStorage("SUEnableAutomaticChecks") private var automaticChecks = false
@@ -34,6 +35,16 @@ struct PreferencesView: View {
                         openAtLogin = SMAppService.mainApp.status == .enabled
                     }
                 }
+            Toggle("Port-free local addresses", isOn: Binding(
+                get: { portless.isRegistered },
+                set: { enabled in
+                    if enabled { portless.enable() }
+                    else { portless.disable() }
+                }
+            ))
+            Text(portless.runtimeStatus.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Toggle("Automatically check for updates", isOn: $automaticChecks)
                 .onChange(of: automaticChecks) { _, enabled in
                     if enabled { _ = UpdaterBridge.shared }
@@ -73,10 +84,14 @@ struct PreferencesView: View {
             }
 
             if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+            if let portlessError = portless.lastError { Text(portlessError).foregroundStyle(.red) }
         }
         .formStyle(.grouped)
         .frame(width: 500, height: 520)
-        .task { store.refresh() }
+        .task {
+            store.refresh()
+            portless.refreshRouting()
+        }
         .environment(\.locale, portToolsLocale(language))
     }
 }

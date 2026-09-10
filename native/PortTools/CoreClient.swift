@@ -173,6 +173,11 @@ final class CoreRuntime: @unchecked Sendable {
         }
         return data
     }
+
+    func setPublicPort(_ port: Int) throws {
+        let body = try JSONSerialization.data(withJSONObject: ["port": port])
+        _ = try request(method: "PUT", path: "/v1/settings/public-port", body: body)
+    }
 }
 
 struct BundledGoInventoryProvider: InventoryProviding {

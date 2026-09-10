@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,14 +21,20 @@ type routeState struct {
 }
 
 type routeManager struct {
-	mutex     sync.RWMutex
-	statePath string
-	proxyPort int
-	routes    map[string]RouteRecord
+	mutex      sync.RWMutex
+	statePath  string
+	proxyPort  int
+	publicPort atomic.Int64
+	routes     map[string]RouteRecord
 }
 
 func newRouteManager(statePath string, proxyPort int) (*routeManager, error) {
-	manager := &routeManager{statePath: statePath, proxyPort: proxyPort, routes: map[string]RouteRecord{}}
+	manager := &routeManager{
+		statePath: statePath,
+		proxyPort: proxyPort,
+		routes:    map[string]RouteRecord{},
+	}
+	manager.publicPort.Store(int64(proxyPort))
 	if err := manager.load(); err != nil {
 		return nil, err
 	}
@@ -55,7 +62,26 @@ func stringLower(value string) string {
 }
 
 func (manager *routeManager) routeURL(alias string) string {
-	return fmt.Sprintf("http://%s.localhost:%d", alias, manager.proxyPort)
+	publicPort := int(manager.publicPort.Load())
+	if publicPort == 80 {
+		return fmt.Sprintf("http://%s.localhost", alias)
+	}
+	return fmt.Sprintf("http://%s.localhost:%d", alias, publicPort)
+}
+
+func (manager *routeManager) setPublicPort(port int) error {
+	if port == 0 {
+		port = manager.proxyPort
+	}
+	if port != 80 && port != manager.proxyPort {
+		return errors.New("public port must be 80 or the route proxy port")
+	}
+	manager.publicPort.Store(int64(port))
+	return nil
+}
+
+func (manager *routeManager) currentPublicPort() int {
+	return int(manager.publicPort.Load())
 }
 
 func (manager *routeManager) load() error {

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "Usage: scripts/release.sh 1.0.0" >&2
+  echo "Usage: scripts/release.sh 1.0.1" >&2
   exit 2
 fi
 
@@ -21,14 +21,17 @@ sparkle_root="$native_root/.build/ReleasePackages"
 sparkle_bin="$sparkle_root/SourcePackages/artifacts/sparkle/Sparkle/bin"
 public_key="$(plutil -extract SUPublicEDKey raw "$native_root/trial/Info.plist")"
 base_version="${release_version%%-*}"
+expected_branch="release/v$base_version"
+release_notes="$repository_root/updates-site/release-notes/$base_version.html"
 release_build="${PORT_TOOLS_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 
 [[ "$release_build" =~ ^[0-9]+$ ]] || { echo "PORT_TOOLS_BUILD_NUMBER must contain digits only." >&2; exit 2; }
 
 cd "$repository_root"
-[[ "$(git branch --show-current)" == "release/v1.0.0" ]] || { echo "Release from release/v1.0.0." >&2; exit 1; }
+[[ "$(git branch --show-current)" == "$expected_branch" ]] || { echo "Release from $expected_branch." >&2; exit 1; }
 [[ -z "$(git status --porcelain)" ]] || { echo "Commit all changes before releasing." >&2; exit 1; }
 [[ "$(tr -d '[:space:]' < VERSION)" == "$base_version" ]] || { echo "VERSION does not match $base_version." >&2; exit 1; }
+[[ -f "$release_notes" ]] || { echo "Release notes not found: $release_notes" >&2; exit 1; }
 git rev-parse "v$release_version" >/dev/null 2>&1 && { echo "Tag v$release_version already exists." >&2; exit 1; }
 command -v gh >/dev/null
 gh auth status >/dev/null
@@ -48,6 +51,9 @@ xcodebuild -resolvePackageDependencies \
 go -C core test ./...
 go -C core test -race ./...
 go -C core vet ./...
+go -C portless-helper test ./...
+go -C portless-helper test -race ./...
+go -C portless-helper vet ./...
 python3 -m unittest discover -s tests -p 'test_*.py'
 native/trial/build.sh >/dev/null
 python3 evaluation/fixtures/verify_proxy.py --engine go
@@ -82,15 +88,23 @@ codesign --force --options runtime --timestamp \
 codesign --force --options runtime --timestamp \
   --preserve-metadata=identifier,entitlements \
   --sign "$developer_identity" \
+  "$app_path/Contents/Library/LaunchServices/port-tools-portless-helper"
+codesign --force --options runtime --timestamp \
+  --preserve-metadata=identifier,entitlements \
+  --sign "$developer_identity" \
   "$app_path"
 
 lipo "$app_path/Contents/MacOS/PortTools" -verify_arch arm64
 lipo "$app_path/Contents/Helpers/port-tools-core" -verify_arch arm64
+lipo "$app_path/Contents/Library/LaunchServices/port-tools-portless-helper" -verify_arch arm64
 [[ -f "$app_path/Contents/Resources/PortTools.icns" ]]
 [[ -d "$app_path/Contents/Resources/zh-Hans.lproj" ]]
+plutil -lint "$app_path/Contents/Library/LaunchDaemons/PortlessHelper.plist"
 codesign --verify --deep --strict --verbose=2 "$app_path"
 helper_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Helpers/port-tools-core" 2>&1)"
 grep -q 'flags=.*runtime' <<<"$helper_signature"
+portless_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Library/LaunchServices/port-tools-portless-helper" 2>&1)"
+grep -q 'flags=.*runtime' <<<"$portless_signature"
 
 staging="$dist_root/dmg-root"
 rw_dmg="$dist_root/Port-Tools-$release_version-rw.dmg"
@@ -160,12 +174,12 @@ git push origin "v$release_version"
 if [[ "$release_version" == *-* ]]; then
   gh release create "v$release_version" "$dmg_path" "$dmg_path.sha256" \
     --title "Port Tools $release_version" \
-    --notes-file "$repository_root/updates-site/release-notes/1.0.0.html" \
+    --notes-file "$release_notes" \
     --prerelease
 else
   gh release create "v$release_version" "$dmg_path" "$dmg_path.sha256" \
     --title "Port Tools $release_version" \
-    --notes-file "$repository_root/updates-site/release-notes/1.0.0.html"
+    --notes-file "$release_notes"
 fi
 
 appcast_assets="$dist_root/appcast-assets"

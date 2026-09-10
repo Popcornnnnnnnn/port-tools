@@ -453,6 +453,34 @@ func TestReverseProxyAndMissingUpstreamDiagnostic(t *testing.T) {
 	}
 }
 
+func TestRouteManagerSwitchesBetweenPortlessAndFallbackURLs(t *testing.T) {
+	manager, err := newRouteManager(filepath.Join(t.TempDir(), "routes.json"), 17890)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.put("demo", RouteRecord{Port: 4317}); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.list()[0].URL; got != "http://demo.localhost:17890" {
+		t.Fatalf("fallback URL = %q", got)
+	}
+	if err := manager.setPublicPort(80); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.list()[0].URL; got != "http://demo.localhost" {
+		t.Fatalf("portless URL = %q", got)
+	}
+	if err := manager.setPublicPort(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.list()[0].URL; got != "http://demo.localhost:17890" {
+		t.Fatalf("restored fallback URL = %q", got)
+	}
+	if err := manager.setPublicPort(443); err == nil {
+		t.Fatal("unexpected public port was accepted")
+	}
+}
+
 func TestInventoryEventDigestIgnoresVolatileTimestamps(t *testing.T) {
 	document := ScanDocument{Services: []ServiceRecord{{
 		ID: "instance", LogicalID: "logical",
