@@ -71,6 +71,9 @@ struct PreferencesView: View {
             }
 
             Section {
+                Button("Quit Port Tools") {
+                    NSApplication.shared.terminate(nil)
+                }
                 Button("Reset Local Data and Quit…", role: .destructive) {
                     let alert = NSAlert()
                     alert.messageText = portToolsString("Reset all Port Tools data and quit?")

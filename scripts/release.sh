@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "Usage: scripts/release.sh 1.0.1" >&2
+  echo "Usage: scripts/release.sh 1.0.2" >&2
   exit 2
 fi
 

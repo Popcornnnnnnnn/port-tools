@@ -111,6 +111,20 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         PortlessServiceController.shared.refreshRouting()
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if CommandLine.arguments.contains("--preview-window") {
+            if let previewWindow {
+                previewWindow.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            } else {
+                showPreviewWindow()
+            }
+        } else {
+            showStatusPopover()
+        }
+        return false
+    }
+
     private func offerPortlessAddressesOnFirstLaunch() {
         if ProcessInfo.processInfo.environment["PORT_TOOLS_DISABLE_PROMPTS"] == "1" { return }
         let defaults = UserDefaults.standard
@@ -202,18 +216,24 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     }
 
     @objc private func toggleStatusPopover(_ sender: Any?) {
-        guard let button = statusItem?.button, let statusStore else { return }
         if let statusPopover, statusPopover.isShown {
             statusPopover.performClose(sender)
         } else {
-            let statusPopover = makeStatusPopover(store: statusStore)
-            self.statusPopover = statusPopover
-            statusStore.refresh(silent: true)
-            statusPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            openScanTimer?.invalidate()
-            openScanTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak statusStore] _ in
-                Task { @MainActor [weak statusStore] in statusStore?.refresh(silent: true) }
-            }
+            showStatusPopover()
+        }
+    }
+
+    private func showStatusPopover() {
+        guard let button = statusItem?.button, let statusStore else { return }
+        if let statusPopover, statusPopover.isShown { return }
+        let statusPopover = makeStatusPopover(store: statusStore)
+        self.statusPopover = statusPopover
+        statusStore.refresh(silent: true)
+        NSApp.activate(ignoringOtherApps: true)
+        statusPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        openScanTimer?.invalidate()
+        openScanTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak statusStore] _ in
+            Task { @MainActor [weak statusStore] in statusStore?.refresh(silent: true) }
         }
     }
 

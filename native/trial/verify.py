@@ -286,6 +286,23 @@ def main() -> None:
             "if isDisabledForTests",
         )
     )
+    settings_entry_contract_passed = all(
+        fragment in swift_source
+        for fragment in (
+            "@Environment(\\.openSettings) private var openSettings",
+            "openSettings()",
+            '.help("Open Settings")',
+            'Button("Quit Port Tools")',
+            "applicationShouldHandleReopen",
+            "showStatusPopover()",
+        )
+    ) and all(
+        fragment not in swift_source
+        for fragment in (
+            'Image(systemName: "arrow.clockwise")',
+            "SettingsLink {",
+        )
+    )
     capabilities = json.loads(run([CORE, "self-test"]).stdout)
     portless_capabilities = json.loads(run([PORTLESS_HELPER, "--self-test"]).stdout)
     portless_packaging_passed = (
@@ -407,6 +424,7 @@ def main() -> None:
             and title_hover_contract_passed
             and runtime_age_single_line_passed
             and portless_test_isolation_passed
+            and settings_entry_contract_passed
             and portless_packaging_passed
             and portless_url_switch_passed
             and portless_helper_runtime.get("passed") is True
@@ -429,6 +447,7 @@ def main() -> None:
         "titleHoverContractPassed": title_hover_contract_passed,
         "runtimeAgeSingleLinePassed": runtime_age_single_line_passed,
         "portlessTestIsolationPassed": portless_test_isolation_passed,
+        "settingsEntryContractPassed": settings_entry_contract_passed,
         "portlessHelperPackaged": portless_packaging_passed,
         "localNetworkingAllowed": local_networking_allowed,
         "localhostSubdomainsAllowed": localhost_subdomains_allowed,

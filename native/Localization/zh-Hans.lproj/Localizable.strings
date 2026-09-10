@@ -61,6 +61,7 @@
 "Service" = "服务";
 "Service details" = "服务详情";
 "Settings…" = "设置…";
+"Open Settings" = "打开设置";
 "SIGKILL cannot be handled or postponed by the app. Port Tools will revalidate every PID and listener again." = "应用无法处理或延迟 SIGKILL。Port Tools 会再次核对每个 PID 和监听端口。";
 "Stop service" = "停止服务";
 "Stop this service?" = "停止此服务？";

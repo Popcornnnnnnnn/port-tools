@@ -1703,6 +1703,7 @@ struct InventoryView: View {
     @ObservedObject var store: InventoryStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openSettings) private var openSettings
     @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.dark.rawValue
     @State private var expandedRelated = Set<String>()
     @State private var collapsedProjects = Set<String>()
@@ -1845,26 +1846,13 @@ struct InventoryView: View {
                     if searchVisible { searchFocused = true } else { query = "" }
                 } label: { Image(systemName: "magnifyingglass") }
                     .help("Search (⌘K)")
-                Button { store.refresh() } label: {
-                    if store.isRefreshing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
+                Button {
+                    openSettings()
+                    DispatchQueue.main.async {
+                        NSApplication.shared.activate(ignoringOtherApps: true)
                     }
-                }
-                .help("Refresh")
-                Menu {
-                    Picker("Appearance", selection: $appearanceModeRaw) {
-                        ForEach(AppearanceMode.allCases) { mode in
-                            Text(mode.title).tag(mode.rawValue)
-                        }
-                    }
-                    Divider()
-                    SettingsLink { Text("Settings…") }
-                    Button("Quit Port Tools") { NSApplication.shared.terminate(nil) }
                 } label: { Image(systemName: "gearshape") }
-                .menuIndicator(.hidden)
-                .help("Settings")
+                .help("Open Settings")
                 .accessibilityLabel("Settings")
             }
             .buttonStyle(.borderless)
