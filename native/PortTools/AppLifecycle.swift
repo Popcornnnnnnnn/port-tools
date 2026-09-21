@@ -103,8 +103,11 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         } else {
             installStatusItem()
         }
-        offerPortlessAddressesOnFirstLaunch()
-        offerAutomaticUpdatesOnSecondLaunch()
+        let offeredFullDiskAccess = offerFullDiskAccessOnFirstLaunch()
+        if !offeredFullDiskAccess {
+            offerPortlessAddressesOnFirstLaunch()
+            offerAutomaticUpdatesOnSecondLaunch()
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -123,6 +126,24 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
             showStatusPopover()
         }
         return false
+    }
+
+    private func offerFullDiskAccessOnFirstLaunch() -> Bool {
+        if ProcessInfo.processInfo.environment["PORT_TOOLS_DISABLE_PROMPTS"] == "1" { return false }
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "didAskFullDiskAccess") else { return false }
+        defaults.set(true, forKey: "didAskFullDiskAccess")
+
+        let alert = NSAlert()
+        alert.messageText = portToolsString("Allow Full Disk Access?")
+        alert.informativeText = portToolsString("Port Tools uses project files such as .git and package.json to identify which app owns each port. Full Disk Access prevents repeated folder permission prompts. You can continue without it, but project details may be unavailable.")
+        alert.addButton(withTitle: portToolsString("Open Full Disk Access Settings"))
+        alert.addButton(withTitle: portToolsString("Not Now"))
+        if alert.runModal() == .alertFirstButtonReturn,
+           let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            NSWorkspace.shared.open(settingsURL)
+        }
+        return true
     }
 
     private func offerPortlessAddressesOnFirstLaunch() {
