@@ -1040,6 +1040,8 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
                 return
             }
 
+            // Legacy scrollers reserve width even when hidden, shifting the fixed-width panel.
+            scrollView.scrollerStyle = .overlay
             scrollView.hasVerticalScroller = false
             scrollView.autohidesScrollers = true
             scrollView.tile()
