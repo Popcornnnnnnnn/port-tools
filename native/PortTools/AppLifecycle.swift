@@ -104,7 +104,7 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         PortlessServiceController.shared.refreshRouting()
         if CommandLine.arguments.contains("--preview-window") {
             showPreviewWindow()
-        } else {
+        } else if ProcessInfo.processInfo.environment["PORT_TOOLS_DISABLE_STATUS_ITEM"] != "1" {
             installStatusItem()
         }
         let offeredFullDiskAccess = offerFullDiskAccessOnFirstLaunch()

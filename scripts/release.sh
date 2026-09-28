@@ -119,7 +119,7 @@ portless_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Library/Launc
 grep -q 'flags=.*runtime' <<<"$portless_signature"
 
 metrics_home="$(mktemp -d -t port-tools-release-metrics.XXXXXX)"
-if ! CFFIXED_USER_HOME="$metrics_home" PORT_TOOLS_DISABLE_PORTLESS=1 \
+if ! CFFIXED_USER_HOME="$metrics_home" PORT_TOOLS_DISABLE_PORTLESS=1 PORT_TOOLS_DISABLE_STATUS_ITEM=1 \
   python3 "$repository_root/evaluation/measure_release_metrics.py" \
     --app "$app_path" --duration 600 > "$dist_root/metrics.json"; then
   rm -rf "$metrics_home"
@@ -131,51 +131,12 @@ cat "$dist_root/metrics.json"
 verify_export_version
 
 staging="$dist_root/dmg-root"
-rw_dmg="$dist_root/Port-Tools-$release_version-rw.dmg"
-mountpoint="$dist_root/dmg-mount"
-rm -rf "$staging" "$mountpoint"
-rm -f "$rw_dmg" "$dmg_path"
-mkdir -p "$staging/.background"
-cp -R "$app_path" "$staging/Port Tools.app"
+rm -rf "$staging"
+rm -f "$dmg_path"
+mkdir -p "$staging"
+ditto "$app_path" "$staging/Port Tools.app"
 ln -s /Applications "$staging/Applications"
-cp "$repository_root/design/marketing/dmg-background@2x.png" "$staging/.background/background.png"
-[[ "$(sips -g pixelWidth "$staging/.background/background.png" | awk '/pixelWidth/ {print $2}')" == "1200" ]]
-[[ "$(sips -g pixelHeight "$staging/.background/background.png" | awk '/pixelHeight/ {print $2}')" == "800" ]]
-hdiutil create -volname "$volume_name" -srcfolder "$staging" -ov -format UDRW "$rw_dmg" >/dev/null
-mkdir -p "$mountpoint"
-hdiutil attach "$rw_dmg" -readwrite -noverify -noautoopen -mountpoint "$mountpoint" >/dev/null
-trap 'hdiutil detach "$mountpoint" >/dev/null 2>&1 || true' EXIT
-osascript - "$mountpoint" <<'APPLESCRIPT'
-on run argv
-  set mountPath to item 1 of argv
-  set targetFolder to POSIX file mountPath as alias
-  tell application "Finder"
-    open targetFolder
-    set current view of container window of targetFolder to icon view
-    set toolbar visible of container window of targetFolder to false
-    set statusbar visible of container window of targetFolder to false
-    set pathbar visible of container window of targetFolder to false
-    set bounds of container window of targetFolder to {100, 100, 700, 500}
-    set viewOptions to icon view options of container window of targetFolder
-    set arrangement of viewOptions to not arranged
-    set icon size of viewOptions to 96
-    set background picture of viewOptions to file ".background:background.png" of targetFolder
-    set position of item "Port Tools.app" of targetFolder to {170, 210}
-    set position of item "Applications" of targetFolder to {430, 210}
-    update targetFolder without registering applications
-    delay 2
-    close container window of targetFolder
-    delay 1
-  end tell
-end run
-APPLESCRIPT
-[[ -f "$mountpoint/.DS_Store" ]] || { echo "Finder did not persist the DMG layout." >&2; exit 1; }
-sync
-sleep 2
-hdiutil detach "$mountpoint" >/dev/null
-trap - EXIT
-hdiutil convert "$rw_dmg" -format UDZO -o "$dmg_path" >/dev/null
-rm -f "$rw_dmg"
+hdiutil create -volname "$volume_name" -srcfolder "$staging" -ov -format UDZO "$dmg_path" >/dev/null
 codesign --force --timestamp --sign "$developer_identity" "$dmg_path"
 notary_result="$dist_root/notary-result.json"
 xcrun notarytool submit "$dmg_path" \
