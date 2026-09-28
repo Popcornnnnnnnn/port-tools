@@ -12,6 +12,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -24,7 +25,7 @@ CLI = REPO_ROOT / "bin" / "port-tools"
 CORE = REPO_ROOT / "native" / ".build" / "Port Tools.app" / "Contents" / "Helpers" / "port-tools-core"
 PROXY_PORT = 17890
 STATE = RUNTIME_ROOT / "proxy-routes.json"
-SOCKET = RUNTIME_ROOT / "core.sock"
+SOCKET = Path(tempfile.gettempdir()) / f"pt-proxy-{os.getpid()}.sock"
 ENGINE = "go"
 
 
@@ -263,6 +264,7 @@ def main() -> None:
         run(["python3", MANAGER, "stop", "vite-hmr"])
         run(["python3", MANAGER, "stop", "self-signed-https"])
         log_handle.close()
+        SOCKET.unlink(missing_ok=True)
         if completed:
             shutil.rmtree(RUNTIME_ROOT, ignore_errors=True)
         else:
