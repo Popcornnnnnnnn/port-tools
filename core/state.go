@@ -192,20 +192,30 @@ func stalenessForService(service ServiceRecord, entry inventoryStateEntry, now t
 	if !ok || now.Sub(started) < 24*time.Hour {
 		return record
 	}
-	if entry.History.InitialParentPID != nil && service.Process.ParentPID != nil &&
-		(*service.Process.ParentPID == 1 || *service.Process.ParentPID != *entry.History.InitialParentPID) {
-		record.Reasons = append(record.Reasons, "original parent process is gone")
-	}
+	parentDetached := entry.History.InitialParentPID != nil && service.Process.ParentPID != nil &&
+		(*service.Process.ParentPID == 1 || *service.Process.ParentPID != *entry.History.InitialParentPID)
+	projectMissing := false
 	if entry.LastProjectRoot != "" {
 		if _, err := os.Stat(entry.LastProjectRoot); os.IsNotExist(err) {
+			projectMissing = true
 			record.Reasons = append(record.Reasons, "project directory is missing")
 		}
 	}
+	probeFailure := false
 	if entry.History.ConsecutiveProbeFailures >= 3 && entry.History.FirstFailedProbe != "" {
 		firstFailure, err := time.Parse(time.RFC3339Nano, entry.History.FirstFailedProbe)
 		if err == nil && now.Sub(firstFailure) >= 10*time.Minute {
+			probeFailure = true
 			record.Reasons = append(record.Reasons, "three probes failed for at least ten minutes")
 		}
+	}
+	idleCDP := service.Observation.Protocol == "cdp" && service.Observation.CDP != nil &&
+		service.Observation.CDP.TargetCount == 0
+	if idleCDP {
+		record.Reasons = append(record.Reasons, "Chrome DevTools has no active targets")
+	}
+	if parentDetached && (projectMissing || probeFailure || idleCDP) {
+		record.Reasons = append([]string{"launching parent process is no longer attached"}, record.Reasons...)
 	}
 	record.PossiblyForgotten = len(record.Reasons) > 0
 	return record

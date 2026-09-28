@@ -63,6 +63,10 @@ The native SwiftUI menu-bar app talks to a bundled Go core over a private, owner
 
 Safe stop is intentionally narrow: Docker, other-user, shared-runtime, and unattributed targets are refused. Eligible targets receive an identity-bound plan token, are revalidated immediately before `SIGTERM`, and count as stopped only when their listeners are actually gone. If an owned unmanaged service ignores SIGTERM, a separate 3-second confirmation can issue a second single-use plan for narrowly scoped SIGKILL.
 
+## Download
+
+Download the signed Apple Silicon app from the [latest GitHub release](https://github.com/Popcornnnnnnnn/port-tools/releases/latest) and drag it from the DMG to Applications. macOS 14 or later is required.
+
 ## Build v1.0
 
 Building requires Go and Xcode Command Line Tools. The resulting app is self-contained and does not require Python, Node.js, npm, Homebrew, Docker, or a separate proxy at runtime.
@@ -90,13 +94,13 @@ python3 native/trial/verify.py
 
 ## v1.0 boundary
 
-The current candidate is deliberately local and conservative:
+The current release is deliberately local and conservative:
 
 - macOS 14 or later;
 - Apple Silicon only for public Release builds;
 - IPv4/IPv6 loopback proxy on an unprivileged port;
-- no `/etc/hosts` edits, trusted local CA, or ports 80/443;
-- no privileged helper; force termination is limited to the separately confirmed, revalidated unmanaged-service path;
+- no `/etc/hosts` edits, trusted local CA, or port 443; an optional approved loopback-only helper uses port 80, with `:17890` as the fallback;
+- force termination is limited to the separately confirmed, revalidated unmanaged-service path;
 - no claim that code-level tests replace real menu-bar interaction testing.
 
 ## Engineering notes
@@ -107,4 +111,4 @@ The current candidate is deliberately local and conservative:
 - [Packaging requirements](docs/packaging-requirements.md)
 - [Release and notarization](docs/releasing.md)
 
-Port Tools v1.0 is approaching its first public release. Issues and early feedback are welcome.
+Issues and early feedback are welcome.

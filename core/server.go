@@ -227,10 +227,29 @@ func (server *coreServer) apiHandler() http.Handler {
 			writeError(response, http.StatusBadRequest, fmt.Errorf("invalid route: %w", err))
 			return
 		}
+		document, scanError := server.scanFresh()
+		if scanError != nil {
+			writeError(response, http.StatusServiceUnavailable, scanError)
+			return
+		}
+		if mutation.LogicalServiceID == "" && mutation.ProjectRoot == "" && mutation.ApplicationRoot == "" {
+			if !inferRouteOwner(&mutation.RouteRecord, document) {
+				writeError(response, http.StatusConflict, errors.New("listener is offline or has multiple owners; refresh and try again"))
+				return
+			}
+		}
+		if !routeHasUniqueListener(mutation.RouteRecord, document) {
+			writeError(response, http.StatusConflict, errors.New("service is offline or its listener is ambiguous; refresh and try again"))
+			return
+		}
 		route, err := server.routes.put(request.PathValue("alias"), mutation.RouteRecord, mutation.PreviousAlias)
 		if err != nil {
 			writeError(response, http.StatusConflict, err)
 			return
+		}
+		server.routes.attach(&document)
+		if resolved, ok := server.routes.getResolved(route.Alias); ok {
+			route = resolved.route
 		}
 		server.invalidateScan()
 		writeJSON(response, http.StatusOK, route)
@@ -304,6 +323,31 @@ func (server *coreServer) apiHandler() http.Handler {
 	return mux
 }
 
+func inferRouteOwner(route *RouteRecord, document ScanDocument) bool {
+	var owner *ServiceRecord
+	for index := range document.Services {
+		service := &document.Services[index]
+		if service.Listener.Port != route.Port {
+			continue
+		}
+		if owner != nil && (owner.LogicalID != service.LogicalID || owner.Process.PID != service.Process.PID) {
+			return false
+		}
+		owner = service
+	}
+	if owner == nil {
+		return false
+	}
+	route.LogicalServiceID = owner.LogicalID
+	if owner.Project != nil {
+		route.ProjectRoot = owner.Project.Root
+	}
+	if owner.Application != nil {
+		route.ApplicationRoot = owner.Application.Root
+	}
+	return true
+}
+
 func aliasFromHost(value string) string {
 	host := value
 	if parsedHost, _, err := net.SplitHostPort(value); err == nil {
@@ -318,6 +362,32 @@ func aliasFromHost(value string) string {
 		return ""
 	}
 	return alias
+}
+
+func routeHasUniqueListener(route RouteRecord, document ScanDocument) bool {
+	pid, port, count := 0, 0, 0
+	for _, service := range document.Services {
+		match := route.LogicalServiceID != "" && route.LogicalServiceID == service.LogicalID
+		if !match && route.LogicalServiceID == "" && (route.ProjectRoot != "" || route.ApplicationRoot != "") {
+			projectRoot, applicationRoot := "", ""
+			if service.Project != nil {
+				projectRoot = service.Project.Root
+			}
+			if service.Application != nil {
+				applicationRoot = service.Application.Root
+			}
+			match = route.Port == service.Listener.Port && route.ProjectRoot == projectRoot && route.ApplicationRoot == applicationRoot
+		}
+		if !match {
+			continue
+		}
+		if count > 0 && (pid != service.Process.PID || port != service.Listener.Port) {
+			return false
+		}
+		pid, port = service.Process.PID, service.Listener.Port
+		count++
+	}
+	return count > 0
 }
 
 var diagnosticPage = template.Must(template.New("diagnostic").Parse(`<!doctype html>
@@ -338,12 +408,22 @@ func (server *coreServer) proxyHandler() http.Handler {
 			diagnostic(response, http.StatusNotFound, "Unknown local name", "Use an <alias>.localhost address created by Port Tools.")
 			return
 		}
-		route, ok := server.routes.get(alias)
+		resolved, ok := server.routes.getResolved(alias)
 		if !ok {
-			diagnostic(response, http.StatusNotFound, "Alias not configured", fmt.Sprintf("%s.localhost has no saved route.", alias))
+			if _, exists := server.routes.get(alias); exists {
+				diagnostic(response, http.StatusServiceUnavailable, "Original service unavailable", fmt.Sprintf("%s.localhost is saved, but its original listener is offline or cannot be identified uniquely.", alias))
+			} else {
+				diagnostic(response, http.StatusNotFound, "Alias not configured", fmt.Sprintf("%s.localhost has no saved route.", alias))
+			}
 			return
 		}
-		target, _ := url.Parse(fmt.Sprintf("%s://127.0.0.1:%d", route.Scheme, route.Port))
+		processError := syscall.Kill(resolved.pid, 0)
+		if resolved.pid <= 0 || (processError != nil && !errors.Is(processError, syscall.EPERM)) {
+			diagnostic(response, http.StatusServiceUnavailable, "Original service unavailable", "The original process stopped. Wait for the next scan or refresh Port Tools after restarting it.")
+			return
+		}
+		route := resolved.route
+		target, _ := url.Parse(route.Scheme + "://" + net.JoinHostPort(route.Address, strconv.Itoa(route.Port)))
 		proxy := httputil.NewSingleHostReverseProxy(target)
 		proxy.FlushInterval = -1
 		originalDirector := proxy.Director
@@ -361,10 +441,11 @@ func (server *coreServer) proxyHandler() http.Handler {
 			Proxy:             http.ProxyFromEnvironment,
 			DialContext:       (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 			ForceAttemptHTTP2: true,
+			DisableKeepAlives: true,
 			TLSClientConfig:   &tls.Config{InsecureSkipVerify: route.TLSPolicy == "insecure-local", MinVersion: tls.VersionTLS12},
 		}
 		proxy.ErrorHandler = func(response http.ResponseWriter, _ *http.Request, err error) {
-			diagnostic(response, http.StatusBadGateway, "Local app unavailable", fmt.Sprintf("%s.localhost points to 127.0.0.1:%d (%s).", alias, route.Port, err.Error()))
+			diagnostic(response, http.StatusBadGateway, "Local app unavailable", fmt.Sprintf("%s.localhost could not reach %s (%s).", alias, target.Host, err.Error()))
 		}
 		proxy.ServeHTTP(response, request)
 	})

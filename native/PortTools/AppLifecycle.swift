@@ -84,9 +84,13 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private var statusStore: InventoryStore?
     private var openScanTimer: Timer?
     private var backgroundScanTimer: Timer?
+    private var previewScanTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppMaintenance.migrateTrialPreferences()
+        applyPortToolsAppearance(
+            UserDefaults.standard.string(forKey: "appearanceMode") ?? AppearanceMode.dark.rawValue
+        )
         if UserDefaults.standard.bool(forKey: "SUEnableAutomaticChecks") {
             _ = UpdaterBridge.shared
         }
@@ -112,6 +116,12 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
 
     func applicationDidBecomeActive(_ notification: Notification) {
         PortlessServiceController.shared.refreshRouting()
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        if statusPopover?.isShown == true {
+            statusPopover?.performClose(nil)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -198,6 +208,10 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
         NSApp.activate(ignoringOtherApps: true)
         previewStore = store
         previewWindow = window
+        previewScanTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak store, weak window] _ in
+            guard window?.isVisible == true else { return }
+            Task { @MainActor [weak store] in store?.refresh(silent: true) }
+        }
     }
 
     private func installStatusItem() {
@@ -247,7 +261,7 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private func showStatusPopover() {
         guard let button = statusItem?.button, let statusStore else { return }
         if let statusPopover, statusPopover.isShown { return }
-        let statusPopover = makeStatusPopover(store: statusStore)
+        let statusPopover = self.statusPopover ?? makeStatusPopover(store: statusStore)
         self.statusPopover = statusPopover
         statusStore.refresh(silent: true)
         NSApp.activate(ignoringOtherApps: true)
@@ -261,12 +275,12 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     func popoverDidClose(_ notification: Notification) {
         openScanTimer?.invalidate()
         openScanTimer = nil
-        statusPopover = nil
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         openScanTimer?.invalidate()
         backgroundScanTimer?.invalidate()
+        previewScanTimer?.invalidate()
         CoreRuntime.shared.stop()
     }
 }

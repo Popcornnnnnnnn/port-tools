@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,12 +26,31 @@ import (
 
 var titlePattern = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-var webCommandHints = []string{
-	"vite", "next dev", "next-server", "webpack-dev-server", "uvicorn",
-	"gunicorn", "flask run", "django", "http.server",
+var pageCommandHints = []string{
+	"vite", "next dev", "next-server", "webpack-dev-server",
+	"dsh web", "jupyter lab", "jupyter notebook", "streamlit run",
 }
 
+var serviceCommandHints = []string{
+	"uvicorn", "gunicorn", "flask run", "django", "http.server",
+}
+
+var webCommandHints = append(append([]string{}, pageCommandHints...), serviceCommandHints...)
+
 var applicationManifests = []string{"package.json", "pyproject.toml", "Cargo.toml", "go.mod", "Gemfile"}
+
+// Tools that expose an API at "/" often serve their UI from a conventional
+// subpath, so a JSON root response is not proof that the listener has no page.
+var webUIPaths = []string{"/management.html", "/index.html", "/ui/", "/admin/", "/console"}
+
+// A single unresponsive service must not stall a scan while those paths are tried.
+const webUIPathBudget = 1500 * time.Millisecond
+
+type cdpVersionResponse struct {
+	Browser              string `json:"Browser"`
+	ProtocolVersion      string `json:"Protocol-Version"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+}
 
 type cachedObservation struct {
 	observation ObservationRecord
@@ -164,6 +184,11 @@ func projectCandidatesFromCommand(command, cwd string) map[string]*ProjectRecord
 			candidate = filepath.Dir(candidate)
 		}
 		if found := findProject(candidate); found != nil {
+			// A globally installed CLI can live inside Homebrew's own Git checkout.
+			// That checkout describes the toolchain, not the app being served.
+			if found.RemoteURL != nil && strings.EqualFold(strings.TrimSuffix(*found.RemoteURL, ".git"), "https://github.com/Homebrew/brew") {
+				continue
+			}
 			candidateProjects[found.Root] = found
 		}
 	}
@@ -587,11 +612,18 @@ func stringContainsAny(value string, needles []string) (string, bool) {
 	return "", false
 }
 
-func probeURL(listener discoveredListener, scheme string) (*HTTPRecord, []byte, error) {
-	host := "127.0.0.1"
-	if listener.Address == "::1" {
-		host = "[::1]"
+func pageCommandHint(command string) (string, bool) {
+	if hint, ok := stringContainsAny(command, pageCommandHints); ok {
+		return hint, true
 	}
+	normalized := " " + strings.Join(strings.Fields(strings.ToLower(command)), " ") + " "
+	if strings.Contains(normalized, " web ") && strings.Contains(normalized, " --no-open ") {
+		return "web --no-open", true
+	}
+	return "", false
+}
+
+func newProbeClient() *http.Client {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{Timeout: 350 * time.Millisecond}).DialContext,
 		TLSClientConfig: &tls.Config{
@@ -601,14 +633,42 @@ func probeURL(listener discoveredListener, scheme string) (*HTTPRecord, []byte, 
 		},
 		DisableKeepAlives: true,
 	}
-	client := &http.Client{
+	return &http.Client{
 		Transport: transport,
 		Timeout:   900 * time.Millisecond,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
-	request, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("%s://%s:%d/", scheme, host, listener.Port), nil)
+}
+
+func listenerDialHost(address string) string {
+	switch address {
+	case "", "*", "0.0.0.0":
+		return "127.0.0.1"
+	case "::":
+		return "::1"
+	default:
+		return address
+	}
+}
+
+func listenerHost(listener discoveredListener) string {
+	host := listenerDialHost(listener.Address)
+	if strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
+}
+
+func probeURL(listener discoveredListener, scheme string) (*HTTPRecord, []byte, error) {
+	return probePath(listener, scheme, "/")
+}
+
+func probePath(listener discoveredListener, scheme, path string) (*HTTPRecord, []byte, error) {
+	client := newProbeClient()
+	host := listenerHost(listener)
+	request, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("%s://%s:%d%s", scheme, host, listener.Port, path), nil)
 	request.Header.Set("User-Agent", "port-tools-core/"+version)
 	request.Header.Set("Accept", "text/html,*/*;q=0.1")
 	response, err := client.Do(request)
@@ -639,11 +699,134 @@ func probeURL(listener discoveredListener, scheme string) (*HTTPRecord, []byte, 
 	return record, body, nil
 }
 
-func rawProbe(listener discoveredListener) ([]byte, error) {
-	host := "127.0.0.1"
-	if listener.Address == "::1" {
-		host = "::1"
+func htmlPage(response *HTTPRecord) bool {
+	if response == nil || response.Status == nil || *response.Status != http.StatusOK {
+		return false
 	}
+	if response.Title == nil || strings.TrimSpace(*response.Title) == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(valueOrEmpty(response.ContentType)), "html")
+}
+
+// An API-only root response can still belong to a tool that ships a Web UI at a
+// conventional subpath, so look for a real page before calling the listener a service.
+func webUIPage(listener discoveredListener, scheme string, root *HTTPRecord, rootBody []byte) (*HTTPRecord, []byte, string) {
+	if root == nil || root.Status == nil || *root.Status < 200 || *root.Status >= 300 {
+		return root, rootBody, ""
+	}
+	if strings.Contains(strings.ToLower(valueOrEmpty(root.ContentType)), "html") {
+		return root, rootBody, ""
+	}
+	started := time.Now()
+	for _, path := range webUIPaths {
+		if time.Since(started) > webUIPathBudget {
+			break
+		}
+		response, body, err := probePath(listener, scheme, path)
+		if err != nil || !htmlPage(response) {
+			continue
+		}
+		response.Path = path
+		return response, body, path
+	}
+	return root, rootBody, ""
+}
+
+func commandUsesDebuggingPort(command string, port int) bool {
+	fields := strings.Fields(command)
+	for index, rawField := range fields {
+		field := strings.Trim(rawField, `"'`)
+		if strings.HasPrefix(field, "--remote-debugging-port=") {
+			value := strings.TrimPrefix(field, "--remote-debugging-port=")
+			parsed, err := strconv.Atoi(value)
+			return err == nil && parsed == port
+		}
+		if field == "--remote-debugging-port" && index+1 < len(fields) {
+			value := strings.Trim(fields[index+1], `"'`)
+			parsed, err := strconv.Atoi(value)
+			return err == nil && parsed == port
+		}
+	}
+	return false
+}
+
+func isCDPCandidate(listener discoveredListener, process ProcessRecord, response *HTTPRecord) bool {
+	command := valueOrEmpty(process.Command)
+	if commandUsesDebuggingPort(command, listener.Port) {
+		return true
+	}
+	if response == nil || response.BytesRead != 0 {
+		return false
+	}
+	processIdentity := strings.ToLower(strings.Join([]string{valueOrEmpty(process.Name), command}, " "))
+	return strings.Contains(processIdentity, "google chrome") ||
+		strings.Contains(processIdentity, "chromium") ||
+		strings.Contains(processIdentity, "electron")
+}
+
+func probeCDP(listener discoveredListener) (*CDPRecord, error) {
+	client := newProbeClient()
+	host := listenerHost(listener)
+	getJSON := func(path string, destination any) error {
+		request, _ := http.NewRequestWithContext(
+			context.Background(),
+			http.MethodGet,
+			fmt.Sprintf("http://%s:%d%s", host, listener.Port, path),
+			nil,
+		)
+		request.Header.Set("User-Agent", "port-tools-core/"+version)
+		request.Header.Set("Accept", "application/json")
+		response, err := client.Do(request)
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return fmt.Errorf("CDP endpoint %s returned HTTP %d", path, response.StatusCode)
+		}
+		body, err := io.ReadAll(io.LimitReader(response.Body, 65536))
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(body, destination)
+	}
+
+	var versionResponse cdpVersionResponse
+	if err := getJSON("/json/version", &versionResponse); err != nil {
+		return nil, err
+	}
+	if versionResponse.Browser == "" || versionResponse.ProtocolVersion == "" || versionResponse.WebSocketDebuggerURL == "" {
+		return nil, errors.New("CDP version response is missing required identity fields")
+	}
+	debuggerURL, err := url.Parse(versionResponse.WebSocketDebuggerURL)
+	if err != nil || (debuggerURL.Scheme != "ws" && debuggerURL.Scheme != "wss") {
+		return nil, errors.New("CDP debugger URL is invalid")
+	}
+	debuggerPort, err := strconv.Atoi(debuggerURL.Port())
+	if err != nil || debuggerPort != listener.Port {
+		return nil, errors.New("CDP debugger URL does not match the listener")
+	}
+	switch debuggerURL.Hostname() {
+	case "127.0.0.1", "::1", "localhost":
+	default:
+		return nil, errors.New("CDP debugger URL is not loopback")
+	}
+
+	var targets []json.RawMessage
+	if err := getJSON("/json/list", &targets); err != nil {
+		return nil, err
+	}
+	return &CDPRecord{
+		Browser:              versionResponse.Browser,
+		ProtocolVersion:      versionResponse.ProtocolVersion,
+		WebSocketDebuggerURL: versionResponse.WebSocketDebuggerURL,
+		TargetCount:          len(targets),
+	}, nil
+}
+
+func rawProbe(listener discoveredListener) ([]byte, error) {
+	host := listenerDialHost(listener.Address)
 	connection, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(listener.Port)), 350*time.Millisecond)
 	if err != nil {
 		return nil, err
@@ -684,10 +867,7 @@ func redisCandidate(process ProcessRecord, management ManagementRecord) bool {
 }
 
 func redisProbe(listener discoveredListener) ([]byte, error) {
-	host := "127.0.0.1"
-	if listener.Address == "::1" {
-		host = "::1"
-	}
+	host := listenerDialHost(listener.Address)
 	connection, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(listener.Port)), 350*time.Millisecond)
 	if err != nil {
 		return nil, err
@@ -732,7 +912,31 @@ func detectFramework(command string, body []byte) *string {
 	return &framework
 }
 
-func presentationRole(response *HTTPRecord, framework *string) string {
+func apiDocumentationUI(response *HTTPRecord, body []byte) string {
+	if response == nil || response.Title == nil {
+		return ""
+	}
+	title := strings.ToLower(*response.Title)
+	markup := strings.ToLower(string(body))
+	if strings.Contains(title, "swagger ui") &&
+		strings.Contains(markup, `id="swagger-ui"`) &&
+		strings.Contains(markup, "swaggeruibundle") {
+		return "swagger-ui"
+	}
+	return ""
+}
+
+func protectedPageCommandHint(response *HTTPRecord, command string) string {
+	if response == nil || response.Status == nil || (*response.Status != http.StatusUnauthorized && *response.Status != http.StatusForbidden) {
+		return ""
+	}
+	if hint, ok := pageCommandHint(command); ok {
+		return hint
+	}
+	return ""
+}
+
+func presentationRole(response *HTTPRecord, framework *string, body []byte, command string) string {
 	if response == nil || response.Status == nil {
 		return "service"
 	}
@@ -740,11 +944,20 @@ func presentationRole(response *HTTPRecord, framework *string) string {
 	if status >= 300 && status < 400 {
 		return "page"
 	}
+	if protectedPageCommandHint(response, command) != "" {
+		return "page"
+	}
 	if status < 200 || status >= 300 {
+		return "service"
+	}
+	if apiDocumentationUI(response, body) != "" {
 		return "service"
 	}
 	if response.Title != nil || framework != nil {
 		return "page"
+	}
+	if response.BytesRead == 0 {
+		return "service"
 	}
 	if response.ContentType != nil {
 		contentType := strings.ToLower(*response.ContentType)
@@ -756,12 +969,12 @@ func presentationRole(response *HTTPRecord, framework *string) string {
 }
 
 func suspectedRole(hint string) string {
-	switch hint {
-	case "vite", "next dev", "next-server", "webpack-dev-server":
-		return "page"
-	default:
-		return "service"
+	for _, pageHint := range pageCommandHints {
+		if hint == pageHint {
+			return "page"
+		}
 	}
+	return "service"
 }
 
 func observe(listener discoveredListener, process ProcessRecord, management ManagementRecord) ObservationRecord {
@@ -770,20 +983,60 @@ func observe(listener discoveredListener, process ProcessRecord, management Mana
 		command = *process.Command
 	}
 	if response, body, err := probeURL(listener, "http"); err == nil {
+		if isCDPCandidate(listener, process, response) {
+			if cdp, cdpError := probeCDP(listener); cdpError == nil {
+				return ObservationRecord{
+					Classification: "confirmed-web",
+					Protocol:       "cdp",
+					Role:           "service",
+					Confidence:     1,
+					HTTP:           response,
+					CDP:            cdp,
+					Evidence: []EvidenceRecord{
+						{Kind: "valid-http-response", Value: *response.Status},
+						{Kind: "cdp-version-endpoint", Value: cdp.Browser},
+						{Kind: "cdp-target-count", Value: cdp.TargetCount},
+					},
+				}
+			}
+		}
+		response, body, pagePath := webUIPage(listener, "http", response, body)
 		framework := detectFramework(command, body)
 		evidence := []EvidenceRecord{{Kind: "valid-http-response", Value: *response.Status}}
+		if pagePath != "" {
+			evidence = append(evidence, EvidenceRecord{Kind: "web-ui-path", Value: pagePath})
+		}
+		if response.BytesRead == 0 {
+			evidence = append(evidence, EvidenceRecord{Kind: "empty-http-response", Value: true})
+		}
 		if framework != nil {
 			evidence = append(evidence, EvidenceRecord{Kind: "framework-marker", Value: *framework})
 		}
-		return ObservationRecord{Classification: "confirmed-web", Protocol: "http", Role: presentationRole(response, framework), Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
+		if documentationUI := apiDocumentationUI(response, body); documentationUI != "" {
+			evidence = append(evidence, EvidenceRecord{Kind: "api-documentation-ui", Value: documentationUI})
+		}
+		if protectedHint := protectedPageCommandHint(response, command); protectedHint != "" {
+			evidence = append(evidence, EvidenceRecord{Kind: "protected-page-command", Value: protectedHint})
+		}
+		return ObservationRecord{Classification: "confirmed-web", Protocol: "http", Role: presentationRole(response, framework, body, command), Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
 	}
 	if response, body, err := probeURL(listener, "https"); err == nil {
+		response, body, pagePath := webUIPage(listener, "https", response, body)
 		framework := detectFramework(command, body)
 		evidence := []EvidenceRecord{{Kind: "tls-handshake", Value: "succeeded"}, {Kind: "valid-http-response", Value: *response.Status}}
+		if pagePath != "" {
+			evidence = append(evidence, EvidenceRecord{Kind: "web-ui-path", Value: pagePath})
+		}
 		if framework != nil {
 			evidence = append(evidence, EvidenceRecord{Kind: "framework-marker", Value: *framework})
 		}
-		return ObservationRecord{Classification: "confirmed-web", Protocol: "https", Role: presentationRole(response, framework), Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
+		if documentationUI := apiDocumentationUI(response, body); documentationUI != "" {
+			evidence = append(evidence, EvidenceRecord{Kind: "api-documentation-ui", Value: documentationUI})
+		}
+		if protectedHint := protectedPageCommandHint(response, command); protectedHint != "" {
+			evidence = append(evidence, EvidenceRecord{Kind: "protected-page-command", Value: protectedHint})
+		}
+		return ObservationRecord{Classification: "confirmed-web", Protocol: "https", Role: presentationRole(response, framework, body, command), Confidence: 1, Framework: framework, HTTP: response, Evidence: evidence}
 	}
 	data, _ := rawProbe(listener)
 	if redisResponse(data) {
@@ -796,6 +1049,9 @@ func observe(listener discoveredListener, process ProcessRecord, management Mana
 	}
 	if len(data) > 0 {
 		return ObservationRecord{Classification: "non-web", Protocol: "tcp", Role: "service", Confidence: 0.9, Evidence: []EvidenceRecord{{Kind: "invalid-http-response", Value: string(data[:min(len(data), 48)])}}}
+	}
+	if hint, ok := pageCommandHint(command); ok {
+		return ObservationRecord{Classification: "suspected-web", Protocol: "unknown", Role: "page", Confidence: 0.55, Evidence: []EvidenceRecord{{Kind: "command-hint", Value: hint}, {Kind: "probe-failed", Value: "no valid HTTP response"}}}
 	}
 	if hint, ok := stringContainsAny(command, webCommandHints); ok {
 		return ObservationRecord{Classification: "suspected-web", Protocol: "unknown", Role: suspectedRole(hint), Confidence: 0.55, Evidence: []EvidenceRecord{{Kind: "command-hint", Value: hint}, {Kind: "probe-failed", Value: "no valid HTTP response"}}}
@@ -824,8 +1080,15 @@ func observeCached(listener discoveredListener, process ProcessRecord, managemen
 
 	observation := observe(listener, process, management)
 	observation.ProbedAt = now.UTC().Format(time.RFC3339Nano)
+	cacheDuration := 30 * time.Second
+	started, hasStart := parseProcessStarted(process.Started)
+	if observation.Classification == "suspected-web" ||
+		(observation.Classification == "unknown" && hasStart && now.Sub(started) >= 0 && now.Sub(started) < 30*time.Second) ||
+		(observation.HTTP != nil && observation.HTTP.Status != nil && *observation.HTTP.Status >= 500) {
+		cacheDuration = 3 * time.Second
+	}
 	observationCache.Lock()
-	observationCache.entries[cacheKey] = cachedObservation{observation: observation, expiresAt: now.Add(30 * time.Second)}
+	observationCache.entries[cacheKey] = cachedObservation{observation: observation, expiresAt: now.Add(cacheDuration)}
 	observationCache.Unlock()
 	return observation
 }
@@ -840,6 +1103,9 @@ func classifyRelevance(process ProcessRecord, project *ProjectRecord, management
 	command := ""
 	if process.Command != nil {
 		command = *process.Command
+	}
+	if hint, ok := pageCommandHint(command); ok {
+		return RelevanceRecord{Category: "developer-tool", DeveloperRelevant: true, Confidence: 0.7, Evidence: []EvidenceRecord{{Kind: "command-hint", Value: hint}}}
 	}
 	if hint, ok := stringContainsAny(command, webCommandHints); ok {
 		return RelevanceRecord{Category: "developer-tool", DeveloperRelevant: true, Confidence: 0.7, Evidence: []EvidenceRecord{{Kind: "command-hint", Value: hint}}}

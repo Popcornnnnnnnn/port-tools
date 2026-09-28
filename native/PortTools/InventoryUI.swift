@@ -8,11 +8,32 @@ private let webClassifications = Set(["confirmed-web", "suspected-web"])
 func commandApplicationName(_ service: ServiceRecord) -> String? {
     guard let command = service.process.command else { return nil }
     let extensions = Set(["js", "mjs", "cjs", "ts", "py", "rb"])
-    for part in command.split(whereSeparator: { $0.isWhitespace }).reversed() {
+    let parts = command.split(whereSeparator: { $0.isWhitespace })
+    for part in parts.reversed() {
         let path = String(part).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
         let url = URL(fileURLWithPath: path)
         if extensions.contains(url.pathExtension.lowercased()) {
             return url.deletingPathExtension().lastPathComponent
+        }
+    }
+    let runtimes = Set(["node", "nodejs", "python", "python3", "ruby", "bun", "deno"])
+    let launchers = Set(["npm", "npx", "pnpm", "yarn", "uvx", "bunx"])
+    let launcherVerbs = Set(["run", "exec"])
+    for (index, part) in parts.enumerated() {
+        let value = String(part).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        if value.hasPrefix("-") { continue }
+        let executable = URL(fileURLWithPath: value).lastPathComponent
+        if index == 0, runtimes.contains(where: { executable == $0 || executable.hasPrefix($0 + ".") }) {
+            continue
+        }
+        if index == 0, launchers.contains(executable) { continue }
+        if launcherVerbs.contains(executable) { continue }
+        switch executable.lowercased() {
+        case "dsh": return "DeepSeek Harness"
+        case "jupyter": return "Jupyter"
+        case "streamlit": return "Streamlit"
+        default:
+            return executable
         }
     }
     return nil
@@ -20,6 +41,7 @@ func commandApplicationName(_ service: ServiceRecord) -> String? {
 
 func serviceName(_ service: ServiceRecord) -> String {
     if let name = service.preferences.displayName, !name.isEmpty { return name }
+    if service.observation.protocol == "cdp" { return "Chrome DevTools" }
     if let title = service.observation.http?.title, !title.isEmpty { return title }
     if let name = service.application?.name, !name.isEmpty { return name }
     if let framework = service.observation.framework, !framework.isEmpty { return framework }
@@ -55,6 +77,7 @@ func isHighConfidenceStandalonePage(_ service: ServiceRecord) -> Bool {
 }
 
 func relatedServiceName(_ service: ServiceRecord) -> String {
+    if service.observation.protocol == "cdp" { return "Chrome DevTools" }
     if let title = service.observation.http?.title, !title.isEmpty { return title }
     if let commandName = commandApplicationName(service), !commandName.isEmpty { return commandName }
     if let framework = service.observation.framework, !framework.isEmpty { return framework }
@@ -62,6 +85,11 @@ func relatedServiceName(_ service: ServiceRecord) -> String {
 }
 
 func relatedServiceDescription(_ service: ServiceRecord) -> String {
+    if service.observation.protocol == "cdp", let cdp = service.observation.cdp {
+        if cdp.targetCount == 0 { return "No active targets" }
+        if cdp.targetCount == 1 { return "1 active target" }
+        return "\(cdp.targetCount) active targets"
+    }
     if let status = service.observation.http?.status {
         if status == 404 { return "No homepage" }
         return "HTTP service · root \(status)"
@@ -124,7 +152,8 @@ func groupServices(_ services: [ServiceRecord]) -> [ProjectGroup] {
     for projectIndex in projects.indices {
         for applicationIndex in projects[projectIndex].applications.indices {
             projects[projectIndex].applications[applicationIndex].services.sort {
-                $0.listener.port < $1.listener.port
+                if $0.preferences.pinned != $1.preferences.pinned { return $0.preferences.pinned }
+                return $0.listener.port < $1.listener.port
             }
         }
     }
@@ -144,6 +173,7 @@ func compactRemote(_ value: String?) -> String? {
 }
 
 func compactRepositoryLabel(_ value: String?) -> String? {
+    if isSitesHostingRemote(value) { return "Sites" }
     guard var label = compactRemote(value) else { return nil }
     for prefix in ["github.com/", "gitlab.com/", "bitbucket.org/"] where label.hasPrefix(prefix) {
         label.removeFirst(prefix.count)
@@ -152,10 +182,16 @@ func compactRepositoryLabel(_ value: String?) -> String? {
     return label
 }
 
+func isSitesHostingRemote(_ value: String?) -> Bool {
+    guard let label = compactRemote(value)?.lowercased() else { return false }
+    return label == "git.chatgpt-team.site" || label.hasPrefix("git.chatgpt-team.site/")
+}
+
 func repositoryWebURL(_ project: ProjectRecord?) -> URL? {
     guard let project, var remote = project.remoteUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !remote.isEmpty else {
         return nil
     }
+    if isSitesHostingRemote(remote) { return nil }
 
     if remote.hasPrefix("git@"), let colon = remote.firstIndex(of: ":") {
         let host = remote.dropFirst(4).prefix { $0 != ":" }
@@ -188,27 +224,52 @@ func compactPath(_ value: String) -> String {
     return value.hasPrefix(home) ? "~" + value.dropFirst(home.count) : value
 }
 
+/// A listener can serve its UI from a subpath while its root path only answers
+/// with an API document, so links must carry the discovered page path.
+private func servicePagePath(_ service: ServiceRecord) -> String? {
+    guard let path = service.observation.http?.path, path.hasPrefix("/"), path != "/" else { return nil }
+    return path
+}
+
+private func applyingServicePagePath(_ base: URL?, to service: ServiceRecord) -> URL? {
+    guard let path = servicePagePath(service), let base,
+          var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return base }
+    components.path = path
+    return components.url ?? base
+}
+
 func serviceURL(_ service: ServiceRecord) -> URL? {
     let rawAddress = service.listener.address
-    let address = ["0.0.0.0", "::", "*"].contains(rawAddress) ? "127.0.0.1" : rawAddress
+    let address = rawAddress == "::" ? "::1" : ["0.0.0.0", "*"].contains(rawAddress) ? "127.0.0.1" : rawAddress
     let host = address.contains(":") ? "[\(address)]" : address
     let scheme = service.observation.protocol == "https" ? "https" : "http"
-    return URL(string: "\(scheme)://\(host):\(service.listener.port)")
+    return applyingServicePagePath(URL(string: "\(scheme)://\(host):\(service.listener.port)"), to: service)
 }
 
 func primaryServiceURL(_ service: ServiceRecord) -> URL? {
-    if let value = service.route?.url, let routeURL = URL(string: value) { return routeURL }
+    if let value = service.route?.url, let routeURL = URL(string: value) {
+        return applyingServicePagePath(routeURL, to: service)
+    }
     return serviceURL(service)
 }
 
+/// Row labels stay host:port even when the link opens a subpath.
+private func compactEndpoint(_ url: URL?) -> String? {
+    guard let url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+    components.path = ""
+    components.query = nil
+    components.fragment = nil
+    return components.string?
+        .replacingOccurrences(of: "http://", with: "")
+        .replacingOccurrences(of: "https://", with: "")
+}
+
 func compactServiceAddress(_ service: ServiceRecord) -> String {
-    let value = primaryServiceURL(service)?.absoluteString ?? ":\(service.listener.port)"
-    return value.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
+    compactEndpoint(primaryServiceURL(service)) ?? ":\(service.listener.port)"
 }
 
 func compactRawServiceAddress(_ service: ServiceRecord) -> String {
-    let value = serviceURL(service)?.absoluteString ?? ":\(service.listener.port)"
-    return value.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
+    compactEndpoint(serviceURL(service)) ?? ":\(service.listener.port)"
 }
 
 func suggestedAlias(_ service: ServiceRecord) -> String {
@@ -230,12 +291,17 @@ func listenerEndpoint(_ service: ServiceRecord) -> String {
     return "\(host):\(service.listener.port)"
 }
 
-func relativeAge(_ value: String?) -> String? {
-    guard let value else { return nil }
+/// Process start times arrive as `ps -o lstart` output. A shared formatter
+/// keeps the per-row cost out of the render path.
+private let processStartFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
-    guard let date = formatter.date(from: value) else { return nil }
+    return formatter
+}()
+
+func relativeAge(_ value: String?) -> String? {
+    guard let value, let date = processStartFormatter.date(from: value) else { return nil }
     let minutes = max(0, Int(Date().timeIntervalSince(date) / 60))
     if minutes < 1 { return "<1m" }
     if minutes < 60 { return "\(minutes)m" }
@@ -256,6 +322,8 @@ func serviceSearchText(_ service: ServiceRecord) -> String {
         service.application?.name,
         service.application?.relativePath,
         service.process.command,
+        service.observation.protocol,
+        service.observation.cdp?.browser,
         service.route?.alias,
         service.route?.url,
     ].compactMap { $0 }.joined(separator: " ").lowercased()
@@ -263,6 +331,7 @@ func serviceSearchText(_ service: ServiceRecord) -> String {
 
 func serviceTypeDescription(_ service: ServiceRecord) -> String {
     if isOpenablePage(service) { return "Openable Web page" }
+    if service.observation.protocol == "cdp" { return "Chrome DevTools service" }
     if service.observation.classification == "confirmed-web" { return "Background HTTP service" }
     if service.observation.classification == "suspected-web" { return "Likely Web service" }
     return "TCP listener"
@@ -276,6 +345,9 @@ func homepageDescription(_ service: ServiceRecord) -> String {
 }
 
 func detectionDescription(_ service: ServiceRecord) -> String {
+    if service.observation.protocol == "cdp" {
+        return "Chrome DevTools Protocol"
+    }
     if service.observation.evidence.contains(where: { $0.kind == "valid-http-response" }) {
         return "Responds to HTTP"
     }
@@ -338,8 +410,11 @@ struct ServiceDetailView: View {
     let service: ServiceRecord
     let onBack: () -> Void
     let onReviewStop: () -> Void
+    let onClassification: (String) -> Void
+    let onTogglePin: () -> Void
+    let onIgnore: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scrollIndicator = ScrollIndicatorMetrics()
+    @State private var scrollIndicator = ScrollIndicatorModel()
     @State private var backHovered = false
 
     var body: some View {
@@ -372,7 +447,21 @@ struct ServiceDetailView: View {
                 Text("Service details")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Color.clear.frame(width: 42, height: 1)
+                Menu {
+                    Menu("Display as") {
+                        Button("Automatic") { onClassification("auto") }
+                        Button("Page") { onClassification("page") }
+                        Button("Service") { onClassification("service") }
+                        Button("Listener") { onClassification("listener") }
+                    }
+                    Button(service.preferences.pinned ? "Unpin" : "Pin", action: onTogglePin)
+                    Button("Ignore", role: .destructive, action: onIgnore)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 34, height: 28)
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Service actions")
             }
             .padding(.horizontal, 14)
             .frame(height: 44)
@@ -393,10 +482,19 @@ struct ServiceDetailView: View {
                         Text("OVERVIEW")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(.tertiary)
-                        if webClassifications.contains(service.observation.classification) {
+                        if isOpenablePage(service) {
                             ServiceDetailRow(label: "Homepage", value: homepageDescription(service))
+                        } else if let cdp = service.observation.cdp {
+                            ServiceDetailRow(label: "Browser", value: cdp.browser)
+                            ServiceDetailRow(label: "Targets", value: relatedServiceDescription(service))
                         }
                         ServiceDetailRow(label: "Shown because", value: detectionDescription(service))
+                        if service.staleness.possiblyForgotten {
+                            ServiceDetailRow(
+                                label: "Lifecycle",
+                                value: "Possibly left running · \(service.staleness.reasons.joined(separator: ", "))"
+                            )
+                        }
                     }
 
                     Divider()
@@ -434,12 +532,12 @@ struct ServiceDetailView: View {
                         .tint(.red)
                 }
                 .padding(18)
-                .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
+                .background(TransientScrollViewConfigurator(model: scrollIndicator))
             }
             .scrollIndicators(.hidden)
             .contentMargins(.trailing, 0, for: .scrollContent)
             .overlay(alignment: .topTrailing) {
-                TransientScrollIndicator(metrics: scrollIndicator)
+                TransientScrollIndicator(model: scrollIndicator)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -730,6 +828,80 @@ private enum PortToolsTheme {
     }
 }
 
+private struct HeaderIconButton: View {
+    let systemImage: String
+    let accessibilityLabel: String
+    let help: String
+    var isActive = false
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(HeaderIconButtonStyle(
+            colorScheme: colorScheme,
+            isHovered: isHovered,
+            isActive: isActive,
+            reduceMotion: reduceMotion
+        ))
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct HeaderIconButtonStyle: ButtonStyle {
+    let colorScheme: ColorScheme
+    let isHovered: Bool
+    let isActive: Bool
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let highlighted = isHovered || isActive || configuration.isPressed
+        configuration.label
+            .foregroundStyle(isActive ? Color.accentColor : Color.primary.opacity(highlighted ? 0.88 : 0.62))
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        configuration.isPressed
+                            ? Color.accentColor.opacity(colorScheme == .dark ? 0.2 : 0.14)
+                            : PortToolsTheme.hoverSurface(colorScheme).opacity(highlighted ? 1 : 0)
+                    )
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(
+                        Color.primary.opacity(highlighted ? (colorScheme == .dark ? 0.09 : 0.07) : 0),
+                        lineWidth: 0.75
+                    )
+            }
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+private struct PossiblyLeftRunningIndicator: View {
+    let reasons: [String]
+
+    var body: some View {
+        Image(systemName: "power.circle.fill")
+            .font(.system(size: 9))
+            .foregroundStyle(.orange)
+            .help("Possibly left running: \(reasons.joined(separator: ", "))")
+            .accessibilityLabel("Possibly left running")
+    }
+}
+
 private struct FullTitleBubble: View {
     let title: String
 
@@ -1006,13 +1178,21 @@ struct ScrollIndicatorMetrics: Equatable {
     var isVisible = false
 }
 
+/// Scroll activity is published through an observable model so that per-frame
+/// updates redraw only the indicator overlay. The model is held with `@State`
+/// rather than `@StateObject` on purpose: an owning view that subscribes would
+/// rebuild the entire inventory list on every scroll frame.
+final class ScrollIndicatorModel: ObservableObject {
+    @Published var metrics = ScrollIndicatorMetrics()
+}
+
 /// Removes AppKit's layout-affecting scroller entirely and reports scroll
 /// activity so SwiftUI can draw a transient, non-layout overlay indicator.
 struct TransientScrollViewConfigurator: NSViewRepresentable {
-    @Binding var metrics: ScrollIndicatorMetrics
+    let model: ScrollIndicatorModel
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(metrics: $metrics)
+        Coordinator(model: model)
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -1022,7 +1202,7 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        context.coordinator.metrics = $metrics
+        context.coordinator.model = model
         configure(view, coordinator: context.coordinator)
     }
 
@@ -1050,16 +1230,16 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
     }
 
     final class Coordinator {
-        var metrics: Binding<ScrollIndicatorMetrics>
+        var model: ScrollIndicatorModel
         private weak var scrollView: NSScrollView?
         private var boundsObserver: NSObjectProtocol?
         private var liveScrollObserver: NSObjectProtocol?
         private var endScrollObserver: NSObjectProtocol?
-        private var hideWorkItem: DispatchWorkItem?
+        private var hideGeneration = 0
         private var lastOffset: CGFloat?
 
-        init(metrics: Binding<ScrollIndicatorMetrics>) {
-            self.metrics = metrics
+        init(model: ScrollIndicatorModel) {
+            self.model = model
         }
 
         func attach(to scrollView: NSScrollView) {
@@ -1096,8 +1276,7 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
         }
 
         func detach() {
-            hideWorkItem?.cancel()
-            hideWorkItem = nil
+            hideGeneration += 1
             for observer in [boundsObserver, liveScrollObserver, endScrollObserver].compactMap({ $0 }) {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -1115,7 +1294,7 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
             if revealWhenOffsetChanges && offsetChanged {
                 publish(reveal: true)
             } else {
-                publish(reveal: metrics.wrappedValue.isVisible, scheduleHideAfterReveal: false)
+                publish(reveal: model.metrics.isVisible, scheduleHideAfterReveal: false)
             }
         }
 
@@ -1131,8 +1310,8 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
                 contentHeight: contentHeight,
                 isVisible: reveal && canScroll
             )
-            if metrics.wrappedValue != next {
-                metrics.wrappedValue = next
+            if model.metrics != next {
+                model.metrics = next
             }
             lastOffset = offset
             if reveal && canScroll && scheduleHideAfterReveal {
@@ -1141,25 +1320,25 @@ struct TransientScrollViewConfigurator: NSViewRepresentable {
         }
 
         fileprivate func scheduleHide() {
-            hideWorkItem?.cancel()
-            let item = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                var next = metrics.wrappedValue
+            hideGeneration += 1
+            let generation = hideGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+                guard let self, self.hideGeneration == generation else { return }
+                var next = self.model.metrics
                 next.isVisible = false
-                if metrics.wrappedValue != next {
-                    metrics.wrappedValue = next
+                if self.model.metrics != next {
+                    self.model.metrics = next
                 }
             }
-            hideWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: item)
         }
     }
 }
 
 struct TransientScrollIndicator: View {
-    let metrics: ScrollIndicatorMetrics
+    @ObservedObject var model: ScrollIndicatorModel
 
     var body: some View {
+        let metrics = model.metrics
         GeometryReader { geometry in
             let trackHeight = max(0, geometry.size.height - 8)
             let ratio = metrics.contentHeight > 0 ? min(1, metrics.viewportHeight / metrics.contentHeight) : 1
@@ -1294,6 +1473,7 @@ struct ServiceRow: View {
     let onIgnore: () -> Void
     let onClassification: (String) -> Void
     let onMessage: (String) -> Void
+    let onError: (String) -> Void
 
     @State private var isHovered = false
     @State private var isLinkHovered = false
@@ -1320,7 +1500,7 @@ struct ServiceRow: View {
                 ProjectTitleLink(title: displayName, destination: repositoryURL)
                     .font(.system(size: 13, weight: .semibold))
 
-                if service.observation.classification == "suspected-web" {
+                if service.observation.classification != "confirmed-web" || !(200..<500).contains(service.observation.http?.status ?? 0) {
                     Image(systemName: "questionmark.circle.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(.orange.opacity(0.75))
@@ -1338,10 +1518,7 @@ struct ServiceRow: View {
                         .help("Pinned")
                 }
                 if service.staleness.possiblyForgotten {
-                    Image(systemName: "clock.badge.exclamationmark.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.orange)
-                        .help("Possibly forgotten: \(service.staleness.reasons.joined(separator: ", "))")
+                    PossiblyLeftRunningIndicator(reasons: service.staleness.reasons)
                 }
                 if backgroundServiceCount > 0, let onToggleBackgroundServices {
                     BackgroundServiceButton(
@@ -1558,7 +1735,7 @@ struct ServiceRow: View {
         if aliasIsValid {
             saveAlias()
         } else {
-            onMessage("Use lowercase letters, numbers, and hyphens")
+            onError("Use lowercase letters, numbers, and hyphens")
             DispatchQueue.main.async { aliasFocused = true }
         }
     }
@@ -1607,6 +1784,9 @@ struct RelatedServiceRow: View {
                             Label("LAN access", systemImage: "network")
                                 .font(.system(size: 8.5, weight: .medium))
                                 .foregroundStyle(Color.secondary)
+                        }
+                        if service.staleness.possiblyForgotten {
+                            PossiblyLeftRunningIndicator(reasons: service.staleness.reasons)
                         }
                     }
                     HStack(spacing: 4) {
@@ -1678,6 +1858,9 @@ struct SecondaryServiceRow: View {
                     .lineLimit(1)
                 }
                 Spacer(minLength: 4)
+                if service.staleness.possiblyForgotten {
+                    PossiblyLeftRunningIndicator(reasons: service.staleness.reasons)
+                }
                 if let age = relativeAge(service.process.started) {
                     RuntimeAgeLabel(age: age)
                 }
@@ -1701,6 +1884,72 @@ struct SecondaryServiceRow: View {
     }
 }
 
+/// One-pass derivation of the collections the panel renders.
+///
+/// These values used to be recomputed by the derived properties on every
+/// access, and a single SwiftUI update pass reads them a dozen times, so a
+/// document refresh re-grouped and re-sorted the whole inventory dozens of
+/// times in a row. That showed up as a main-thread stall on every refresh.
+/// The memo keeps one derivation per document and pinned-project set.
+private final class InventoryDerivation {
+    struct Value {
+        var allServices: [ServiceRecord] = []
+        var webServices: [ServiceRecord] = []
+        var primaryWebServices: [ServiceRecord] = []
+        var developmentPages: [ServiceRecord] = []
+        var projects: [ProjectGroup] = []
+        var otherWebServices: [ServiceRecord] = []
+        var otherListenerServices: [ServiceRecord] = []
+    }
+
+    private var signature: String?
+    private var cached = Value()
+
+    func value(document: ScanDocument?, pinnedProjects: Set<String>) -> Value {
+        let next = "\(document?.generatedAt ?? "-")|\(pinnedProjects.sorted().joined(separator: ","))"
+        if next == signature { return cached }
+
+        var result = Value()
+        result.allServices = (document?.services ?? [])
+            .filter { !$0.preferences.ignored }
+            .sorted {
+                if $0.preferences.pinned != $1.preferences.pinned { return $0.preferences.pinned }
+                return $0.listener.port < $1.listener.port
+            }
+        result.webServices = result.allServices.filter {
+            if $0.preferences.classificationOverride == "listener" { return false }
+            if ["page", "service"].contains($0.preferences.classificationOverride ?? "") { return true }
+            return webClassifications.contains($0.observation.classification)
+        }
+        result.primaryWebServices = result.webServices.filter {
+            $0.relevance.developerRelevant || isHighConfidenceStandalonePage($0)
+        }
+        result.developmentPages = result.primaryWebServices.filter(isOpenablePage)
+        result.projects = groupServices(result.primaryWebServices)
+            .filter { $0.services.contains(where: isOpenablePage) }
+            .sorted {
+                let leftPinned = pinnedProjects.contains($0.id)
+                let rightPinned = pinnedProjects.contains($1.id)
+                if leftPinned != rightPinned { return leftPinned }
+                let leftServicePinned = $0.services.contains { $0.preferences.pinned }
+                let rightServicePinned = $1.services.contains { $0.preferences.pinned }
+                if leftServicePinned != rightServicePinned { return leftServicePinned }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        let projectServiceIDs = Set(result.projects.flatMap(\.services).map(\.id))
+        result.otherWebServices = result.webServices.filter { !projectServiceIDs.contains($0.id) }
+        result.otherListenerServices = result.allServices.filter { service in
+            service.preferences.classificationOverride == "listener" ||
+                (!["page", "service"].contains(service.preferences.classificationOverride ?? "") &&
+                    !webClassifications.contains(service.observation.classification))
+        }
+
+        signature = next
+        cached = result
+        return result
+    }
+}
+
 struct InventoryView: View {
     @ObservedObject var store: InventoryStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1721,56 +1970,23 @@ struct InventoryView: View {
     @State private var pinnedProjects = Set(UserDefaults.standard.stringArray(forKey: "pinnedProjectIDs") ?? [])
     @State private var query = ""
     @State private var searchVisible = false
-    @State private var message: String?
-    @State private var scrollIndicator = ScrollIndicatorMetrics()
+    @State private var message: (text: String, isError: Bool)?
+    @State private var scrollIndicator = ScrollIndicatorModel()
+    @State private var derivation = InventoryDerivation()
     @FocusState private var searchFocused: Bool
 
-    private let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    private static let iso8601Formatter = ISO8601DateFormatter()
 
-    private var allServices: [ServiceRecord] {
-        (store.document?.services ?? [])
-            .filter { !$0.preferences.ignored }
-            .sorted {
-                if $0.preferences.pinned != $1.preferences.pinned { return $0.preferences.pinned }
-                return $0.listener.port < $1.listener.port
-            }
+    private var derived: InventoryDerivation.Value {
+        derivation.value(document: store.document, pinnedProjects: pinnedProjects)
     }
-    private var webServices: [ServiceRecord] {
-        allServices.filter {
-            if $0.preferences.classificationOverride == "listener" { return false }
-            if ["page", "service"].contains($0.preferences.classificationOverride ?? "") { return true }
-            return webClassifications.contains($0.observation.classification)
-        }
-    }
-    private var primaryWebServices: [ServiceRecord] {
-        webServices.filter { $0.relevance.developerRelevant || isHighConfidenceStandalonePage($0) }
-    }
-    private var developmentPages: [ServiceRecord] {
-        primaryWebServices.filter(isOpenablePage)
-    }
-    private var projects: [ProjectGroup] {
-        groupServices(primaryWebServices)
-            .filter { $0.services.contains(where: isOpenablePage) }
-            .sorted {
-                let leftPinned = pinnedProjects.contains($0.id)
-                let rightPinned = pinnedProjects.contains($1.id)
-                if leftPinned != rightPinned { return leftPinned }
-                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
-    }
-    private var displayedProjectServiceIDs: Set<String> {
-        Set(projects.flatMap(\.services).map(\.id))
-    }
-    private var otherWebServices: [ServiceRecord] {
-        webServices.filter { !displayedProjectServiceIDs.contains($0.id) }
-    }
-    private var otherListenerServices: [ServiceRecord] {
-        allServices.filter { service in
-            service.preferences.classificationOverride == "listener" ||
-                (!["page", "service"].contains(service.preferences.classificationOverride ?? "") &&
-                    !webClassifications.contains(service.observation.classification))
-        }
-    }
+    private var allServices: [ServiceRecord] { derived.allServices }
+    private var webServices: [ServiceRecord] { derived.webServices }
+    private var primaryWebServices: [ServiceRecord] { derived.primaryWebServices }
+    private var developmentPages: [ServiceRecord] { derived.developmentPages }
+    private var projects: [ProjectGroup] { derived.projects }
+    private var otherWebServices: [ServiceRecord] { derived.otherWebServices }
+    private var otherListenerServices: [ServiceRecord] { derived.otherListenerServices }
     private var searchNeedle: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
@@ -1829,35 +2045,40 @@ struct InventoryView: View {
                     HStack(spacing: 7) {
                         Text("Port Tools").font(.system(size: 18, weight: .bold))
                         HStack(spacing: 5) {
-                            Circle().fill(Color.green).frame(width: 5, height: 5)
-                            Text("LIVE")
+                            Circle().fill(store.errorMessage != nil ? Color.orange : store.document == nil ? Color.secondary : Color.green).frame(width: 5, height: 5)
+                            Text(portToolsString(store.errorMessage != nil ? "UNAVAILABLE" : store.document == nil ? "SCANNING" : "UPDATED"))
                         }
                         .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(store.errorMessage != nil ? Color.orange : store.document == nil ? Color.secondary : Color.green)
                         .padding(.horizontal, 6)
                         .frame(height: 18)
-                        .background(Color.green.opacity(colorScheme == .dark ? 0.12 : 0.09), in: Capsule())
+                        .background((store.errorMessage != nil ? Color.orange : store.document == nil ? Color.secondary : Color.green).opacity(colorScheme == .dark ? 0.12 : 0.09), in: Capsule())
                     }
                     Text(store.document == nil ? "Scanning local Web apps…" : inventorySummary)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button {
+                HeaderIconButton(
+                    systemImage: "magnifyingglass",
+                    accessibilityLabel: "Search",
+                    help: "Search (⌘K)",
+                    isActive: searchVisible
+                ) {
                     searchVisible.toggle()
                     if searchVisible { searchFocused = true } else { query = "" }
-                } label: { Image(systemName: "magnifyingglass") }
-                    .help("Search (⌘K)")
-                Button {
+                }
+                HeaderIconButton(
+                    systemImage: "gearshape",
+                    accessibilityLabel: "Settings",
+                    help: "Open Settings"
+                ) {
                     openSettings()
                     DispatchQueue.main.async {
                         NSApplication.shared.activate(ignoringOtherApps: true)
                     }
-                } label: { Image(systemName: "gearshape") }
-                .help("Open Settings")
-                .accessibilityLabel("Settings")
+                }
             }
-            .buttonStyle(.borderless)
             .padding(.horizontal, 16)
             .padding(.vertical, 11)
             .background(PortToolsTheme.headerSurface(colorScheme))
@@ -1937,12 +2158,12 @@ struct InventoryView: View {
                 }
                 .frame(width: inventoryPanelWidth, alignment: .leading)
                 .padding(.top, 5)
-                .background(TransientScrollViewConfigurator(metrics: $scrollIndicator))
+                .background(TransientScrollViewConfigurator(model: scrollIndicator))
             }
             .scrollIndicators(.hidden)
             .contentMargins(.trailing, 0, for: .scrollContent)
             .overlay(alignment: .topTrailing) {
-                TransientScrollIndicator(metrics: scrollIndicator)
+                TransientScrollIndicator(model: scrollIndicator)
             }
 
             Divider()
@@ -1961,12 +2182,19 @@ struct InventoryView: View {
         .background(PortToolsTheme.panelBase(colorScheme))
         .overlay(alignment: .bottom) {
             if let message {
-                Label(message, systemImage: "checkmark")
+                HStack(spacing: 8) {
+                    Label(message.text, systemImage: message.isError ? "exclamationmark.triangle.fill" : "checkmark")
+                    if message.isError {
+                        Button("Dismiss") { withAnimation { self.message = nil } }
+                            .buttonStyle(.plain)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
                     .font(.caption)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 8)
                     .foregroundStyle(.white)
-                    .background(Color(nsColor: .labelColor).opacity(0.9), in: RoundedRectangle(cornerRadius: 9))
+                    .background(message.isError ? Color(red: 0.55, green: 0.27, blue: 0.06) : Color(red: 0.16, green: 0.22, blue: 0.30), in: RoundedRectangle(cornerRadius: 9))
                     .padding(.bottom, 38)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -1978,7 +2206,19 @@ struct InventoryView: View {
                     ServiceDetailView(
                         service: service,
                         onBack: { hideServiceDetails() },
-                        onReviewStop: { reviewStop(service) }
+                        onReviewStop: { reviewStop(service) },
+                        onClassification: { value in
+                            hideServiceDetails()
+                            updatePreferences(service, ["classificationOverride": value], message: "Display role updated")
+                        },
+                        onTogglePin: {
+                            hideServiceDetails()
+                            updatePreferences(service, ["pinned": !service.preferences.pinned], message: service.preferences.pinned ? "Unpinned" : "Pinned")
+                        },
+                        onIgnore: {
+                            hideServiceDetails()
+                            updatePreferences(service, ["ignored": true], message: "Moved to Ignored")
+                        }
                     )
                 }
                 .id(service.id)
@@ -2027,7 +2267,6 @@ struct InventoryView: View {
         .task {
             if store.document == nil { store.refresh() }
         }
-        .onReceive(timer) { _ in store.refresh(silent: true) }
         .preferredColorScheme(preferredColorScheme)
         .onKeyPress("k", phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
@@ -2039,7 +2278,7 @@ struct InventoryView: View {
 
     private var updatedText: String {
         guard let value = store.document?.generatedAt,
-              let date = ISO8601DateFormatter().date(from: value) else { return "Local only" }
+              let date = Self.iso8601Formatter.date(from: value) else { return "Local only" }
         return "Updated " + date.formatted(date: .omitted, time: .shortened)
     }
 
@@ -2223,10 +2462,12 @@ struct InventoryView: View {
                         font: .system(size: 13, weight: .semibold),
                         nsFont: .systemFont(ofSize: 13, weight: .semibold)
                     )
-                    Image(systemName: "checkmark.shield.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.green.opacity(0.72))
-                        .help("All visible Web pages responded successfully")
+                    if project.services.filter(isOpenablePage).allSatisfy({ $0.observation.classification == "confirmed-web" && (200..<400).contains($0.observation.http?.status ?? 0) }) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.green.opacity(0.72))
+                            .help("All visible Web pages responded successfully")
+                    }
                 }
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.branch")
@@ -2308,7 +2549,7 @@ struct InventoryView: View {
                 store.assignAlias(alias, to: service) { result in
                     switch result {
                     case .success(let route): showMessage("Local address ready · \(route.alias).localhost")
-                    case .failure(let error): showMessage(error.localizedDescription)
+                    case .failure(let error): showError(error.localizedDescription)
                     }
                 }
             },
@@ -2317,7 +2558,7 @@ struct InventoryView: View {
                 store.removeAlias(alias) { result in
                     switch result {
                     case .success: showMessage("Local address removed")
-                    case .failure(let error): showMessage(error.localizedDescription)
+                    case .failure(let error): showError(error.localizedDescription)
                     }
                 }
             },
@@ -2326,7 +2567,8 @@ struct InventoryView: View {
             onTogglePin: { updatePreferences(service, ["pinned": !service.preferences.pinned], message: service.preferences.pinned ? "Unpinned" : "Pinned") },
             onIgnore: { updatePreferences(service, ["ignored": true], message: "Moved to Ignored") },
             onClassification: { value in updatePreferences(service, ["classificationOverride": value], message: "Display role updated") },
-            onMessage: showMessage
+            onMessage: showMessage,
+            onError: showError
         )
     }
 
@@ -2395,7 +2637,7 @@ struct InventoryView: View {
             case .success(let plan):
                 stopReview = StopReview(service: service, plan: plan)
             case .failure(let error):
-                showMessage(error.localizedDescription)
+                showError(error.localizedDescription)
             }
         }
     }
@@ -2415,14 +2657,14 @@ struct InventoryView: View {
                     store.forceStopPlan(review.service, gracefulAttemptToken: token) { forceResult in
                         switch forceResult {
                         case .success(let plan): self.forceStopReview = ForceStopReview(service: review.service, plan: plan)
-                        case .failure(let error): self.showMessage(error.localizedDescription)
+                        case .failure(let error): self.showError(error.localizedDescription)
                         }
                     }
                 } else {
-                    showMessage(stopResult.reasons.first ?? "Service could not be stopped safely")
+                    showError(stopResult.reasons.first ?? "Service could not be stopped safely")
                 }
             case .failure(let error):
-                showMessage(error.localizedDescription)
+                showError(error.localizedDescription)
             }
         }
     }
@@ -2437,8 +2679,8 @@ struct InventoryView: View {
             case .success(let value) where value.success:
                 evidenceService = nil
                 showMessage("Service force-stopped and listener released")
-            case .success(let value): showMessage(value.reasons.first ?? "Force stop could not complete")
-            case .failure(let error): showMessage(error.localizedDescription)
+            case .success(let value): showError(value.reasons.first ?? "Force stop could not complete")
+            case .failure(let error): showError(error.localizedDescription)
             }
         }
     }
@@ -2447,15 +2689,19 @@ struct InventoryView: View {
         store.updatePreferences(service, patch: patch) { result in
             switch result {
             case .success: showMessage(message)
-            case .failure(let error): showMessage(error.localizedDescription)
+            case .failure(let error): showError(error.localizedDescription)
             }
         }
     }
 
     private func showMessage(_ value: String) {
-        withAnimation { message = value }
+        withAnimation { message = (value, false) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-            withAnimation { if message == value { message = nil } }
+            withAnimation { if message?.text == value && message?.isError == false { message = nil } }
         }
+    }
+
+    private func showError(_ value: String) {
+        withAnimation { message = (value, true) }
     }
 }

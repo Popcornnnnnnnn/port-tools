@@ -68,7 +68,7 @@ xcrun swiftc \
 
 cp "$script_root/Info.plist" "$app/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
-plutil -replace CFBundleVersion -string "28" "$app/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "31" "$app/Contents/Info.plist"
 cp "$script_root/Resources/PortTools.icns" "$app/Contents/Resources/PortTools.icns"
 cp -R "$repository_root/native/Localization/zh-Hans.lproj" "$app/Contents/Resources/"
 cp "$repository_root/native/PortlessHelper.plist" "$app/Contents/Library/LaunchDaemons/PortlessHelper.plist"

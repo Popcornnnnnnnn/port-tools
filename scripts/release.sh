@@ -106,6 +106,17 @@ grep -q 'flags=.*runtime' <<<"$helper_signature"
 portless_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Library/LaunchServices/port-tools-portless-helper" 2>&1)"
 grep -q 'flags=.*runtime' <<<"$portless_signature"
 
+metrics_home="$(mktemp -d -t port-tools-release-metrics.XXXXXX)"
+if ! CFFIXED_USER_HOME="$metrics_home" PORT_TOOLS_DISABLE_PORTLESS=1 \
+  python3 "$repository_root/evaluation/measure_release_metrics.py" \
+    --app "$app_path" --duration 600 > "$dist_root/metrics.json"; then
+  rm -rf "$metrics_home"
+  cat "$dist_root/metrics.json" >&2
+  exit 1
+fi
+rm -rf "$metrics_home"
+cat "$dist_root/metrics.json"
+
 staging="$dist_root/dmg-root"
 rw_dmg="$dist_root/Port-Tools-$release_version-rw.dmg"
 mountpoint="$dist_root/dmg-mount"

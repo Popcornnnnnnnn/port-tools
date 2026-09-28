@@ -26,6 +26,13 @@ type routeManager struct {
 	proxyPort  int
 	publicPort atomic.Int64
 	routes     map[string]RouteRecord
+	resolved   map[string]resolvedRoute
+}
+
+// A route is usable only after a scan identifies its unique current listener.
+type resolvedRoute struct {
+	route RouteRecord
+	pid   int
 }
 
 func newRouteManager(statePath string, proxyPort int) (*routeManager, error) {
@@ -33,6 +40,7 @@ func newRouteManager(statePath string, proxyPort int) (*routeManager, error) {
 		statePath: statePath,
 		proxyPort: proxyPort,
 		routes:    map[string]RouteRecord{},
+		resolved:  map[string]resolvedRoute{},
 	}
 	manager.publicPort.Store(int64(proxyPort))
 	if err := manager.load(); err != nil {
@@ -175,6 +183,9 @@ func (manager *routeManager) put(alias string, proposed RouteRecord, previousAli
 		return RouteRecord{}, errors.New("TLS policy must be verify or insecure-local")
 	}
 	proposed.Alias = normalized
+	if proposed.Address == "" {
+		proposed.Address = "127.0.0.1"
+	}
 	proposed.LastResolvedPort = proposed.Port
 	proposed.URL = manager.routeURL(normalized)
 
@@ -215,6 +226,10 @@ func (manager *routeManager) put(alias string, proposed RouteRecord, previousAli
 		manager.routes = originalRoutes
 		return RouteRecord{}, err
 	}
+	delete(manager.resolved, normalized)
+	if previousAlias != "" {
+		delete(manager.resolved, previousAlias)
+	}
 	return proposed, nil
 }
 
@@ -234,6 +249,7 @@ func (manager *routeManager) remove(alias string) error {
 		manager.routes[normalized] = removed
 		return err
 	}
+	delete(manager.resolved, normalized)
 	return nil
 }
 
@@ -242,6 +258,13 @@ func (manager *routeManager) get(alias string) (RouteRecord, bool) {
 	defer manager.mutex.RUnlock()
 	route, ok := manager.routes[alias]
 	return route, ok
+}
+
+func (manager *routeManager) getResolved(alias string) (resolvedRoute, bool) {
+	manager.mutex.RLock()
+	defer manager.mutex.RUnlock()
+	resolved, ok := manager.resolved[alias]
+	return resolved, ok
 }
 
 func (manager *routeManager) list() []RouteRecord {
@@ -260,33 +283,71 @@ func (manager *routeManager) attach(document *ScanDocument) {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 	changed := false
-	logicalCounts := map[string]int{}
-	for _, service := range document.Services {
-		logicalCounts[service.LogicalID]++
+	manager.resolved = map[string]resolvedRoute{}
+	for index := range document.Services {
+		document.Services[index].Route = nil
 	}
-	for serviceIndex := range document.Services {
-		service := &document.Services[serviceIndex]
-		projectRoot := ""
-		applicationRoot := ""
-		if service.Project != nil {
-			projectRoot = service.Project.Root
-		}
-		if service.Application != nil {
-			applicationRoot = service.Application.Root
-		}
-		for alias, route := range manager.routes {
-			logicalMatch := route.LogicalServiceID != "" && route.LogicalServiceID == service.LogicalID && logicalCounts[service.LogicalID] == 1
-			legacyMatch := route.LogicalServiceID == "" && route.Port == service.Listener.Port && route.ProjectRoot == projectRoot && route.ApplicationRoot == applicationRoot
-			if logicalMatch || legacyMatch {
-				if logicalMatch && route.Port != service.Listener.Port {
-					route.Port = service.Listener.Port
-					route.LastResolvedPort = service.Listener.Port
-					manager.routes[alias] = route
-					changed = true
+	aliases := make([]string, 0, len(manager.routes))
+	for alias := range manager.routes {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		route := manager.routes[alias]
+		matches := []int{}
+		for index, service := range document.Services {
+			projectRoot, applicationRoot := "", ""
+			if service.Project != nil {
+				projectRoot = service.Project.Root
+			}
+			if service.Application != nil {
+				applicationRoot = service.Application.Root
+			}
+			if route.LogicalServiceID != "" {
+				if route.LogicalServiceID == service.LogicalID {
+					matches = append(matches, index)
 				}
-				route.URL = manager.routeURL(alias)
-				service.Route = &route
+			} else if (route.ProjectRoot != "" || route.ApplicationRoot != "") && route.Port == service.Listener.Port && route.ProjectRoot == projectRoot && route.ApplicationRoot == applicationRoot {
+				matches = append(matches, index)
+			}
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		// IPv4 and IPv6 listeners for the same process and port are one service.
+		first := document.Services[matches[0]]
+		for _, index := range matches[1:] {
+			candidate := document.Services[index]
+			if candidate.Process.PID != first.Process.PID || candidate.Listener.Port != first.Listener.Port {
+				first = ServiceRecord{}
 				break
+			}
+		}
+		if first.ID == "" {
+			continue
+		}
+		selected := matches[0]
+		for _, index := range matches {
+			if document.Services[index].Listener.Address == "127.0.0.1" || document.Services[index].Listener.Address == "0.0.0.0" {
+				selected = index
+				break
+			}
+		}
+		service := document.Services[selected]
+		address := listenerDialHost(service.Listener.Address)
+		if route.Port != service.Listener.Port || route.Address != address || route.LogicalServiceID == "" {
+			route.Port = service.Listener.Port
+			route.LastResolvedPort = route.Port
+			route.Address = address
+			route.LogicalServiceID = service.LogicalID
+			manager.routes[alias] = route
+			changed = true
+		}
+		route.URL = manager.routeURL(alias)
+		manager.resolved[alias] = resolvedRoute{route: route, pid: service.Process.PID}
+		for _, index := range matches {
+			if document.Services[index].Route == nil {
+				document.Services[index].Route = &route
 			}
 		}
 	}

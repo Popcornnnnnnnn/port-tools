@@ -43,6 +43,14 @@ struct HTTPRecord: Codable, Sendable {
     let status: Int?
     let title: String?
     let contentType: String?
+    let path: String?
+}
+
+struct CDPRecord: Codable, Sendable {
+    let browser: String
+    let protocolVersion: String
+    let webSocketDebuggerUrl: String
+    let targetCount: Int
 }
 
 struct EvidenceRecord: Codable, Identifiable, Sendable {
@@ -56,6 +64,7 @@ struct ObservationRecord: Codable, Sendable {
     let role: String?
     let framework: String?
     let http: HTTPRecord?
+    let cdp: CDPRecord?
     let evidence: [EvidenceRecord]
 }
 
@@ -66,6 +75,7 @@ struct RelevanceRecord: Codable, Sendable {
 struct RouteRecord: Codable, Sendable {
     let alias: String
     let port: Int
+    let address: String?
     let scheme: String
     let hostMode: String
     let tlsPolicy: String

@@ -63,6 +63,10 @@ Port Tools 不打算替代开发者已经信任的工具，而是连接它们之
 
 安全停止保持严格边界：Docker、其他用户、共享 runtime 和无法确认归属的目标会被拒绝。符合条件的目标会获得与进程身份绑定的计划令牌，在发送 `SIGTERM` 前再次进行完整验证；只有目标监听端口真正释放后，才会报告成功。如果明确归属的 unmanaged 服务忽略 SIGTERM，用户需要经过独立的 3 秒红色确认页，core 才会签发第二个一次性计划并精确执行 SIGKILL。
 
+## 下载
+
+从 [GitHub 最新版本](https://github.com/Popcornnnnnnnn/port-tools/releases/latest) 下载已签名的 Apple Silicon 安装包，并将 DMG 中的应用拖入“应用程序”。需要 macOS 14 或更高版本。
+
 ## 构建 v1.0
 
 构建需要 Go 和 Xcode Command Line Tools。生成的应用是自包含的，运行时不需要 Python、Node.js、npm、Homebrew、Docker 或独立代理。
@@ -90,13 +94,13 @@ python3 native/trial/verify.py
 
 ## v1.0 边界
 
-当前候选版刻意保持本地化和保守策略：
+当前版本刻意保持本地化和保守策略：
 
 - macOS 14 或更高版本；
 - 正式 Release 仅支持 Apple Silicon；
 - IPv4/IPv6 loopback 上的非特权端口代理；
-- 不修改 `/etc/hosts`，不安装本地受信任 CA，不占用 80/443；
-- 没有特权 helper；强制结束仅限独立确认并再次复核的 unmanaged 服务；
+- 不修改 `/etc/hosts`，不安装本地受信任 CA，不占用 443；可选的本机回环 helper 经用户批准后使用 80 端口，未启用时回退到 `:17890`；
+- 强制结束仅限独立确认并再次复核的 unmanaged 服务；
 - 代码和自动测试不能代替真实的菜单栏交互验收。
 
 ## 工程资料
@@ -107,4 +111,4 @@ python3 native/trial/verify.py
 - [打包要求](docs/packaging-requirements.md)
 - [发布与公证流程](docs/releasing.md)
 
-Port Tools v1.0 正在接近第一次公开发布，欢迎提交 Issue 或参与早期体验。
+欢迎提交 Issue 或参与早期体验。
