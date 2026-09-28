@@ -63,6 +63,7 @@ python3 evaluation/fixtures/verify_force_stop.py
 mkdir -p "$dist_root"
 (cd "$native_root" && xcodegen generate --spec project.yml)
 "$repository_root/scripts/normalize-xcode-project.sh" "$native_root/PortTools.xcodeproj/project.pbxproj"
+rm -rf "$archive_path"
 xcodebuild archive \
   -project "$native_root/PortTools.xcodeproj" \
   -scheme PortTools \
@@ -81,6 +82,16 @@ xcodebuild -exportArchive \
   -archivePath "$archive_path" \
   -exportPath "$export_path" \
   -exportOptionsPlist "$export_options"
+
+verify_export_version() {
+  [[ "$(plutil -extract CFBundleShortVersionString raw "$app_path/Contents/Info.plist")" == "$base_version" ]] || {
+    echo "Exported app version does not match $base_version." >&2; exit 1;
+  }
+  [[ "$(plutil -extract CFBundleVersion raw "$app_path/Contents/Info.plist")" == "$release_build" ]] || {
+    echo "Exported app build does not match $release_build." >&2; exit 1;
+  }
+}
+verify_export_version
 
 codesign --force --options runtime --timestamp \
   --preserve-metadata=identifier,entitlements \
@@ -117,6 +128,7 @@ if ! CFFIXED_USER_HOME="$metrics_home" PORT_TOOLS_DISABLE_PORTLESS=1 \
 fi
 rm -rf "$metrics_home"
 cat "$dist_root/metrics.json"
+verify_export_version
 
 staging="$dist_root/dmg-root"
 rw_dmg="$dist_root/Port-Tools-$release_version-rw.dmg"

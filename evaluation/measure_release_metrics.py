@@ -117,11 +117,15 @@ def main():
                 raise RuntimeError("Port Tools did not become ready")
 
             time.sleep(args.warmup)
+            if process.poll() is not None:
+                raise RuntimeError("Port Tools exited during warmup")
             cpu_samples = []
             footprint_samples = []
             rss_samples = []
             sample_deadline = time.monotonic() + args.duration
             while time.monotonic() < sample_deadline:
+                if process.poll() is not None:
+                    raise RuntimeError("Port Tools exited during idle measurement")
                 cpu, footprint_kib, rss_kib = process_metrics(descendants(process.pid))
                 cpu_samples.append(cpu)
                 footprint_samples.append(footprint_kib)
