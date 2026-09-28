@@ -2162,6 +2162,11 @@ struct InventoryView: View {
             }
             .scrollIndicators(.hidden)
             .contentMargins(.trailing, 0, for: .scrollContent)
+            // A legacy scroller can widen the AppKit scroll view after SwiftUI
+            // measures it. Pin that overflow to the leading edge instead of
+            // letting the fixed-width panel center it and shift the cards.
+            .frame(width: inventoryPanelWidth, alignment: .leading)
+            .clipped()
             .overlay(alignment: .topTrailing) {
                 TransientScrollIndicator(model: scrollIndicator)
             }
