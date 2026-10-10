@@ -174,8 +174,10 @@ Filtering requirements:
   to Applications, without terminal setup.
 - Require no separately installed Python, Node.js, npm, Homebrew, Docker, proxy,
   browser extension, or developer tool.
-- Keep the HTTP MVP unprivileged and require no `sudo`, CA trust, hosts edit, or
-  resolver configuration.
+- Ordinary HTTP routing uses unprivileged port 17890 without `sudo`, CA trust,
+  hosts edits, or resolver configuration. Optional port-free HTTP requires
+  approval of the bundled loopback port-80 helper in System Settings and keeps
+  the explicit high-port fallback until the helper is available.
 - Treat the current Python and Node prototypes as executable specifications, not
   production runtime choices.
 - Validate first launch, upgrade/state migration, and clean uninstall on a clean
@@ -194,6 +196,11 @@ Candidate evidence includes:
 - repeatedly failed health probes;
 - an unmanaged listener that has not been pinned or named;
 - an old route whose upstream PID has disappeared.
+
+A detached or changed parent process is context, not sufficient evidence by
+itself. Surface `possibly left running` only when another independent signal is
+present, such as sustained probe failure, a missing project directory, or an
+old Chrome DevTools endpoint with no active targets.
 
 CPU usage and connection activity may be added later. They are not required for the first scanner because sampling them reliably introduces additional OS-specific behavior.
 

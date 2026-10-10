@@ -21,7 +21,9 @@ executable. Distribute both inside one signed and notarized macOS `.app`.
   Do not ship Portless, Node.js, or Caddy in the first implementation.
 - **Local API:** versioned JSON over a Unix-domain socket with mode `0600`.
 - **Default privilege:** current user only, high unprivileged ports, IPv4/IPv6
-  loopback only, no trusted CA, no hosts/resolver edits, and no privileged helper.
+  loopback only, no trusted CA, and no hosts/resolver edits. Optional port-free
+  HTTP uses the bundled port-80 helper after approval in System Settings; the
+  fallback remains unprivileged port 17890.
 - **Distribution:** direct Developer ID distribution with Hardened Runtime and
   notarization. Mac App Store distribution is deferred.
 

@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -84,17 +86,136 @@ func TestPresentationRoleSeparatesPagesFromHTTPServices(t *testing.T) {
 	redirect := 302
 	notFound := 404
 	title := "Demo"
-	if role := presentationRole(&HTTPRecord{Status: &ok, ContentType: &htmlType}, nil); role != "page" {
+	if role := presentationRole(&HTTPRecord{Status: &ok, ContentType: &htmlType, BytesRead: 42}, nil, []byte("<main>Demo</main>"), ""); role != "page" {
 		t.Fatalf("HTML 200 role = %q", role)
 	}
-	if role := presentationRole(&HTTPRecord{Status: &ok, ContentType: &jsonType}, nil); role != "service" {
+	if role := presentationRole(&HTTPRecord{Status: &ok, ContentType: &htmlType, BytesRead: 0}, nil, nil, ""); role != "service" {
+		t.Fatalf("empty HTML 200 role = %q", role)
+	}
+	if role := presentationRole(&HTTPRecord{Status: &ok, ContentType: &jsonType}, nil, nil, ""); role != "service" {
 		t.Fatalf("JSON 200 role = %q", role)
 	}
-	if role := presentationRole(&HTTPRecord{Status: &redirect}, nil); role != "page" {
+	if role := presentationRole(&HTTPRecord{Status: &redirect}, nil, nil, ""); role != "page" {
 		t.Fatalf("redirect role = %q", role)
 	}
-	if role := presentationRole(&HTTPRecord{Status: &notFound, Title: &title}, pointer("vite")); role != "service" {
+	if role := presentationRole(&HTTPRecord{Status: &notFound, Title: &title}, pointer("vite"), nil, "vite"); role != "service" {
 		t.Fatalf("404 role = %q", role)
+	}
+	unauthorized := 401
+	if role := presentationRole(&HTTPRecord{Status: &unauthorized}, nil, nil, "node /opt/homebrew/bin/dsh web --no-open"); role != "page" {
+		t.Fatalf("authenticated Web UI role = %q", role)
+	}
+	if role := presentationRole(&HTTPRecord{Status: &unauthorized}, nil, nil, "uvicorn api:app"); role != "service" {
+		t.Fatalf("authenticated API role = %q", role)
+	}
+	forbidden := 403
+	genericCommand := "global-tool web --no-open --port 9000"
+	if role := presentationRole(&HTTPRecord{Status: &forbidden}, nil, nil, genericCommand); role != "page" {
+		t.Fatalf("generic authenticated Web UI role = %q", role)
+	}
+	if relevance := classifyRelevance(ProcessRecord{Command: &genericCommand}, nil, ManagementRecord{}); !relevance.DeveloperRelevant || relevance.Category != "developer-tool" {
+		t.Fatalf("generic authenticated Web UI relevance = %#v", relevance)
+	}
+}
+
+func TestObserveClassifiesSwaggerUIAsService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(response, `<!doctype html><title>LiteLLM API - Swagger UI</title><div id="swagger-ui"></div><script>SwaggerUIBundle({url: '/openapi.json'})</script>`)
+	}))
+	t.Cleanup(server.Close)
+	port := server.Listener.Addr().(*net.TCPAddr).Port
+	listener := discoveredListener{PID: os.Getpid() + 1000, Address: "127.0.0.1", Port: port, BindScope: "loopback"}
+
+	observation := observe(listener, ProcessRecord{}, ManagementRecord{Source: "unmanaged"})
+	if observation.Role != "service" {
+		t.Fatalf("Swagger UI role = %q", observation.Role)
+	}
+	if len(observation.Evidence) < 2 || observation.Evidence[1].Kind != "api-documentation-ui" || observation.Evidence[1].Value != "swagger-ui" {
+		t.Fatalf("Swagger UI evidence = %#v", observation.Evidence)
+	}
+}
+
+func TestObserveIdentifiesChromeDevToolsProtocol(t *testing.T) {
+	var port int
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/":
+			response.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		case "/json/version":
+			response.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(response).Encode(map[string]string{
+				"Browser":              "Chrome/Test",
+				"Protocol-Version":     "1.3",
+				"webSocketDebuggerUrl": "ws://127.0.0.1:" + strconv.Itoa(port) + "/devtools/browser/test",
+			})
+		case "/json/list":
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, `[{"type":"page"}]`)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	port = server.Listener.Addr().(*net.TCPAddr).Port
+	listener := discoveredListener{PID: os.Getpid() + 1000, Address: "127.0.0.1", Port: port, BindScope: "loopback"}
+	name := "Google Chrome"
+	command := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=" + strconv.Itoa(port)
+	observation := observe(listener, ProcessRecord{Name: &name, Command: &command}, ManagementRecord{Source: "unmanaged"})
+	if observation.Protocol != "cdp" || observation.Role != "service" || observation.CDP == nil {
+		t.Fatalf("CDP observation = %#v", observation)
+	}
+	if observation.CDP.Browser != "Chrome/Test" || observation.CDP.TargetCount != 1 {
+		t.Fatalf("CDP identity = %#v", observation.CDP)
+	}
+}
+
+func TestObserveFindsWebUIAtConventionalPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/":
+			response.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_, _ = io.WriteString(response, `{"endpoints":["POST /v1/chat/completions"],"message":"CLI Proxy API Server"}`)
+		case "/management.html":
+			response.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(response, `<!doctype html><title>CLI Proxy API Management Center</title><div id="app"></div>`)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	listener := discoveredListener{PID: os.Getpid() + 1000, Address: "127.0.0.1", Port: server.Listener.Addr().(*net.TCPAddr).Port, BindScope: "loopback"}
+
+	observation := observe(listener, ProcessRecord{}, ManagementRecord{Source: "unmanaged"})
+	if observation.Role != "page" {
+		t.Fatalf("management UI role = %q", observation.Role)
+	}
+	if observation.HTTP == nil || observation.HTTP.Path != "/management.html" {
+		t.Fatalf("management UI record = %#v", observation.HTTP)
+	}
+	if observation.HTTP.Title == nil || *observation.HTTP.Title != "CLI Proxy API Management Center" {
+		t.Fatalf("management UI title = %#v", observation.HTTP.Title)
+	}
+}
+
+func TestObserveKeepsAPIWithoutWebUIAsService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/" {
+			response.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_, _ = io.WriteString(response, `{"endpoints":["POST /v1/chat/completions"]}`)
+			return
+		}
+		http.NotFound(response, request)
+	}))
+	t.Cleanup(server.Close)
+	listener := discoveredListener{PID: os.Getpid() + 1000, Address: "127.0.0.1", Port: server.Listener.Addr().(*net.TCPAddr).Port, BindScope: "loopback"}
+
+	observation := observe(listener, ProcessRecord{}, ManagementRecord{Source: "unmanaged"})
+	if observation.Role != "service" {
+		t.Fatalf("API-only role = %q", observation.Role)
+	}
+	if observation.HTTP == nil || observation.HTTP.Path != "" {
+		t.Fatalf("API-only record = %#v", observation.HTTP)
 	}
 }
 
@@ -162,6 +283,27 @@ func TestCommandProjectCandidatesIgnoreInterpreterRepository(t *testing.T) {
 	candidates := projectCandidatesFromCommand(interpreter+" "+script+" --port 5173", "/tmp")
 	if len(candidates) != 1 || candidates[projectRoot] == nil {
 		t.Fatalf("candidate projects = %#v", candidates)
+	}
+}
+
+func TestCommandProjectCandidatesIgnoreHomebrewRepository(t *testing.T) {
+	homebrewRoot := makeGitFixture(t, filepath.Join(t.TempDir(), "homebrew"))
+	if err := os.WriteFile(
+		filepath.Join(homebrewRoot, ".git", "config"),
+		[]byte("[remote \"origin\"]\n\turl = https://github.com/Homebrew/brew\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	launcher := filepath.Join(homebrewRoot, "bin", "global-web-cli")
+	if err := os.MkdirAll(filepath.Dir(launcher), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(launcher, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if candidates := projectCandidatesFromCommand("node "+launcher+" web --no-open", "/tmp"); len(candidates) != 0 {
+		t.Fatalf("Homebrew toolchain became project evidence: %#v", candidates)
 	}
 }
 
@@ -299,8 +441,41 @@ func TestInventoryPreferencesAndConservativeStaleness(t *testing.T) {
 	if err := manager.apply(&document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.Services[0].Staleness.PossiblyForgotten {
-		t.Fatalf("old reparented service was not marked possibly forgotten: %#v", document.Services[0].Staleness)
+	if document.Services[0].Staleness.PossiblyForgotten {
+		t.Fatalf("healthy old reparented service was marked possibly forgotten: %#v", document.Services[0].Staleness)
+	}
+	document.Services[0].Observation.Classification = "unknown"
+	failedEntry := inventoryStateEntry{History: ServiceHistoryRecord{
+		InitialParentPID:         &parent,
+		ConsecutiveProbeFailures: 3,
+		FirstFailedProbe:         time.Now().Add(-11 * time.Minute).UTC().Format(time.RFC3339Nano),
+	}}
+	staleness := stalenessForService(document.Services[0], failedEntry, time.Now())
+	if !staleness.PossiblyForgotten {
+		t.Fatalf("old detached failing service was not marked possibly forgotten: %#v", staleness)
+	}
+}
+
+func TestIdleCDPIsPossiblyLeftRunning(t *testing.T) {
+	parent := 1
+	started := time.Now().Add(-25 * time.Hour).Format("Mon Jan 2 15:04:05 2006")
+	service := ServiceRecord{
+		Process:    ProcessRecord{ParentPID: &parent, Started: &started},
+		Management: ManagementRecord{Source: "unmanaged"},
+		Observation: ObservationRecord{
+			Protocol: "cdp",
+			CDP:      &CDPRecord{TargetCount: 0},
+		},
+	}
+	entry := inventoryStateEntry{History: ServiceHistoryRecord{InitialParentPID: &parent}}
+	staleness := stalenessForService(service, entry, time.Now())
+	if !staleness.PossiblyForgotten || !strings.Contains(strings.Join(staleness.Reasons, "\n"), "Chrome DevTools has no active targets") {
+		t.Fatalf("idle CDP staleness = %#v", staleness)
+	}
+	service.Observation.CDP.TargetCount = 1
+	activeStaleness := stalenessForService(service, entry, time.Now())
+	if activeStaleness.PossiblyForgotten {
+		t.Fatalf("active CDP was marked possibly left running: %#v", activeStaleness)
 	}
 }
 
@@ -420,9 +595,10 @@ func TestReverseProxyAndMissingUpstreamDiagnostic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.put("demo", RouteRecord{Port: port}); err != nil {
+	if _, err := manager.put("demo", RouteRecord{Port: port, LogicalServiceID: "demo"}); err != nil {
 		t.Fatal(err)
 	}
+	manager.attach(&ScanDocument{Services: []ServiceRecord{{ID: "demo-instance", LogicalID: "demo", Listener: ListenerRecord{Address: "127.0.0.1", Port: port}, Process: ProcessRecord{PID: os.Getpid()}}}})
 	proxy := httptest.NewServer((&coreServer{routes: manager}).proxyHandler())
 	defer proxy.Close()
 	request, _ := http.NewRequest(http.MethodGet, proxy.URL+"/hello", nil)
@@ -448,8 +624,259 @@ func TestReverseProxyAndMissingUpstreamDiagnostic(t *testing.T) {
 	}
 	body, _ = io.ReadAll(response.Body)
 	response.Body.Close()
-	if response.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "Local app unavailable") {
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(body), "Original service unavailable") {
 		t.Fatalf("missing-upstream response = %d %q", response.StatusCode, body)
+	}
+}
+
+func TestSavedRouteFollowsOnlyItsOriginalService(t *testing.T) {
+	manager, err := newRouteManager(filepath.Join(t.TempDir(), "routes.json"), 17890)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(response, "original") }))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(response, "restarted") }))
+	defer second.Close()
+	portOf := func(server *httptest.Server) int {
+		_, value, _ := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+		port, _ := strconv.Atoi(value)
+		return port
+	}
+	oldPort, newPort := portOf(first), portOf(second)
+	if _, err := manager.put("saved", RouteRecord{Port: oldPort, LogicalServiceID: "original", ProjectRoot: "/project-a"}); err != nil {
+		t.Fatal(err)
+	}
+	proxy := httptest.NewServer((&coreServer{routes: manager}).proxyHandler())
+	defer proxy.Close()
+	get := func() (int, string) {
+		request, _ := http.NewRequest(http.MethodGet, proxy.URL, nil)
+		request.Host = "saved.localhost:17890"
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		return response.StatusCode, string(body)
+	}
+	service := func(logicalID string, port int) ServiceRecord {
+		return ServiceRecord{ID: logicalID + "-instance", LogicalID: logicalID, Listener: ListenerRecord{Address: "127.0.0.1", Port: port}, Process: ProcessRecord{PID: os.Getpid()}, Project: &ProjectRecord{Root: "/project-a"}}
+	}
+	manager.attach(&ScanDocument{Services: []ServiceRecord{service("original", oldPort)}})
+	if status, body := get(); status != 200 || body != "original" {
+		t.Fatalf("original route = %d %q", status, body)
+	}
+	manager.attach(&ScanDocument{Services: []ServiceRecord{service("other", oldPort)}})
+	if status, body := get(); status != 503 || !strings.Contains(body, "Original service unavailable") {
+		t.Fatalf("reused port = %d %q", status, body)
+	}
+	manager.attach(&ScanDocument{})
+	if status, _ := get(); status != 503 {
+		t.Fatalf("offline route status = %d", status)
+	}
+	manager.attach(&ScanDocument{Services: []ServiceRecord{service("other", oldPort), service("original", newPort)}})
+	if status, body := get(); status != 200 || body != "restarted" {
+		t.Fatalf("rebound route = %d %q", status, body)
+	}
+	if route, _ := manager.get("saved"); route.Port != newPort {
+		t.Fatalf("route did not persist rebound port: %#v", route)
+	}
+}
+
+func TestLegacyRouteRequiresUniqueProjectOwner(t *testing.T) {
+	manager, err := newRouteManager(filepath.Join(t.TempDir(), "routes.json"), 17890)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.put("legacy", RouteRecord{Port: 8000, ProjectRoot: "/original"}); err != nil {
+		t.Fatal(err)
+	}
+	service := ServiceRecord{ID: "other", LogicalID: "other", Listener: ListenerRecord{Address: "127.0.0.1", Port: 8000}, Process: ProcessRecord{PID: os.Getpid()}, Project: &ProjectRecord{Root: "/other"}}
+	manager.attach(&ScanDocument{Services: []ServiceRecord{service}})
+	if _, ok := manager.getResolved("legacy"); ok {
+		t.Fatal("legacy route accepted a different project")
+	}
+	service.Project.Root, service.LogicalID = "/original", "original"
+	manager.attach(&ScanDocument{Services: []ServiceRecord{service}})
+	if _, ok := manager.getResolved("legacy"); !ok {
+		t.Fatal("legacy route did not resolve")
+	}
+	if route, _ := manager.get("legacy"); route.LogicalServiceID != "original" {
+		t.Fatalf("legacy route was not promoted: %#v", route)
+	}
+}
+
+func TestIPv6OnlyRouteUsesIPv6Loopback(t *testing.T) {
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(response, "ipv6") }))
+	upstream.Listener = listener
+	upstream.Start()
+	defer upstream.Close()
+	port := listener.Addr().(*net.TCPAddr).Port
+	manager, err := newRouteManager(filepath.Join(t.TempDir(), "routes.json"), 17890)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.put("v6", RouteRecord{Port: port, LogicalServiceID: "v6"}); err != nil {
+		t.Fatal(err)
+	}
+	manager.attach(&ScanDocument{Services: []ServiceRecord{{ID: "v6-instance", LogicalID: "v6", Listener: ListenerRecord{Address: "::1", Port: port}, Process: ProcessRecord{PID: os.Getpid()}}}})
+	if route, _ := manager.get("v6"); route.Address != "::1" {
+		t.Fatalf("IPv6 upstream not saved: %#v", route)
+	}
+	proxy := httptest.NewServer((&coreServer{routes: manager}).proxyHandler())
+	defer proxy.Close()
+	request, _ := http.NewRequest(http.MethodGet, proxy.URL, nil)
+	request.Host = "v6.localhost:17890"
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != 200 || string(body) != "ipv6" {
+		t.Fatalf("IPv6 route = %d %q", response.StatusCode, body)
+	}
+}
+
+func TestFailedObservationRefreshesSoonerThanHealthyObservation(t *testing.T) {
+	var status atomic.Int64
+	status.Store(503)
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/html")
+		response.WriteHeader(int(status.Load()))
+		_, _ = io.WriteString(response, "<title>ready</title>")
+	}))
+	defer upstream.Close()
+	_, portText, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
+	port, _ := strconv.Atoi(portText)
+	listener := discoveredListener{PID: os.Getpid(), Address: "127.0.0.1", Port: port}
+	process := ProcessRecord{}
+	management := ManagementRecord{Source: "unmanaged"}
+	first := observeCached(listener, process, management)
+	if first.HTTP == nil || *first.HTTP.Status != 503 {
+		t.Fatalf("starting observation = %#v", first)
+	}
+	var cacheKey string
+	observationCache.Lock()
+	for key := range observationCache.entries {
+		if strings.Contains(key, "\x00"+portText+"\x00") {
+			cacheKey = key
+			break
+		}
+	}
+	if cacheKey == "" {
+		observationCache.Unlock()
+		t.Fatal("observation was not cached")
+	}
+	shortTTL := time.Until(observationCache.entries[cacheKey].expiresAt)
+	observationCache.Unlock()
+	if shortTTL > 4*time.Second {
+		t.Fatalf("starting response cached too long: %v", shortTTL)
+	}
+	status.Store(200)
+	if cached := observeCached(listener, process, management); *cached.HTTP.Status != 503 {
+		t.Fatalf("starting response was not throttled: %#v", cached)
+	}
+	observationCache.Lock()
+	entry := observationCache.entries[cacheKey]
+	entry.expiresAt = time.Now().Add(-time.Millisecond)
+	observationCache.entries[cacheKey] = entry
+	observationCache.Unlock()
+	ready := observeCached(listener, process, management)
+	if ready.HTTP == nil || *ready.HTTP.Status != 200 {
+		t.Fatalf("ready response was not observed: %#v", ready)
+	}
+	observationCache.Lock()
+	healthyTTL := time.Until(observationCache.entries[cacheKey].expiresAt)
+	observationCache.Unlock()
+	if healthyTTL < 25*time.Second {
+		t.Fatalf("healthy response cache was shortened: %v", healthyTTL)
+	}
+	status.Store(503)
+	if cached := observeCached(listener, process, management); *cached.HTTP.Status != 200 {
+		t.Fatalf("healthy response was not throttled: %#v", cached)
+	}
+}
+
+func TestLongRunningUnknownTCPListenerKeepsNormalProbeThrottle(t *testing.T) {
+	listener := discoveredListener{PID: os.Getpid(), Address: "127.0.0.1", Port: 1}
+	started := time.Now().Add(-time.Hour).Format("Mon Jan 2 15:04:05 2006")
+	process := ProcessRecord{Started: &started}
+	first := observeCached(listener, process, ManagementRecord{Source: "unmanaged"})
+	if first.Classification != "unknown" {
+		t.Fatalf("unreachable TCP classification = %q", first.Classification)
+	}
+	observationCache.Lock()
+	var ttl time.Duration
+	for key, entry := range observationCache.entries {
+		if strings.Contains(key, "\x001\x00") && strings.Contains(key, started) {
+			ttl = time.Until(entry.expiresAt)
+			break
+		}
+	}
+	observationCache.Unlock()
+	if ttl < 25*time.Second {
+		t.Fatalf("long-running unknown listener probe throttle = %v", ttl)
+	}
+	second := observeCached(listener, process, ManagementRecord{Source: "unmanaged"})
+	if second.ProbedAt != first.ProbedAt {
+		t.Fatal("long-running unknown listener was probed again before cache expiry")
+	}
+}
+
+func TestReverseProxyReleasesUpstreamConnections(t *testing.T) {
+	var openConnections atomic.Int64
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, "ok")
+	}))
+	upstream.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			openConnections.Add(1)
+		case http.StateClosed:
+			openConnections.Add(-1)
+		}
+	}
+	upstream.Start()
+	t.Cleanup(upstream.Close)
+	_, rawPort, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
+	port, _ := net.LookupPort("tcp", rawPort)
+
+	manager, err := newRouteManager(filepath.Join(t.TempDir(), "routes.json"), 17890)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.put("demo", RouteRecord{Port: port, LogicalServiceID: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	manager.attach(&ScanDocument{Services: []ServiceRecord{{ID: "demo-instance", LogicalID: "demo", Listener: ListenerRecord{Address: "127.0.0.1", Port: port}, Process: ProcessRecord{PID: os.Getpid()}}}})
+	proxy := httptest.NewServer((&coreServer{routes: manager}).proxyHandler())
+	t.Cleanup(proxy.Close)
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	t.Cleanup(client.CloseIdleConnections)
+
+	for range 20 {
+		request, _ := http.NewRequest(http.MethodGet, proxy.URL, nil)
+		request.Host = "demo.localhost:17890"
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for openConnections.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if count := openConnections.Load(); count != 0 {
+		t.Fatalf("reverse proxy retained %d upstream connections", count)
 	}
 }
 

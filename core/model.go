@@ -41,6 +41,14 @@ type HTTPRecord struct {
 	Server      *string `json:"server,omitempty"`
 	Title       *string `json:"title,omitempty"`
 	BytesRead   int     `json:"bytesRead"`
+	Path        string  `json:"path,omitempty"`
+}
+
+type CDPRecord struct {
+	Browser              string `json:"browser"`
+	ProtocolVersion      string `json:"protocolVersion"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	TargetCount          int    `json:"targetCount"`
 }
 
 type EvidenceRecord struct {
@@ -55,6 +63,7 @@ type ObservationRecord struct {
 	Confidence     float64          `json:"confidence"`
 	Framework      *string          `json:"framework,omitempty"`
 	HTTP           *HTTPRecord      `json:"http,omitempty"`
+	CDP            *CDPRecord       `json:"cdp,omitempty"`
 	Evidence       []EvidenceRecord `json:"evidence"`
 	ProbedAt       string           `json:"probedAt"`
 }
@@ -78,6 +87,7 @@ type ManagementRecord struct {
 type RouteRecord struct {
 	Alias            string `json:"alias"`
 	Port             int    `json:"port"`
+	Address          string `json:"address,omitempty"`
 	LastResolvedPort int    `json:"lastResolvedPort,omitempty"`
 	Scheme           string `json:"scheme"`
 	HostMode         string `json:"hostMode"`

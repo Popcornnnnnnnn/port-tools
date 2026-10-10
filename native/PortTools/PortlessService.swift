@@ -20,8 +20,16 @@ enum PortlessRuntimeStatus: Equatable {
     }
 }
 
-private func probePortlessHelper() async -> Bool {
-    guard let url = URL(string: "http://port-tools.localhost/__port_tools/health") else { return false }
+enum PortlessHelperProbe {
+    case healthy
+    /// Nothing answers on port 80, so the registered daemon never started.
+    case noListener
+    /// Something answers but it is not the helper, so the port is taken.
+    case unavailable
+}
+
+private func probePortlessHelper() async -> PortlessHelperProbe {
+    guard let url = URL(string: "http://port-tools.localhost/__port_tools/health") else { return .unavailable }
     var request = URLRequest(url: url)
     request.cachePolicy = .reloadIgnoringLocalCacheData
     request.timeoutInterval = 1.5
@@ -29,11 +37,20 @@ private func probePortlessHelper() async -> Bool {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return false }
+        else { return .unavailable }
         return object["service"] as? String == "port-tools-portless-helper"
             && object["status"] as? String == "ok"
+            ? .healthy
+            : .unavailable
+    } catch let error as URLError {
+        switch error.code {
+        case .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet:
+            return .noListener
+        default:
+            return .unavailable
+        }
     } catch {
-        return false
+        return .unavailable
     }
 }
 
@@ -46,6 +63,9 @@ final class PortlessServiceController: ObservableObject {
     @Published private(set) var lastError: String?
     private var refreshGeneration = 0
     private var registrationRefreshInProgress = false
+    private var repairedDeadRegistration = false
+    private var registrationRecoveryAttempted = false
+    private let publicPortQueue = DispatchQueue(label: "xyz.popcornnn.PortTools.public-port")
     private let registeredHelperRevisionKey = "portlessHelperRegisteredRevision"
     private let legacyRegisteredBuildKey = "portlessHelperRegisteredBuild"
 
@@ -101,15 +121,24 @@ final class PortlessServiceController: ObservableObject {
         case .enabled:
             runtimeStatus = .checking
             Task {
-                let available = await probePortlessHelper()
+                let probe = await probePortlessHelper()
                 guard generation == refreshGeneration else { return }
-                do {
-                    try CoreRuntime.shared.setPublicPort(available ? 80 : 0)
-                    runtimeStatus = available ? .active : .unavailable
-                } catch {
+                // launchd reports the helper as enabled but nothing listens on
+                // port 80: the registration points at a bundle that no longer
+                // exists, so register it again against the current bundle.
+                if probe == .noListener, !repairedDeadRegistration {
+                    repairedDeadRegistration = true
+                    if reRegisterHelper() { return }
+                }
+                let available = probe == .healthy
+                let error = await applyPublicPort(available ? 80 : 0)
+                guard generation == refreshGeneration else { return }
+                if let error {
                     runtimeStatus = .unavailable
                     lastError = error.localizedDescription
                     useFallbackRouting()
+                } else {
+                    runtimeStatus = available ? .active : .unavailable
                 }
             }
         @unknown default:
@@ -164,12 +193,23 @@ final class PortlessServiceController: ObservableObject {
         guard hasRegistrationIntent,
               service.status == .notRegistered || service.status == .notFound
         else { return }
-        do {
-            try service.register()
-            rememberCurrentHelperRevision()
-        } catch {
-            if service.status != .requiresApproval {
-                lastError = error.localizedDescription
+        guard !registrationRecoveryAttempted else { return }
+        registrationRecoveryAttempted = true
+        // Background Task Management can keep a record of the helper after an
+        // app update while launchd has no job behind it. register() then finds
+        // the existing record and never creates the job, so clear it first.
+        service.unregister { _ in
+            Task { @MainActor in
+                do {
+                    try self.service.register()
+                    self.rememberCurrentHelperRevision()
+                } catch {
+                    NSLog("Port Tools portless: register failed: %@", error.localizedDescription)
+                    if self.service.status != .requiresApproval {
+                        self.lastError = error.localizedDescription
+                    }
+                }
+                self.refreshRouting()
             }
         }
     }
@@ -182,8 +222,11 @@ final class PortlessServiceController: ObservableObject {
             return false
         }
         guard registeredRevision != currentHelperRevision else { return false }
-        guard !registrationRefreshInProgress else { return true }
+        return reRegisterHelper()
+    }
 
+    private func reRegisterHelper() -> Bool {
+        guard !registrationRefreshInProgress else { return true }
         registrationRefreshInProgress = true
         runtimeStatus = .checking
         useFallbackRouting()
@@ -212,10 +255,29 @@ final class PortlessServiceController: ObservableObject {
     }
 
     private func useFallbackRouting() {
-        do {
-            try CoreRuntime.shared.setPublicPort(0)
-        } catch {
-            lastError = error.localizedDescription
+        Task { [weak self] in
+            guard let self else { return }
+            if let error = await self.applyPublicPort(0) {
+                self.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Every core call spawns the bundled helper process and waits for it, so
+    /// these writes run on a serial queue instead of the main thread. The queue
+    /// keeps the last requested port authoritative when activations overlap.
+    private func applyPublicPort(_ port: Int) async -> Error? {
+        await withCheckedContinuation { continuation in
+            publicPortQueue.async {
+                let result: Error?
+                do {
+                    try CoreRuntime.shared.setPublicPort(port)
+                    result = nil
+                } catch {
+                    result = error
+                }
+                continuation.resume(returning: result)
+            }
         }
     }
 }

@@ -12,19 +12,20 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = Path(__file__).resolve().parent
-RUNTIME_ROOT = FIXTURE_ROOT / ".runtime"
+RUNTIME_ROOT = FIXTURE_ROOT / ".runtime" / "proxy-verification"
 MANAGER = FIXTURE_ROOT / "manage.py"
 CLI = REPO_ROOT / "bin" / "port-tools"
 CORE = REPO_ROOT / "native" / ".build" / "Port Tools.app" / "Contents" / "Helpers" / "port-tools-core"
 PROXY_PORT = 17890
 STATE = RUNTIME_ROOT / "proxy-routes.json"
-SOCKET = RUNTIME_ROOT / "core.sock"
+SOCKET = Path(tempfile.gettempdir()) / f"pt-proxy-{os.getpid()}.sock"
 ENGINE = "go"
 
 
@@ -146,15 +147,19 @@ def vite_websocket() -> bool:
 
 
 def main() -> None:
-    global ENGINE, PROXY_PORT
+    global ENGINE, PROXY_PORT, CORE, SOCKET
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", choices=("go", "prototype"), default="go")
     parser.add_argument("--proxy-port", type=int, default=17891)
+    parser.add_argument("--core", type=Path, default=CORE)
     args = parser.parse_args()
     ENGINE = args.engine
     PROXY_PORT = args.proxy_port
+    CORE = args.core
     if ENGINE == "go" and not CORE.exists():
         raise SystemExit("build the native app first: native/trial/build.sh")
+    socket_directory = tempfile.TemporaryDirectory(prefix="pt-proxy-")
+    SOCKET = Path(socket_directory.name) / "core.sock"
     RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
     run(["python3", MANAGER, "start", "static-http"])
     run(["python3", MANAGER, "start", "vite-hmr"])
@@ -176,6 +181,7 @@ def main() -> None:
     )
     results = {}
     completed = False
+    missing_upstream = None
     try:
         wait_for_port(PROXY_PORT, expected=True)
         add_alias("static", 51739)
@@ -195,9 +201,35 @@ def main() -> None:
         add_alias("secure-verify", 51741, scheme="https", tls_policy="verify")
         results["https_verification"] = request("secure-verify")["status"] == 502
 
-        add_alias("missing", 59999)
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            missing_port = reservation.getsockname()[1]
+        missing_root = RUNTIME_ROOT / "missing-upstream"
+        missing_root.mkdir(exist_ok=True)
+        missing_upstream = subprocess.Popen(
+            [sys.executable, "-m", "http.server", str(missing_port), "--bind", "127.0.0.1", "--directory", str(missing_root)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        wait_for_port(missing_port, expected=True)
+        add_alias("missing", missing_port)
+        missing_upstream.terminate()
+        missing_upstream.wait(timeout=4)
+        wait_for_port(missing_port, expected=False)
         missing = request("missing")
-        results["missing_upstream"] = missing["status"] == 502 and b"127.0.0.1:59999" in missing["body"]
+        results["missing_upstream"] = (
+            missing["status"] == 502 and f"127.0.0.1:{missing_port}".encode() in missing["body"]
+        ) or (
+            missing["status"] == 503 and b"Original service unavailable" in missing["body"]
+        )
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            try:
+                add_alias("offline", reservation.getsockname()[1])
+                offline_route_rejected = False
+            except subprocess.CalledProcessError as error:
+                response = json.loads(error.stdout)
+                offline_route_rejected = response.get("status") == 409 and "offline" in response.get("error", "")
+        results["offline_route_rejected"] = offline_route_rejected and request("offline")["status"] == 404
 
         external = request("static", "/external-redirect")
         results["external_redirect_not_followed"] = (
@@ -252,6 +284,9 @@ def main() -> None:
         if not passed:
             raise SystemExit(1)
     finally:
+        if missing_upstream is not None and missing_upstream.poll() is None:
+            missing_upstream.terminate()
+            missing_upstream.wait(timeout=4)
         if proxy.poll() is None:
             os.killpg(proxy.pid, signal.SIGTERM)
             proxy.wait(timeout=4)
@@ -260,6 +295,7 @@ def main() -> None:
         run(["python3", MANAGER, "stop", "vite-hmr"])
         run(["python3", MANAGER, "stop", "self-signed-https"])
         log_handle.close()
+        socket_directory.cleanup()
         if completed:
             shutil.rmtree(RUNTIME_ROOT, ignore_errors=True)
         else:
