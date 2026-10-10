@@ -1705,7 +1705,6 @@ struct InventoryView: View {
     @ObservedObject var store: InventoryStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.openSettings) private var openSettings
     @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.dark.rawValue
     @State private var expandedRelated = Set<String>()
     @State private var collapsedProjects = Set<String>()
@@ -1848,12 +1847,14 @@ struct InventoryView: View {
                     if searchVisible { searchFocused = true } else { query = "" }
                 } label: { Image(systemName: "magnifyingglass") }
                     .help("Search (⌘K)")
-                Button {
-                    openSettings()
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                }
+                .simultaneousGesture(TapGesture().onEnded {
                     DispatchQueue.main.async {
                         NSApplication.shared.activate(ignoringOtherApps: true)
                     }
-                } label: { Image(systemName: "gearshape") }
+                })
                 .help("Open Settings")
                 .accessibilityLabel("Settings")
             }

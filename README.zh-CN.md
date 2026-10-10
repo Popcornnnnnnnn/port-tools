@@ -95,8 +95,9 @@ python3 native/trial/verify.py
 - macOS 14 或更高版本；
 - 正式 Release 仅支持 Apple Silicon；
 - IPv4/IPv6 loopback 上的非特权端口代理；
-- 不修改 `/etc/hosts`，不安装本地受信任 CA，不占用 80/443；
-- 没有特权 helper；强制结束仅限独立确认并再次复核的 unmanaged 服务；
+- 不修改 `/etc/hosts`，不安装本地受信任 CA，不在 443 端口提供 HTTPS；
+- 普通路由使用非特权端口 17890；可选的无端口 HTTP 地址由内置 helper 在系统设置批准后监听本机回环端口 80；
+- 强制结束仅限独立确认并再次复核的 unmanaged 服务；
 - 代码和自动测试不能代替真实的菜单栏交互验收。
 
 ## 工程资料
@@ -107,4 +108,4 @@ python3 native/trial/verify.py
 - [打包要求](docs/packaging-requirements.md)
 - [发布与公证流程](docs/releasing.md)
 
-Port Tools v1.0 正在接近第一次公开发布，欢迎提交 Issue 或参与早期体验。
+Port Tools 1.0.4 已发布。剩余验收和维护从 [Issues](https://github.com/Popcornnnnnnnn/port-tools/issues) 接续。

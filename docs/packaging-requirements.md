@@ -15,8 +15,10 @@ reviewed graceful-stop behavior must work without terminal setup.
   components inside the bundle.
 - Require no separately installed Python, Node.js, npm, Homebrew, Docker, Caddy,
   browser extension, or package manager.
-- Require no `sudo`, trusted certificate authority, `/etc/hosts` edit, resolver
-  file, or privileged port for the HTTP MVP.
+- Ordinary HTTP routing on port 17890 requires no `sudo`, trusted certificate
+  authority, `/etc/hosts` edit, resolver file, or privileged port. Optional
+  port-free HTTP uses the bundled loopback port-80 helper after approval in
+  System Settings, with visible fallback when approval or the helper is absent.
 - Use only loopback listeners by default and never open a LAN listener as an
   installation side effect.
 - Keep mutable state under the app's macOS Application Support directory and
@@ -52,4 +54,4 @@ supported macOS account with no developer tools or package managers installed:
 3. route creation and removal;
 4. graceful-stop confirmation on a disposable app;
 5. app update with state migration;
-6. uninstall and residue audit.
+6. uninstall and residue audit, including removal of the optional port-80 helper.

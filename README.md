@@ -95,8 +95,9 @@ The current candidate is deliberately local and conservative:
 - macOS 14 or later;
 - Apple Silicon only for public Release builds;
 - IPv4/IPv6 loopback proxy on an unprivileged port;
-- no `/etc/hosts` edits, trusted local CA, or ports 80/443;
-- no privileged helper; force termination is limited to the separately confirmed, revalidated unmanaged-service path;
+- no `/etc/hosts` edits, trusted local CA, or HTTPS listener on port 443;
+- ordinary routing uses unprivileged port 17890; optional port-free HTTP uses the bundled loopback port-80 helper after approval in System Settings;
+- force termination is limited to the separately confirmed, revalidated unmanaged-service path;
 - no claim that code-level tests replace real menu-bar interaction testing.
 
 ## Engineering notes
@@ -107,7 +108,7 @@ The current candidate is deliberately local and conservative:
 - [Packaging requirements](docs/packaging-requirements.md)
 - [Release and notarization](docs/releasing.md)
 
-Port Tools v1.0 is approaching its first public release. Issues and early feedback are welcome.
+Port Tools 1.0.4 is released. Remaining acceptance and maintenance are tracked in [Issues](https://github.com/Popcornnnnnnnn/port-tools/issues).
 
 
 <!-- workspace-maintenance:start -->

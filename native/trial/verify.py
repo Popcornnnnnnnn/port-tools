@@ -289,8 +289,7 @@ def main() -> None:
     settings_entry_contract_passed = all(
         fragment in swift_source
         for fragment in (
-            "@Environment(\\.openSettings) private var openSettings",
-            "openSettings()",
+            '.accessibilityLabel("Settings")',
             '.help("Open Settings")',
             'Button("Quit Port Tools")',
             "applicationShouldHandleReopen",
@@ -300,7 +299,6 @@ def main() -> None:
         fragment not in swift_source
         for fragment in (
             'Image(systemName: "arrow.clockwise")',
-            "SettingsLink {",
         )
     )
     capabilities = json.loads(run([CORE, "self-test"]).stdout)
