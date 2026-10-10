@@ -12,6 +12,7 @@ import signal
 import socket
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -254,14 +255,16 @@ def stop_process(process) -> None:
 
 
 def main() -> None:
+    global PROXY_PORT, CORE
     parser = argparse.ArgumentParser()
     parser.add_argument("--duration", type=int, default=900)
     parser.add_argument("--heartbeat", type=int, default=30)
     parser.add_argument("--engine", choices=("go", "prototype"), default="go")
     parser.add_argument("--proxy-port", type=int, default=17892)
+    parser.add_argument("--core", type=Path, default=CORE)
     args = parser.parse_args()
-    global PROXY_PORT
     PROXY_PORT = args.proxy_port
+    CORE = args.core
     if args.duration < 12:
         raise SystemExit("duration must be at least 12 seconds")
 
@@ -273,7 +276,8 @@ def main() -> None:
     vite_root = copy_app("vite")
     next_root = copy_app("next")
     state = ENDURANCE_ROOT / "routes.json"
-    socket_path = ENDURANCE_ROOT / "core.sock"
+    socket_directory = tempfile.TemporaryDirectory(prefix="pt-hmr-")
+    socket_path = Path(socket_directory.name) / "core.sock"
     processes = []
     sockets = []
     results = {"updates": []}
@@ -409,6 +413,7 @@ def main() -> None:
             stop_process(process)
         for port in (PROXY_PORT, VITE_PORT, NEXT_PORT):
             wait_for_port(port, False, timeout=3)
+        socket_directory.cleanup()
         if not telemetry_existed and telemetry_root.exists():
             generated_telemetry = ENDURANCE_ROOT / "generated-next-telemetry"
             shutil.move(str(telemetry_root), str(generated_telemetry))

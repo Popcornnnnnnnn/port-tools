@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import json
 from pathlib import Path
 import signal
@@ -44,6 +45,10 @@ def core_request(socket_path: Path, method: str, path: str, body=None, check=Tru
 
 
 def main() -> None:
+    global CORE
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--core", type=Path, default=CORE)
+    CORE = parser.parse_args().core
     if not CORE.exists():
         raise SystemExit("build the native app first: native/trial/build.sh")
     port = reserve_port()
