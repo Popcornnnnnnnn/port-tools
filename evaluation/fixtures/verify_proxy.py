@@ -195,9 +195,12 @@ def main() -> None:
         add_alias("secure-verify", 51741, scheme="https", tls_policy="verify")
         results["https_verification"] = request("secure-verify")["status"] == 502
 
-        add_alias("missing", 59999)
-        missing = request("missing")
-        results["missing_upstream"] = missing["status"] == 502 and b"127.0.0.1:59999" in missing["body"]
+        try:
+            add_alias("missing", 59999)
+            offline_route_rejected = False
+        except subprocess.CalledProcessError:
+            offline_route_rejected = True
+        results["missing_upstream"] = offline_route_rejected and request("missing")["status"] == 404
 
         external = request("static", "/external-redirect")
         results["external_redirect_not_followed"] = (

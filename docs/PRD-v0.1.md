@@ -195,6 +195,11 @@ Candidate evidence includes:
 - an unmanaged listener that has not been pinned or named;
 - an old route whose upstream PID has disappeared.
 
+A detached or changed parent process is context, not sufficient evidence by
+itself. Surface `possibly left running` only when another independent signal is
+present, such as sustained probe failure, a missing project directory, or an
+old Chrome DevTools endpoint with no active targets.
+
 CPU usage and connection activity may be added later. They are not required for the first scanner because sampling them reliably introduces additional OS-specific behavior.
 
 ## 7. Primary flows
