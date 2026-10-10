@@ -44,4 +44,4 @@ Unit and local bundle tests cover helper health identification, fixed-target
 proxying, Host preservation, port-free URL publication, fallback restoration,
 plist placement, and nested code signatures. A local ad-hoc build cannot prove
 administrator approval or launchd activation; those require a notarized build
-installed in `/Applications` and a clean-account system test.
+installed in `/Applications` and a real macOS system test.
