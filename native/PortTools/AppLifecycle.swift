@@ -53,23 +53,26 @@ enum AppMaintenance {
         CoreRuntime.shared.stop()
         let manager = FileManager.default
         let home = manager.homeDirectoryForCurrentUser
-        for domain in ["xyz.popcornnn.PortTools", "dev.port-tools.trial"] {
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "xyz.popcornnn.PortTools"
+        let domains = bundleIdentifier == "xyz.popcornnn.PortTools"
+            ? [bundleIdentifier, "dev.port-tools.trial"]
+            : [bundleIdentifier]
+        for domain in domains {
             UserDefaults.standard.removePersistentDomain(forName: domain)
         }
-        let targets = [
+        var targets = [
             home.appendingPathComponent("Library/Application Support/Port Tools", isDirectory: true),
-            home.appendingPathComponent("Library/Application Support/xyz.popcornnn.PortTools", isDirectory: true),
-            home.appendingPathComponent("Library/Application Support/dev.port-tools.trial", isDirectory: true),
             home.appendingPathComponent("Library/Logs/Port Tools", isDirectory: true),
-            home.appendingPathComponent("Library/Logs/xyz.popcornnn.PortTools", isDirectory: true),
-            home.appendingPathComponent("Library/Logs/dev.port-tools.trial", isDirectory: true),
-            home.appendingPathComponent("Library/Caches/xyz.popcornnn.PortTools", isDirectory: true),
-            home.appendingPathComponent("Library/Caches/dev.port-tools.trial", isDirectory: true),
-            home.appendingPathComponent("Library/HTTPStorages/xyz.popcornnn.PortTools", isDirectory: true),
-            home.appendingPathComponent("Library/HTTPStorages/dev.port-tools.trial", isDirectory: true),
-            home.appendingPathComponent("Library/Preferences/xyz.popcornnn.PortTools.plist"),
-            home.appendingPathComponent("Library/Preferences/dev.port-tools.trial.plist"),
         ]
+        for domain in domains {
+            targets += [
+                home.appendingPathComponent("Library/Application Support/\(domain)", isDirectory: true),
+                home.appendingPathComponent("Library/Logs/\(domain)", isDirectory: true),
+                home.appendingPathComponent("Library/Caches/\(domain)", isDirectory: true),
+                home.appendingPathComponent("Library/HTTPStorages/\(domain)", isDirectory: true),
+                home.appendingPathComponent("Library/Preferences/\(domain).plist"),
+            ]
+        }
         for target in targets { try? manager.removeItem(at: target) }
         NSApplication.shared.terminate(nil)
     }
