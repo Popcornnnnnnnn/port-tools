@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 APP = REPO_ROOT / "native" / ".build" / "Port Tools.app"
 EXECUTABLE = APP / "Contents" / "MacOS" / "PortTools"
 CORE = APP / "Contents" / "Helpers" / "port-tools-core"
-PORTLESS_HELPER = APP / "Contents" / "Library" / "LaunchServices" / "port-tools-portless-helper"
+PORTLESS_HELPER = APP / "Contents" / "Helpers" / "port-tools-portless-helper"
 PORTLESS_PLIST = APP / "Contents" / "Library" / "LaunchDaemons" / "PortlessHelper.plist"
 SWIFT_SOURCES = sorted((REPO_ROOT / "native" / "PortTools").glob("*.swift"))
 
@@ -245,6 +245,7 @@ def verify_portless_helper(proxy_port: int) -> dict:
 
 
 def main() -> None:
+    run(["python3", REPO_ROOT / "scripts" / "verify-helper-signatures.py", APP])
     run(["codesign", "--verify", "--deep", "--strict", APP])
     run(["codesign", "--verify", "--strict", CORE])
     run(["codesign", "--verify", "--strict", PORTLESS_HELPER])
@@ -262,7 +263,7 @@ def main() -> None:
         localhost_exception.get("NSIncludesSubdomains") is True
         and localhost_exception.get("NSExceptionAllowsInsecureHTTPLoads") is True
     )
-    helper_revision_is_declared = info.get("PortlessHelperRevision") == "1"
+    helper_revision_is_declared = info.get("PortlessHelperRevision") == "2"
     expected_version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
     swift_source = "\n".join(path.read_text(encoding="utf-8") for path in SWIFT_SOURCES)
     title_hover_contract_passed = all(
@@ -311,7 +312,7 @@ def main() -> None:
     portless_capabilities = json.loads(run([PORTLESS_HELPER, "--self-test"]).stdout)
     portless_packaging_passed = (
         portless_plist.get("Label") == "xyz.popcornnn.PortTools.PortlessHelper"
-        and portless_plist.get("BundleProgram") == "Contents/Library/LaunchServices/port-tools-portless-helper"
+        and portless_plist.get("BundleProgram") == "Contents/Helpers/port-tools-portless-helper"
         and portless_plist.get("AssociatedBundleIdentifiers") == ["xyz.popcornnn.PortTools"]
         and portless_capabilities.get("service") == "port-tools-portless-helper"
         and portless_capabilities.get("version") == expected_version

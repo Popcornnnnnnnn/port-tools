@@ -31,7 +31,7 @@ fi
 
 rm -rf "$build_root"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
-mkdir -p "$app/Contents/Library/LaunchDaemons" "$app/Contents/Library/LaunchServices"
+mkdir -p "$app/Contents/Library/LaunchDaemons"
 
 (
     cd "$repository_root/core"
@@ -47,7 +47,7 @@ mkdir -p "$app/Contents/Library/LaunchDaemons" "$app/Contents/Library/LaunchServ
     CGO_ENABLED=0 GOOS=darwin GOARCH="$go_arch" "$go_binary" build \
         -trimpath \
         -ldflags "-s -w -X main.version=$version" \
-        -o "$app/Contents/Library/LaunchServices/port-tools-portless-helper" \
+        -o "$app/Contents/Helpers/port-tools-portless-helper" \
         .
 )
 
@@ -74,9 +74,9 @@ cp -R "$repository_root/native/Localization/zh-Hans.lproj" "$app/Contents/Resour
 cp "$repository_root/native/PortlessHelper.plist" "$app/Contents/Library/LaunchDaemons/PortlessHelper.plist"
 chmod 755 "$app/Contents/MacOS/PortTools"
 chmod 755 "$app/Contents/Helpers/port-tools-core"
-chmod 755 "$app/Contents/Library/LaunchServices/port-tools-portless-helper"
+chmod 755 "$app/Contents/Helpers/port-tools-portless-helper"
 codesign --force --sign - --options runtime "$app/Contents/Helpers/port-tools-core"
-codesign --force --sign - --options runtime "$app/Contents/Library/LaunchServices/port-tools-portless-helper"
+codesign --force --sign - --options runtime "$app/Contents/Helpers/port-tools-portless-helper"
 codesign --force --sign - --options runtime "$app"
 
 echo "$app"

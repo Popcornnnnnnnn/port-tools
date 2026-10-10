@@ -29,7 +29,7 @@ The root LaunchDaemon:
 - does not read route state or accept a configurable runtime control channel;
 - keeps alias validation, route ownership, upstream selection, and TLS policy
   in the current-user core;
-- is packaged under `Contents/Library/LaunchServices`, with its launchd plist
+- is packaged as nested code under `Contents/Helpers`, with its launchd plist
   under `Contents/Library/LaunchDaemons` for `SMAppService` registration.
 
 The helper must be signed with the containing app, and the containing app must
@@ -37,6 +37,8 @@ be notarized before LaunchDaemon registration is treated as release evidence.
 When an app update changes the helper executable, Port Tools unregisters and
 re-registers the bundled service as required by `SMAppService`, retaining the
 high-port route until the refreshed helper is active.
+The packaging check requires the parent signature to record each helper's
+CDHash and designated requirement; a resource hash alone is insufficient.
 
 ## Validation boundary
 

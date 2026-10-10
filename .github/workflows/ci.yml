@@ -54,14 +54,18 @@ jobs:
           app="native/.build/CI/Build/Products/Release/Port Tools.app"
           test -x "$app/Contents/MacOS/PortTools"
           test -x "$app/Contents/Helpers/port-tools-core"
+          test -x "$app/Contents/Helpers/port-tools-portless-helper"
+          test "$(plutil -extract BundleProgram raw "$app/Contents/Library/LaunchDaemons/PortlessHelper.plist")" = "Contents/Helpers/port-tools-portless-helper"
           test -f "$app/Contents/Resources/PortTools.icns"
           test -d "$app/Contents/Resources/zh-Hans.lproj"
           test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "xyz.popcornnn.PortTools"
           test "$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist")" = "PortTools.icns"
           lipo "$app/Contents/MacOS/PortTools" -verify_arch arm64
           lipo "$app/Contents/Helpers/port-tools-core" -verify_arch arm64
+          lipo "$app/Contents/Helpers/port-tools-portless-helper" -verify_arch arm64
       - name: Proxy and force-stop integration
         run: |
           PORT_TOOLS_ARCH="$(uname -m)" native/trial/build.sh
+          python3 scripts/verify-helper-signatures.py "native/.build/Port Tools.app"
           python3 evaluation/fixtures/verify_proxy.py --engine go
           python3 evaluation/fixtures/verify_force_stop.py
