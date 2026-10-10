@@ -124,8 +124,8 @@ final class PortlessServiceController: ObservableObject {
                 let probe = await probePortlessHelper()
                 guard generation == refreshGeneration else { return }
                 // launchd reports the helper as enabled but nothing listens on
-                // port 80: the registration points at a bundle that no longer
-                // exists, so register it again against the current bundle.
+                // port 80: an app update may have left the registration unable
+                // to launch the current helper, so refresh it once.
                 if probe == .noListener, !repairedDeadRegistration {
                     repairedDeadRegistration = true
                     if reRegisterHelper() { return }

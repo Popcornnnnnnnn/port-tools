@@ -100,7 +100,7 @@ codesign --force --options runtime --timestamp \
 codesign --force --options runtime --timestamp \
   --preserve-metadata=identifier,entitlements \
   --sign "$developer_identity" \
-  "$app_path/Contents/Library/LaunchServices/port-tools-portless-helper"
+  "$app_path/Contents/Helpers/port-tools-portless-helper"
 codesign --force --options runtime --timestamp \
   --preserve-metadata=identifier,entitlements \
   --sign "$developer_identity" \
@@ -108,15 +108,16 @@ codesign --force --options runtime --timestamp \
 
 lipo "$app_path/Contents/MacOS/PortTools" -verify_arch arm64
 lipo "$app_path/Contents/Helpers/port-tools-core" -verify_arch arm64
-lipo "$app_path/Contents/Library/LaunchServices/port-tools-portless-helper" -verify_arch arm64
+lipo "$app_path/Contents/Helpers/port-tools-portless-helper" -verify_arch arm64
 [[ -f "$app_path/Contents/Resources/PortTools.icns" ]]
 [[ -d "$app_path/Contents/Resources/zh-Hans.lproj" ]]
 plutil -lint "$app_path/Contents/Library/LaunchDaemons/PortlessHelper.plist"
 codesign --verify --deep --strict --verbose=2 "$app_path"
 helper_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Helpers/port-tools-core" 2>&1)"
 grep -q 'flags=.*runtime' <<<"$helper_signature"
-portless_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Library/LaunchServices/port-tools-portless-helper" 2>&1)"
+portless_signature="$(codesign -dv --verbose=4 "$app_path/Contents/Helpers/port-tools-portless-helper" 2>&1)"
 grep -q 'flags=.*runtime' <<<"$portless_signature"
+python3 "$repository_root/scripts/verify-helper-signatures.py" "$app_path"
 
 metrics_home="$(mktemp -d -t port-tools-release-metrics.XXXXXX)"
 if ! CFFIXED_USER_HOME="$metrics_home" PORT_TOOLS_DISABLE_PORTLESS=1 PORT_TOOLS_DISABLE_STATUS_ITEM=1 \
