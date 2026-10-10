@@ -28,7 +28,7 @@ enum PortlessHelperProbe {
     case unavailable
 }
 
-private func probePortlessHelper() async -> PortlessHelperProbe {
+private func probePortlessHelperOnce() async -> PortlessHelperProbe {
     guard let url = URL(string: "http://port-tools.localhost/__port_tools/health") else { return .unavailable }
     var request = URLRequest(url: url)
     request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -52,6 +52,22 @@ private func probePortlessHelper() async -> PortlessHelperProbe {
     } catch {
         return .unavailable
     }
+}
+
+private func probePortlessHelper() async -> PortlessHelperProbe {
+    // Registration can return before launchd has opened the helper's listeners.
+    // Allow a bounded startup window before repairing a dead registration.
+    let startupDelays: [UInt64] = [150_000_000, 300_000_000, 600_000_000, 1_200_000_000]
+    for delay in startupDelays {
+        let result = await probePortlessHelperOnce()
+        guard result == .noListener else { return result }
+        do {
+            try await Task.sleep(nanoseconds: delay)
+        } catch {
+            return .noListener
+        }
+    }
+    return await probePortlessHelperOnce()
 }
 
 @MainActor
