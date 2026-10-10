@@ -25,7 +25,7 @@ CLI = REPO_ROOT / "bin" / "port-tools"
 CORE = REPO_ROOT / "native" / ".build" / "Port Tools.app" / "Contents" / "Helpers" / "port-tools-core"
 PROXY_PORT = 17890
 STATE = RUNTIME_ROOT / "proxy-routes.json"
-SOCKET = RUNTIME_ROOT / "core.sock"
+SOCKET = Path(tempfile.gettempdir()) / f"pt-proxy-{os.getpid()}.sock"
 ENGINE = "go"
 
 
@@ -221,6 +221,15 @@ def main() -> None:
         ) or (
             missing["status"] == 503 and b"Original service unavailable" in missing["body"]
         )
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            try:
+                add_alias("offline", reservation.getsockname()[1])
+                offline_route_rejected = False
+            except subprocess.CalledProcessError as error:
+                response = json.loads(error.stdout)
+                offline_route_rejected = response.get("status") == 409 and "offline" in response.get("error", "")
+        results["offline_route_rejected"] = offline_route_rejected and request("offline")["status"] == 404
 
         external = request("static", "/external-redirect")
         results["external_redirect_not_followed"] = (

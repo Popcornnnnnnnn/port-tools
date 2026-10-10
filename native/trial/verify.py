@@ -57,8 +57,11 @@ def verify_startup_retry() -> bool:
         socket_path = state_root / "runtime" / "core.sock"
         environment = {
             **dict(os.environ),
+            "CFFIXED_USER_HOME": str(state_root),
             "PORT_TOOLS_STATE_ROOT": str(state_root),
             "PORT_TOOLS_PROXY_ADDRESS": f"127.0.0.1:{proxy_port}",
+            "PORT_TOOLS_DISABLE_PROMPTS": "1",
+            "PORT_TOOLS_DISABLE_PORTLESS": "1",
         }
         process = subprocess.Popen([str(EXECUTABLE)], env=environment)
         try:
@@ -295,6 +298,9 @@ def main() -> None:
             "applicationShouldHandleReopen",
             "showStatusPopover()",
         )
+    ) and (
+        '.help("Open Settings")' in swift_source
+        or 'help: "Open Settings"' in swift_source
     ) and all(
         fragment not in swift_source
         for fragment in (
@@ -315,8 +321,10 @@ def main() -> None:
         socket = state_root / "runtime" / "core.sock"
         environment = {
             **dict(os.environ),
+            "CFFIXED_USER_HOME": str(state_root),
             "PORT_TOOLS_STATE_ROOT": str(state_root),
             "PORT_TOOLS_PROXY_ADDRESS": "127.0.0.1:0",
+            "PORT_TOOLS_DISABLE_PROMPTS": "1",
             "PORT_TOOLS_DISABLE_PORTLESS": "1",
         }
         process = subprocess.Popen([str(EXECUTABLE)], env=environment)
@@ -347,8 +355,9 @@ def main() -> None:
                 "port": upstream.server_port,
                 "scheme": "http",
                 "hostMode": "rewrite",
-                "projectRoot": "/verification/project",
-                "applicationRoot": "/verification/project",
+                "logicalServiceId": verification_service["logicalId"],
+                "projectRoot": (verification_service.get("project") or {}).get("root", ""),
+                "applicationRoot": (verification_service.get("application") or {}).get("root", ""),
             })
             route = json.loads(run([
                 CORE, "request", "--socket", socket, "--method", "PUT",
