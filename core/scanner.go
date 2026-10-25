@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -55,7 +56,10 @@ type cdpVersionResponse struct {
 type cachedObservation struct {
 	observation ObservationRecord
 	expiresAt   time.Time
+	retryDelay  time.Duration
 }
+
+const maxProbeBackoff = 5 * time.Minute
 
 var observationCache = struct {
 	sync.Mutex
@@ -1059,6 +1063,45 @@ func observe(listener discoveredListener, process ProcessRecord, management Mana
 	return ObservationRecord{Classification: "unknown", Protocol: "tcp", Role: "service", Confidence: 0.2, Evidence: []EvidenceRecord{{Kind: "no-valid-http-response", Value: "no response"}}}
 }
 
+// Scheduling evidence only: neither a JSON error nor a failed probe proves
+// that a listener is API-only. Pages and recognized application protocols keep
+// their existing discovery schedule.
+func shouldBackoffProbe(observation ObservationRecord) bool {
+	if observation.HTTP == nil {
+		return observation.Classification == "unknown" || observation.Classification == "suspected-web" ||
+			(observation.Classification == "non-web" && observation.Protocol == "tcp")
+	}
+	response := observation.HTTP
+	if observation.Role == "page" || response.Status == nil ||
+		(*response.Status >= 200 && *response.Status < 300) ||
+		strings.TrimSpace(valueOrEmpty(response.Title)) != "" {
+		return false
+	}
+	contentType, _, err := mime.ParseMediaType(valueOrEmpty(response.ContentType))
+	return err == nil && (contentType == "application/json" || strings.HasSuffix(contentType, "+json"))
+}
+
+func nextCachedObservation(observation ObservationRecord, process ProcessRecord, previous cachedObservation, now time.Time) cachedObservation {
+	cacheDuration := 30 * time.Second
+	started, hasStart := parseProcessStarted(process.Started)
+	if observation.Classification == "suspected-web" ||
+		(observation.Classification == "unknown" && hasStart && now.Sub(started) >= 0 && now.Sub(started) < 30*time.Second) ||
+		(observation.HTTP != nil && observation.HTTP.Status != nil && *observation.HTTP.Status >= 500) {
+		cacheDuration = 3 * time.Second
+	}
+	entry := cachedObservation{observation: observation}
+	if shouldBackoffProbe(observation) {
+		// Preserve the first retry for starting services. Consecutive failures
+		// then wait 1, 2, 4, and at most 5 minutes, until recovery or identity change.
+		if previous.retryDelay > 0 {
+			cacheDuration = min(maxProbeBackoff, max(time.Minute, previous.retryDelay*2))
+		}
+		entry.retryDelay = cacheDuration
+	}
+	entry.expiresAt = now.Add(cacheDuration)
+	return entry
+}
+
 func observeCached(listener discoveredListener, process ProcessRecord, management ManagementRecord) ObservationRecord {
 	cacheKey := strings.Join([]string{
 		strconv.Itoa(listener.PID), listener.Address, strconv.Itoa(listener.Port),
@@ -1067,28 +1110,26 @@ func observeCached(listener discoveredListener, process ProcessRecord, managemen
 	}, "\x00")
 	now := time.Now()
 	observationCache.Lock()
-	if cached, exists := observationCache.entries[cacheKey]; exists && now.Before(cached.expiresAt) {
+	previous, exists := observationCache.entries[cacheKey]
+	if exists && now.Before(previous.expiresAt) {
 		observationCache.Unlock()
-		return cached.observation
+		return previous.observation
 	}
 	for key, cached := range observationCache.entries {
 		if now.After(cached.expiresAt.Add(2 * time.Minute)) {
 			delete(observationCache.entries, key)
+			if key == cacheKey {
+				previous = cachedObservation{}
+			}
 		}
 	}
 	observationCache.Unlock()
 
 	observation := observe(listener, process, management)
 	observation.ProbedAt = now.UTC().Format(time.RFC3339Nano)
-	cacheDuration := 30 * time.Second
-	started, hasStart := parseProcessStarted(process.Started)
-	if observation.Classification == "suspected-web" ||
-		(observation.Classification == "unknown" && hasStart && now.Sub(started) >= 0 && now.Sub(started) < 30*time.Second) ||
-		(observation.HTTP != nil && observation.HTTP.Status != nil && *observation.HTTP.Status >= 500) {
-		cacheDuration = 3 * time.Second
-	}
+	entry := nextCachedObservation(observation, process, previous, time.Now())
 	observationCache.Lock()
-	observationCache.entries[cacheKey] = cachedObservation{observation: observation, expiresAt: now.Add(cacheDuration)}
+	observationCache.entries[cacheKey] = entry
 	observationCache.Unlock()
 	return observation
 }
