@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -878,6 +879,62 @@ func TestReverseProxyReleasesUpstreamConnections(t *testing.T) {
 	if count := openConnections.Load(); count != 0 {
 		t.Fatalf("reverse proxy retained %d upstream connections", count)
 	}
+}
+
+func TestObserveClosesProbeConnectionsToSilentTCPListener(t *testing.T) {
+	server, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	var openConnections atomic.Int64
+	var acceptedConnections atomic.Int64
+	var handlers sync.WaitGroup
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, acceptErr := server.Accept()
+			if acceptErr != nil {
+				return
+			}
+			acceptedConnections.Add(1)
+			openConnections.Add(1)
+			handlers.Add(1)
+			go func(c net.Conn) {
+				defer handlers.Done()
+				defer openConnections.Add(-1)
+				defer c.Close()
+				_, _ = io.Copy(io.Discard, c)
+			}(conn)
+		}
+	}()
+
+	port := server.Addr().(*net.TCPAddr).Port
+	observation := observe(
+		discoveredListener{PID: os.Getpid(), Address: "127.0.0.1", Port: port},
+		ProcessRecord{},
+		ManagementRecord{Source: "unmanaged"},
+	)
+	if observation.Classification != "unknown" {
+		t.Fatalf("silent TCP listener classification = %q, want unknown", observation.Classification)
+	}
+	if acceptedConnections.Load() == 0 {
+		t.Fatal("expected observe to probe the silent TCP listener")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for openConnections.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if count := openConnections.Load(); count != 0 {
+		t.Fatalf("observe leaked %d open probe connection(s) to silent TCP listener", count)
+	}
+
+	_ = server.Close()
+	<-acceptDone
+	handlers.Wait()
 }
 
 func TestRouteManagerSwitchesBetweenPortlessAndFallbackURLs(t *testing.T) {

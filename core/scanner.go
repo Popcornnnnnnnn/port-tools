@@ -629,7 +629,9 @@ func pageCommandHint(command string) (string, bool) {
 
 func newProbeClient() *http.Client {
 	transport := &http.Transport{
-		DialContext: (&net.Dialer{Timeout: 350 * time.Millisecond}).DialContext,
+		DialContext:           (&net.Dialer{Timeout: 350 * time.Millisecond}).DialContext,
+		TLSHandshakeTimeout:   500 * time.Millisecond,
+		ResponseHeaderTimeout: 900 * time.Millisecond,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true, // Classification probe only; no response body is persisted.
 			ServerName:         "localhost",
@@ -671,6 +673,7 @@ func probeURL(listener discoveredListener, scheme string) (*HTTPRecord, []byte, 
 
 func probePath(listener discoveredListener, scheme, path string) (*HTTPRecord, []byte, error) {
 	client := newProbeClient()
+	defer client.CloseIdleConnections()
 	host := listenerHost(listener)
 	request, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("%s://%s:%d%s", scheme, host, listener.Port, path), nil)
 	request.Header.Set("User-Agent", "port-tools-core/"+version)
@@ -771,6 +774,7 @@ func isCDPCandidate(listener discoveredListener, process ProcessRecord, response
 
 func probeCDP(listener discoveredListener) (*CDPRecord, error) {
 	client := newProbeClient()
+	defer client.CloseIdleConnections()
 	host := listenerHost(listener)
 	getJSON := func(path string, destination any) error {
 		request, _ := http.NewRequestWithContext(
