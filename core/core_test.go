@@ -1314,3 +1314,40 @@ func TestBatchProcessInfoWithNonUSLocale(t *testing.T) {
 		t.Fatal("expected non-empty Command under non-US locale")
 	}
 }
+
+func TestExtractHTMLTitleIgnoresHTMLComments(t *testing.T) {
+	cases := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "comment mentioning title tag before real title",
+			html: `<!-- docs mentioning <title> tags. --> <title data-sm>OpenCode</title>`,
+			want: "OpenCode",
+		},
+		{
+			name: "commented out title tag before entity encoded title",
+			html: `<!-- <title>Commented Out</title> --><title>Real &amp; Clean</title>`,
+			want: "Real & Clean",
+		},
+		{
+			name: "only commented title returns empty",
+			html: `<!-- <title>Hidden</title> --><body>hello</body>`,
+			want: "",
+		},
+		{
+			name: "normal whitespace normalized title",
+			html: `<head><title>  Simple` + "\n" + `Title </title></head>`,
+			want: "Simple Title",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extractHTMLTitle([]byte(tc.html)); got != tc.want {
+				t.Fatalf("extractHTMLTitle(%q) = %q, want %q", tc.html, got, tc.want)
+			}
+		})
+	}
+}

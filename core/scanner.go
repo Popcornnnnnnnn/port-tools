@@ -25,7 +25,10 @@ import (
 	"time"
 )
 
-var titlePattern = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+var (
+	titlePattern       = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	htmlCommentPattern = regexp.MustCompile(`(?s)<!--.*?-->`)
+)
 
 var pageCommandHints = []string{
 	"vite", "next dev", "next-server", "webpack-dev-server",
@@ -834,13 +837,19 @@ func probePath(listener discoveredListener, scheme, path string) (*HTTPRecord, [
 	if server != "" {
 		record.Server = &server
 	}
-	if match := titlePattern.FindSubmatch(body); len(match) == 2 {
-		title := strings.Join(strings.Fields(html.UnescapeString(string(match[1]))), " ")
-		if title != "" {
-			record.Title = &title
-		}
+	if title := extractHTMLTitle(body); title != "" {
+		record.Title = &title
 	}
 	return record, body, nil
+}
+
+func extractHTMLTitle(body []byte) string {
+	cleaned := htmlCommentPattern.ReplaceAll(body, nil)
+	match := titlePattern.FindSubmatch(cleaned)
+	if len(match) != 2 {
+		return ""
+	}
+	return strings.Join(strings.Fields(html.UnescapeString(string(match[1]))), " ")
 }
 
 func htmlPage(response *HTTPRecord) bool {
