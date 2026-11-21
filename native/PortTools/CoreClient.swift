@@ -1,5 +1,161 @@
 import AppKit
+import Darwin
 import Foundation
+
+private enum UnixSocketHTTPClient {
+    enum TransportError: Error {
+        case invalidPath
+        case socketFailed(Int32)
+        case connectFailed(Int32)
+        case writeFailed(Int32)
+        case readFailed(Int32)
+        case malformedResponse
+    }
+
+    static func send(
+        socketPath: String,
+        method: String,
+        path: String,
+        body: Data?,
+        timeoutSeconds: Int
+    ) throws -> (statusCode: Int, body: Data) {
+        var addr = sockaddr_un()
+        addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(socketPath.utf8CString)
+        let sunPathCapacity = MemoryLayout.size(ofValue: addr.sun_path)
+        guard pathBytes.count <= sunPathCapacity else {
+            throw TransportError.invalidPath
+        }
+        withUnsafeMutablePointer(to: &addr.sun_path) { sunPathPtr in
+            sunPathPtr.withMemoryRebound(to: CChar.self, capacity: sunPathCapacity) { destination in
+                for (index, byte) in pathBytes.enumerated() {
+                    destination[index] = byte
+                }
+            }
+        }
+
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw TransportError.socketFailed(errno)
+        }
+        defer { Darwin.close(fd) }
+
+        var noSigPipe: Int32 = 1
+        _ = Darwin.setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: timeoutSeconds, tv_usec: 0)
+        _ = Darwin.setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        _ = Darwin.setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
+        let connectResult = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockAddr in
+                Darwin.connect(fd, sockAddr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connectResult == 0 else {
+            throw TransportError.connectFailed(errno)
+        }
+
+        var header = "\(method) \(path) HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n"
+        if let body {
+            header += "Content-Type: application/json\r\nContent-Length: \(body.count)\r\n"
+        }
+        header += "\r\n"
+        var requestData = Data(header.utf8)
+        if let body {
+            requestData.append(body)
+        }
+
+        try requestData.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return }
+            var sent = 0
+            while sent < rawBuffer.count {
+                let written = Darwin.send(fd, base.advanced(by: sent), rawBuffer.count - sent, 0)
+                if written > 0 {
+                    sent += written
+                } else if written < 0 && errno == EINTR {
+                    continue
+                } else {
+                    throw TransportError.writeFailed(errno)
+                }
+            }
+        }
+
+        var rawResponse = Data()
+        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+        while true {
+            let readCount = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.recv(fd, rawBuffer.baseAddress!, rawBuffer.count, 0)
+            }
+            if readCount > 0 {
+                rawResponse.append(buffer, count: readCount)
+            } else if readCount == 0 {
+                break
+            } else if errno == EINTR {
+                continue
+            } else {
+                throw TransportError.readFailed(errno)
+            }
+        }
+
+        let separator = Data("\r\n\r\n".utf8)
+        guard let boundary = rawResponse.range(of: separator) else {
+            throw TransportError.malformedResponse
+        }
+        let headerData = rawResponse[..<boundary.lowerBound]
+        guard let headerString = String(data: headerData, encoding: .utf8) else {
+            throw TransportError.malformedResponse
+        }
+        let headerLines = headerString.components(separatedBy: "\r\n")
+        guard let statusLine = headerLines.first else {
+            throw TransportError.malformedResponse
+        }
+        let statusParts = statusLine.split(separator: " ")
+        guard statusParts.count >= 2, let statusCode = Int(statusParts[1]) else {
+            throw TransportError.malformedResponse
+        }
+
+        var responseBody = Data(rawResponse[boundary.upperBound...])
+        let isChunked = headerLines.dropFirst().contains { line in
+            let lower = line.lowercased()
+            return lower.hasPrefix("transfer-encoding:") && lower.contains("chunked")
+        }
+        if isChunked {
+            responseBody = try decodeChunkedBody(responseBody)
+        }
+        return (statusCode, responseBody)
+    }
+
+    private static func decodeChunkedBody(_ data: Data) throws -> Data {
+        var decoded = Data()
+        var index = data.startIndex
+        let crlf = Data("\r\n".utf8)
+        while index < data.endIndex {
+            guard let lineEnd = data.range(of: crlf, in: index..<data.endIndex) else {
+                throw TransportError.malformedResponse
+            }
+            guard let sizeLine = String(data: data[index..<lineEnd.lowerBound], encoding: .ascii) else {
+                throw TransportError.malformedResponse
+            }
+            let sizeHex = sizeLine.split(separator: ";", maxSplits: 1)[0].trimmingCharacters(in: .whitespaces)
+            guard let chunkSize = Int(sizeHex, radix: 16) else {
+                throw TransportError.malformedResponse
+            }
+            index = lineEnd.upperBound
+            if chunkSize == 0 {
+                return decoded
+            }
+            guard let chunkEnd = data.index(index, offsetBy: chunkSize, limitedBy: data.endIndex),
+                  let trailerEnd = data.index(chunkEnd, offsetBy: 2, limitedBy: data.endIndex)
+            else {
+                throw TransportError.malformedResponse
+            }
+            decoded.append(data[index..<chunkEnd])
+            index = trailerEnd
+        }
+        return decoded
+    }
+}
 
 final class CoreRuntime: @unchecked Sendable {
     static let shared = CoreRuntime()
@@ -55,24 +211,28 @@ final class CoreRuntime: @unchecked Sendable {
 
     private func socketInstanceToken() -> String? {
         guard FileManager.default.fileExists(atPath: socketURL.path) else { return nil }
-        let probe = Process()
-        let output = Pipe()
-        let errors = Pipe()
-        probe.executableURL = executableURL
-        probe.arguments = ["request", "--socket", socketURL.path, "--path", "/v1/health"]
-        probe.standardOutput = output
-        probe.standardError = errors
         do {
-            try probe.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            probe.waitUntilExit()
-            guard probe.terminationStatus == 0,
-                  let document = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let response = try UnixSocketHTTPClient.send(
+                socketPath: socketURL.path, method: "GET", path: "/v1/health", body: nil, timeoutSeconds: 2
+            )
+            guard response.statusCode == 200,
+                  let document = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
             else { return nil }
             return document["instanceToken"] as? String
         } catch {
             return nil
         }
+    }
+
+    private func rotateLogIfNeeded() {
+        let fileManager = FileManager.default
+        guard let attributes = try? fileManager.attributesOfItem(atPath: logURL.path),
+              let fileSize = attributes[.size] as? NSNumber,
+              fileSize.int64Value > 1_048_576
+        else { return }
+        let rotatedURL = logURL.appendingPathExtension("1")
+        try? fileManager.removeItem(at: rotatedURL)
+        try? fileManager.moveItem(at: logURL, to: rotatedURL)
     }
 
     private func clearChild() {
@@ -98,6 +258,7 @@ final class CoreRuntime: @unchecked Sendable {
         try FileManager.default.createDirectory(at: socketURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.createDirectory(at: routeStateURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        rotateLogIfNeeded()
         if !FileManager.default.fileExists(atPath: logURL.path) {
             FileManager.default.createFile(atPath: logURL.path, contents: nil)
         }
@@ -149,29 +310,34 @@ final class CoreRuntime: @unchecked Sendable {
     }
 
     func request(method: String = "GET", path: String, body: Data? = nil) throws -> Data {
-        try start()
-        let task = Process()
-        let output = Pipe()
-        let errors = Pipe()
-        task.executableURL = executableURL
-        var arguments = ["request", "--socket", socketURL.path, "--method", method, "--path", path]
-        if let body, let value = String(data: body, encoding: .utf8) {
-            arguments += ["--body", value]
+        let needsStart: Bool = {
+            lock.lock()
+            defer { lock.unlock() }
+            return !(process?.isRunning == true && activeInstanceToken != nil)
+        }()
+        if needsStart {
+            try start()
         }
-        task.arguments = arguments
-        task.standardOutput = output
-        task.standardError = errors
-        try task.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errors.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        guard task.terminationStatus == 0 else {
-            let apiMessage = (try? JSONSerialization.jsonObject(with: data))
+
+        let socketPath = socketURL.path
+        let response: (statusCode: Int, body: Data)
+        do {
+            response = try UnixSocketHTTPClient.send(
+                socketPath: socketPath, method: method, path: path, body: body, timeoutSeconds: 15
+            )
+        } catch is UnixSocketHTTPClient.TransportError {
+            try start()
+            response = try UnixSocketHTTPClient.send(
+                socketPath: socketPath, method: method, path: path, body: body, timeoutSeconds: 15
+            )
+        }
+
+        guard (200..<300).contains(response.statusCode) else {
+            let apiMessage = (try? JSONSerialization.jsonObject(with: response.body))
                 .flatMap { $0 as? [String: Any] }?["error"] as? String
-            let stderr = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CoreError.failed(apiMessage ?? stderr ?? "Port Tools core request failed.")
+            throw CoreError.failed(apiMessage ?? "Port Tools core request failed (\(response.statusCode)).")
         }
-        return data
+        return response.body
     }
 
     func setPublicPort(_ port: Int) throws {

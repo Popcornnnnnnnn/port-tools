@@ -8,6 +8,7 @@ final class InventoryStore: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private let provider: InventoryProviding = BundledGoInventoryProvider()
+    private var lastLoggedListenerCount: Int?
 
     func refresh(silent: Bool = false) {
         guard !isRefreshing else { return }
@@ -20,7 +21,10 @@ final class InventoryStore: ObservableObject {
                 case .success(let document):
                     self.document = document
                     self.errorMessage = nil
-                    NSLog("Port Tools scan loaded %d listeners", document.services.count)
+                    if !silent || self.lastLoggedListenerCount != document.services.count {
+                        NSLog("Port Tools scan loaded %d listeners", document.services.count)
+                        self.lastLoggedListenerCount = document.services.count
+                    }
                 case .failure(let error):
                     self.errorMessage = error.localizedDescription
                     NSLog("Port Tools scan failed: %@", error.localizedDescription)

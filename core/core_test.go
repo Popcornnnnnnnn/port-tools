@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1029,5 +1033,259 @@ func TestForcePlanRefusesManagedAndAmbiguousTargets(t *testing.T) {
 				t.Fatalf("force plan = %#v, error = %v", record, err)
 			}
 		})
+	}
+}
+
+func TestParseBatchPSAndLsofCWD(t *testing.T) {
+	psOutput := strings.Join([]string{
+		"  101     1 Mon Jan  2 09:05:01 2026 /Applications/My App/node /Users/forge/Workspace/demo app/server.js --port 3000",
+		"  202   101 Sat Nov 21 17:43:49 2026 python3 -m http.server",
+		"  303     0 Wed Nov 18 10:32:03 2026 ",
+		"invalid line",
+	}, "\n")
+	parsedPS := parseBatchPSOutput(psOutput)
+	if len(parsedPS) != 3 {
+		t.Fatalf("parsed ps count = %d, want 3", len(parsedPS))
+	}
+	if parsedPS[101].ParentPID == nil || *parsedPS[101].ParentPID != 1 {
+		t.Fatalf("pid 101 ppid = %v, want 1", parsedPS[101].ParentPID)
+	}
+	if parsedPS[101].Started != "Mon Jan 2 09:05:01 2026" {
+		t.Fatalf("pid 101 started = %q", parsedPS[101].Started)
+	}
+	started101 := parsedPS[101].Started
+	if _, ok := parseProcessStarted(&started101); !ok {
+		t.Fatalf("normalized lstart %q did not parse", started101)
+	}
+	if parsedPS[101].Command != "/Applications/My App/node /Users/forge/Workspace/demo app/server.js --port 3000" {
+		t.Fatalf("pid 101 command = %q", parsedPS[101].Command)
+	}
+	if parsedPS[202].ParentPID == nil || *parsedPS[202].ParentPID != 101 || parsedPS[202].Command != "python3 -m http.server" {
+		t.Fatalf("pid 202 = %#v", parsedPS[202])
+	}
+	if parsedPS[303].ParentPID == nil || *parsedPS[303].ParentPID != 0 || parsedPS[303].Command != "" {
+		t.Fatalf("pid 303 = %#v", parsedPS[303])
+	}
+
+	lsofOutput := strings.Join([]string{
+		"p101",
+		"fcwd",
+		"n/Users/forge/Workspace/demo app",
+		"f0",
+		"n/dev/null",
+		"p202",
+		"fcwd",
+		"n/tmp/work",
+		"p404",
+		"fcwd",
+	}, "\n")
+	cwds := parseBatchLsofCWDOutput(lsofOutput)
+	if len(cwds) != 2 || cwds[101] != "/Users/forge/Workspace/demo app" || cwds[202] != "/tmp/work" {
+		t.Fatalf("parsed cwds = %#v", cwds)
+	}
+}
+
+func TestInventoryStateThrottlesRoutinePersistsAndPrunesStale(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "inventory.json")
+	manager, err := newInventoryStateManager(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	manager.state.Services["stale-old"] = inventoryStateEntry{
+		History: ServiceHistoryRecord{LastSeen: now.Add(-8 * 24 * time.Hour).Format(time.RFC3339Nano)},
+	}
+	manager.state.Services["stale-pinned"] = inventoryStateEntry{
+		History:     ServiceHistoryRecord{LastSeen: now.Add(-60 * 24 * time.Hour).Format(time.RFC3339Nano)},
+		Preferences: ServicePreferencesRecord{Pinned: true},
+	}
+	manager.state.Services["stale-named"] = inventoryStateEntry{
+		History:     ServiceHistoryRecord{LastSeen: now.Add(-60 * 24 * time.Hour).Format(time.RFC3339Nano)},
+		Preferences: ServicePreferencesRecord{DisplayName: "Saved"},
+	}
+	manager.state.Services["stale-ignored"] = inventoryStateEntry{
+		History:     ServiceHistoryRecord{LastSeen: now.Add(-60 * 24 * time.Hour).Format(time.RFC3339Nano)},
+		Preferences: ServicePreferencesRecord{Ignored: true},
+	}
+	manager.state.Services["stale-override"] = inventoryStateEntry{
+		History:     ServiceHistoryRecord{LastSeen: now.Add(-60 * 24 * time.Hour).Format(time.RFC3339Nano)},
+		Preferences: ServicePreferencesRecord{ClassificationOverride: "page"},
+	}
+	for index := 0; index < inventoryMaxUnseenHistoryEntries+25; index++ {
+		id := fmt.Sprintf("unseen-%04d", index)
+		manager.state.Services[id] = inventoryStateEntry{
+			History: ServiceHistoryRecord{LastSeen: now.Add(-time.Duration(index+1) * time.Minute).Format(time.RFC3339Nano)},
+		}
+	}
+
+	probeTime := now.Format(time.RFC3339Nano)
+	document := ScanDocument{Services: []ServiceRecord{{
+		ID:          "svc-1",
+		LogicalID:   "logical-1",
+		Observation: ObservationRecord{Classification: "confirmed-web", ProbedAt: probeTime},
+	}}}
+	if err := manager.apply(&document); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("\n  ")) {
+		t.Fatalf("expected compact JSON in inventory.json, got indented bytes")
+	}
+	if _, ok := manager.state.Services["stale-old"]; ok {
+		t.Fatal("expected >7d unseen plain entry to be pruned")
+	}
+	for _, preserved := range []string{"stale-pinned", "stale-named", "stale-ignored", "stale-override"} {
+		if _, ok := manager.state.Services[preserved]; !ok {
+			t.Fatalf("expected preference-bearing entry %q to be preserved", preserved)
+		}
+	}
+	if _, ok := manager.state.Services[fmt.Sprintf("unseen-%04d", inventoryMaxUnseenHistoryEntries+24)]; ok {
+		t.Fatal("expected oldest unseen excess entry to be evicted above cap")
+	}
+	if _, ok := manager.state.Services["unseen-0000"]; !ok {
+		t.Fatal("expected newest unseen entry within cap to be retained")
+	}
+
+	// Second apply within routine persist interval should update in-memory LastSeen without rewriting disk.
+	infoBefore, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(statePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.apply(&document); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("expected routine apply within 15m not to rewrite %s (before size %d)", statePath, infoBefore.Size())
+	}
+	if !manager.dirty {
+		t.Fatal("expected manager.dirty to stay true while LastSeen update is unpersisted")
+	}
+	if err := manager.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("expected flush() to persist pending state: %v", err)
+	}
+	if manager.dirty {
+		t.Fatal("expected manager.dirty to be false after flush()")
+	}
+}
+
+func TestIsParentAlive(t *testing.T) {
+	if !isParentAlive(os.Getpid(), os.Getppid()) {
+		t.Fatal("expected current process PID to be reported alive")
+	}
+	if isParentAlive(999999, 1) {
+		t.Fatal("expected nonexistent PID to be reported not alive")
+	}
+	if isParentAlive(os.Getpid(), os.Getpid()) {
+		t.Fatal("expected reparented process (initialPPID != os.Getppid()) to report parent gone")
+	}
+}
+
+func TestFilteredLogWriterDropsUnsolicitedHTTPBanner(t *testing.T) {
+	var buffer bytes.Buffer
+	writer := &filteredLogWriter{target: &buffer}
+	if _, err := writer.Write([]byte("2026/11/21 17:48:50 Unsolicited response received on idle HTTP channel starting with \"SSH-2.0-OrbStack\\r\\n\"; err=<nil>\n")); err != nil {
+		t.Fatal(err)
+	}
+	if buffer.Len() != 0 {
+		t.Fatalf("expected unsolicited HTTP banner log line to be dropped, got %q", buffer.String())
+	}
+	msg := "2026/11/21 17:48:51 listen tcp4 127.0.0.1:17890: bind: address already in use\n"
+	if _, err := writer.Write([]byte(msg)); err != nil {
+		t.Fatal(err)
+	}
+	if buffer.String() != msg {
+		t.Fatalf("expected normal log message %q, got %q", msg, buffer.String())
+	}
+}
+
+func TestHelperHTTPProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_HTTP_PROCESS") != "1" {
+		return
+	}
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		os.Exit(2)
+	}
+	fmt.Printf("PORT=%d\n", listener.Addr().(*net.TCPAddr).Port)
+	_ = os.Stdout.Sync()
+	_ = http.Serve(listener, http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(response, "on-demand-ok")
+	}))
+}
+
+func TestReverseProxyOnDemandScanResolvesWhenStatePresent(t *testing.T) {
+	rawDir := makeGitFixture(t, t.TempDir())
+	projectRoot, err := filepath.EvalSymlinks(rawDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperCmd := exec.Command(os.Args[0], "-test.run=^TestHelperHTTPProcess$")
+	helperCmd.Dir = projectRoot
+	helperCmd.Env = append(os.Environ(), "GO_WANT_HELPER_HTTP_PROCESS=1")
+	stdout, err := helperCmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := helperCmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if helperCmd.Process != nil {
+			_ = helperCmd.Process.Kill()
+		}
+		_ = helperCmd.Wait()
+	})
+
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil || !strings.HasPrefix(line, "PORT=") {
+		t.Fatalf("failed reading helper port line %q: %v", line, err)
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PORT=")))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tempDir := t.TempDir()
+	routes, err := newRouteManager(filepath.Join(tempDir, "routes.json"), 17890)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := newInventoryStateManager(filepath.Join(tempDir, "inventory.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routes.put("ondemand", RouteRecord{Port: port, ProjectRoot: projectRoot}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := routes.getResolved("ondemand"); ok {
+		t.Fatal("expected route to start unresolved before on-demand scan")
+	}
+
+	server := &coreServer{routes: routes, state: state, stops: newStopManager()}
+	proxy := httptest.NewServer(server.proxyHandler())
+	t.Cleanup(proxy.Close)
+
+	request, _ := http.NewRequest(http.MethodGet, proxy.URL, nil)
+	request.Host = "ondemand.localhost:17890"
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK || string(body) != "on-demand-ok" {
+		t.Fatalf("on-demand proxy = %d %q", response.StatusCode, body)
+	}
+	if resolved, ok := routes.getResolved("ondemand"); !ok || resolved.pid != helperCmd.Process.Pid {
+		t.Fatalf("expected on-demand scan to resolve pid %d, got %#v (ok=%v)", helperCmd.Process.Pid, resolved, ok)
 	}
 }
