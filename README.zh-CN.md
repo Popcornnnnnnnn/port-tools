@@ -112,4 +112,4 @@ python3 native/trial/verify.py
 - [打包要求](docs/packaging-requirements.md)
 - [发布与公证流程](docs/releasing.md)
 
-Port Tools 1.0.4 已发布。剩余验收和维护从 [Issues](https://github.com/Popcornnnnnnnn/port-tools/issues) 接续。
+Port Tools 1.0.5 已发布。剩余验收和维护从 [Issues](https://github.com/Popcornnnnnnnn/port-tools/issues) 接续。

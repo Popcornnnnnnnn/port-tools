@@ -112,7 +112,7 @@ The current release is deliberately local and conservative:
 - [Packaging requirements](docs/packaging-requirements.md)
 - [Release and notarization](docs/releasing.md)
 
-Port Tools 1.0.4 is released. Remaining acceptance and maintenance are tracked in [Issues](https://github.com/Popcornnnnnnnn/port-tools/issues).
+Port Tools 1.0.5 is released. Remaining acceptance and maintenance are tracked in [Issues](https://github.com/Popcornnnnnnnn/port-tools/issues).
 
 
 <!-- workspace-maintenance:start -->
