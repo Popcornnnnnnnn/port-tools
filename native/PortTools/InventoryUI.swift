@@ -39,10 +39,21 @@ func commandApplicationName(_ service: ServiceRecord) -> String? {
     return nil
 }
 
+func containerServiceName(_ service: ServiceRecord) -> String? {
+    guard let management = service.management, management.source == "docker" else { return nil }
+    for candidate in [management.labels?["com.docker.compose.service"], management.containerName] {
+        if let name = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+    }
+    return nil
+}
+
 func serviceName(_ service: ServiceRecord) -> String {
     if let name = service.preferences.displayName, !name.isEmpty { return name }
     if service.observation.protocol == "cdp" { return "Chrome DevTools" }
     if let title = service.observation.http?.title, !title.isEmpty { return title }
+    if let name = containerServiceName(service) { return name }
     if let name = service.application?.name, !name.isEmpty { return name }
     if let framework = service.observation.framework, !framework.isEmpty { return framework }
     if let commandName = commandApplicationName(service), !commandName.isEmpty { return commandName }
@@ -79,6 +90,7 @@ func isHighConfidenceStandalonePage(_ service: ServiceRecord) -> Bool {
 func relatedServiceName(_ service: ServiceRecord) -> String {
     if service.observation.protocol == "cdp" { return "Chrome DevTools" }
     if let title = service.observation.http?.title, !title.isEmpty { return title }
+    if let name = containerServiceName(service) { return name }
     if let commandName = commandApplicationName(service), !commandName.isEmpty { return commandName }
     if let framework = service.observation.framework, !framework.isEmpty { return framework }
     return service.process.name ?? "service :\(service.listener.port)"
@@ -313,6 +325,8 @@ func relativeAge(_ value: String?) -> String? {
 func serviceSearchText(_ service: ServiceRecord) -> String {
     [
         serviceName(service),
+        containerServiceName(service),
+        service.management?.source == "docker" ? service.management?.containerName : nil,
         String(service.listener.port),
         service.listener.address,
         service.project?.name,
@@ -361,6 +375,7 @@ func secondaryServiceName(_ service: ServiceRecord) -> String {
     if webClassifications.contains(service.observation.classification) {
         return isOpenablePage(service) ? serviceName(service) : relatedServiceName(service)
     }
+    if let name = containerServiceName(service) { return name }
     if let commandName = commandApplicationName(service), !commandName.isEmpty { return commandName }
     return service.process.name ?? "Listener :\(service.listener.port)"
 }
@@ -375,7 +390,7 @@ func secondaryServiceDescription(_ service: ServiceRecord) -> String {
 }
 
 struct ServiceDetailRow: View {
-    let label: String
+    let label: LocalizedStringKey
     let value: String
     var monospaced = false
 
@@ -383,13 +398,13 @@ struct ServiceDetailRow: View {
         HStack(alignment: .top, spacing: 12) {
             Text(label)
                 .foregroundStyle(.secondary)
-                .frame(width: 82, alignment: .leading)
+                .frame(width: 90, alignment: .leading)
             Text(value)
-                .font(monospaced ? .system(size: 11, design: .monospaced) : .system(size: 11))
+                .font(monospaced ? .system(size: 11.5, design: .monospaced) : .system(size: 11.5))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 11))
+        .font(.system(size: 11.5))
     }
 }
 
@@ -413,9 +428,21 @@ struct ServiceDetailView: View {
     let onClassification: (String) -> Void
     let onTogglePin: () -> Void
     let onIgnore: () -> Void
+    let onMessage: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scrollIndicator = ScrollIndicatorModel()
     @State private var backHovered = false
+    @State private var copiedAddress = false
+    @State private var copyResetWorkItem: DispatchWorkItem?
+
+    private var openableURL: URL? {
+        guard webClassifications.contains(service.observation.classification) else { return nil }
+        return primaryServiceURL(service)
+    }
+
+    private var copyValue: String {
+        primaryServiceURL(service)?.absoluteString ?? listenerEndpoint(service)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -423,9 +450,9 @@ struct ServiceDetailView: View {
                 Button(action: onBack) {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                         Text("Back")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundStyle(Color.primary.opacity(backHovered ? 0.96 : 0.82))
                     .padding(.horizontal, 8)
@@ -445,7 +472,7 @@ struct ServiceDetailView: View {
                 .accessibilityLabel("Back to Web apps")
                 Spacer()
                 Text("Service details")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Menu {
                     Menu("Display as") {
@@ -470,18 +497,68 @@ struct ServiceDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(isOpenablePage(service) ? serviceName(service) : relatedServiceName(service))
-                            .font(.system(size: 18, weight: .semibold))
-                        Text(serviceTypeDescription(service))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(isOpenablePage(service) ? serviceName(service) : relatedServiceName(service))
+                                .font(.system(size: 18, weight: .semibold))
+                            Text(serviceTypeDescription(service))
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack(spacing: 8) {
+                            if let openableURL {
+                                if isOpenablePage(service) {
+                                    Button {
+                                        NSWorkspace.shared.open(openableURL)
+                                    } label: {
+                                        Label("Open", systemImage: "arrow.up.right.square")
+                                            .lineLimit(1)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                } else {
+                                    Button {
+                                        NSWorkspace.shared.open(openableURL)
+                                    } label: {
+                                        Label("Open", systemImage: "arrow.up.right.square")
+                                            .lineLimit(1)
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(copyValue, forType: .string)
+                                copiedAddress = true
+                                onMessage(portToolsString("Address copied"))
+                                copyResetWorkItem?.cancel()
+                                let reset = DispatchWorkItem { copiedAddress = false }
+                                copyResetWorkItem = reset
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: reset)
+                            } label: {
+                                Label(copiedAddress ? "Copied" : "Copy", systemImage: copiedAddress ? "checkmark" : "doc.on.doc")
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(.bordered)
+
+                            if let projectRoot = service.project?.root {
+                                Button {
+                                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: projectRoot)])
+                                } label: {
+                                    Label("Reveal in Finder", systemImage: "folder")
+                                        .lineLimit(1)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        .controlSize(.small)
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("OVERVIEW")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
                         if isOpenablePage(service) {
                             ServiceDetailRow(label: "Homepage", value: homepageDescription(service))
                         } else if let cdp = service.observation.cdp {
@@ -501,8 +578,8 @@ struct ServiceDetailView: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("ENDPOINT")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
                         if webClassifications.contains(service.observation.classification) {
                             ServiceDetailRow(label: "Local", value: serviceURL(service)?.absoluteString ?? "Unknown", monospaced: true)
                         }
@@ -517,13 +594,17 @@ struct ServiceDetailView: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("PROCESS")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
                         ServiceDetailRow(label: "Project", value: service.project?.name ?? "Unassigned")
                         ServiceDetailRow(
                             label: "Application",
                             value: service.application?.name ?? commandApplicationName(service) ?? "Project root"
                         )
+                        if let containerName = containerServiceName(service) ?? service.management?.containerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !containerName.isEmpty {
+                            ServiceDetailRow(label: "Container", value: containerName)
+                        }
                         ServiceDetailRow(label: "Command", value: service.process.command ?? "Unknown", monospaced: true)
                     }
 
@@ -542,10 +623,19 @@ struct ServiceDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onKeyPress("[", phases: .down) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            onBack()
-            return .handled
+        .background {
+            Button("Back", action: onBack)
+                .keyboardShortcut("[", modifiers: .command)
+                .labelsHidden()
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .onDisappear {
+            copyResetWorkItem?.cancel()
+            copyResetWorkItem = nil
         }
     }
 }
@@ -808,23 +898,27 @@ private enum PortToolsTheme {
     }
 
     static func chromeSurface(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.025) : Color.white.opacity(0.46)
+        scheme == .dark ? Color.white.opacity(0.03) : Color.white.opacity(0.58)
     }
 
     static func headerSurface(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.055) : Color.white.opacity(0.72)
+        scheme == .dark ? Color.white.opacity(0.055) : Color.white.opacity(0.78)
     }
 
     static func groupSurface(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.035) : Color.white.opacity(0.52)
+        scheme == .dark ? Color.white.opacity(0.038) : Color.white.opacity(0.84)
     }
 
     static func groupBorder(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.075) : Color.white.opacity(0.78)
+        scheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.09)
     }
 
     static func hoverSurface(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.045) : Color.black.opacity(0.035)
+        scheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
+    }
+
+    static func tooltipSurface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.125, green: 0.145, blue: 0.188) : Color.white
     }
 }
 
@@ -895,7 +989,7 @@ private struct PossiblyLeftRunningIndicator: View {
 
     var body: some View {
         Image(systemName: "power.circle.fill")
-            .font(.system(size: 9))
+            .font(.system(size: 10))
             .foregroundStyle(.orange)
             .help("Possibly left running: \(reasons.joined(separator: ", "))")
             .accessibilityLabel("Possibly left running")
@@ -908,27 +1002,27 @@ private struct FullTitleBubble: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var tooltipWidth: CGFloat {
-        min(310, max(150, CGFloat(title.count) * 6.6))
+        min(310, max(150, CGFloat(title.count) * 7.0))
     }
 
     var body: some View {
         Text(title)
-            .font(.system(size: 10.5, weight: .medium))
+            .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(.primary)
             .lineLimit(3)
             .fixedSize(horizontal: false, vertical: true)
             .frame(width: tooltipWidth, alignment: .leading)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 9)
             .padding(.vertical, 6)
             .background(
-                PortToolsTheme.panelBase(colorScheme),
+                PortToolsTheme.tooltipSurface(colorScheme),
                 in: RoundedRectangle(cornerRadius: 7, style: .continuous)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(PortToolsTheme.groupBorder(colorScheme), lineWidth: 0.75)
+                    .stroke(PortToolsTheme.groupBorder(colorScheme), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.24), radius: 9, y: 4)
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.34 : 0.16), radius: 10, y: 4)
             .allowsHitTesting(false)
     }
 }
@@ -997,15 +1091,28 @@ private struct HoverFullTitleText: View {
             }
             .overlay(alignment: .topLeading) {
                 if isVisible || forcesTooltipForPreview {
-                    FullTitleBubble(title: title)
-                        .offset(x: -4, y: -3)
-                        .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
+                    GeometryReader { proxy in
+                        let titleTop = proxy.frame(in: .named("inventoryScroll")).minY
+                        let showAbove = titleTop >= 56
+                        FullTitleBubble(title: title)
+                            .fixedSize()
+                            .offset(x: -4, y: showAbove ? -(proxy.size.height + 6) : proxy.size.height + 4)
+                            .frame(
+                                width: proxy.size.width,
+                                height: proxy.size.height,
+                                alignment: showAbove ? .bottomLeading : .topLeading
+                            )
+                    }
+                    .allowsHitTesting(false)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
                 }
             }
             .zIndex(isVisible || forcesTooltipForPreview ? 100 : 0)
             .onDisappear {
                 pendingReveal?.cancel()
                 pendingReveal = nil
+                pointerIsInside = false
+                isVisible = false
             }
     }
 
@@ -1121,6 +1228,17 @@ private struct ExpandableContentHeightKey: PreferenceKey {
     }
 }
 
+private struct ExpandableClipShape: Shape {
+    let isClipped: Bool
+
+    func path(in rect: CGRect) -> Path {
+        if isClipped {
+            return Path(rect)
+        }
+        return Path(rect.insetBy(dx: -24, dy: -140))
+    }
+}
+
 /// Keeps secondary-section width stable while giving the content a compact,
 /// direction-aware reveal inspired by React Bits' Animated Content pattern.
 struct ExpandableContent<Content: View>: View {
@@ -1129,6 +1247,8 @@ struct ExpandableContent<Content: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var contentHeight: CGFloat = 0
+    @State private var isTransitioning = false
+    @State private var transitionResetWorkItem: DispatchWorkItem?
 
     private var animation: Animation {
         reduceMotion ? .easeOut(duration: 0.1) : .snappy(duration: 0.2, extraBounce: 0.035)
@@ -1146,10 +1266,27 @@ struct ExpandableContent<Content: View>: View {
             .offset(y: reduceMotion || isExpanded ? 0 : -5)
             .scaleEffect(x: 1, y: reduceMotion || isExpanded ? 1 : 0.985, anchor: .top)
             .frame(height: isExpanded ? contentHeight : 0, alignment: .top)
-            .clipped()
+            .clipShape(ExpandableClipShape(isClipped: !isExpanded || isTransitioning || contentHeight == 0))
             .allowsHitTesting(isExpanded)
             .accessibilityHidden(!isExpanded)
             .animation(animation, value: isExpanded)
+            .onChange(of: isExpanded) { _, _ in
+                transitionResetWorkItem?.cancel()
+                transitionResetWorkItem = nil
+                guard !reduceMotion else {
+                    isTransitioning = false
+                    return
+                }
+                isTransitioning = true
+                let reset = DispatchWorkItem { isTransitioning = false }
+                transitionResetWorkItem = reset
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: reset)
+            }
+            .onDisappear {
+                transitionResetWorkItem?.cancel()
+                transitionResetWorkItem = nil
+                isTransitioning = false
+            }
             .onPreferenceChange(ExpandableContentHeightKey.self) { measuredHeight in
                 guard measuredHeight > 0, abs(measuredHeight - contentHeight) > 0.5 else { return }
                 contentHeight = measuredHeight
@@ -1379,9 +1516,9 @@ struct ProjectTitleLink: View {
                             isUnderlined: isHovered
                         )
                         Image(systemName: "arrow.up.right")
-                            .font(.system(size: 7.5, weight: .semibold))
-                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.52 : 0))
-                            .frame(width: 9)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.65 : 0))
+                            .frame(width: 10)
                     }
                 }
                 .buttonStyle(.plain)
@@ -1412,19 +1549,19 @@ struct BackgroundServiceButton: View {
         Button {
             withAnimation(disclosureAnimation) { action() }
         } label: {
-            HStack(spacing: 2) {
+            HStack(spacing: 2.5) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 8.5, weight: .medium))
+                    .font(.system(size: 9.5, weight: .medium))
                 if count > 1 {
                     Text(String(count))
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                 }
             }
-            .foregroundStyle(Color.secondary.opacity(isHovered || isExpanded ? 0.78 : 0.5))
-            .padding(.horizontal, 4)
-            .frame(minWidth: 22, minHeight: 18)
+            .foregroundStyle(Color.secondary.opacity(isHovered || isExpanded ? 0.84 : 0.56))
+            .padding(.horizontal, 5)
+            .frame(minWidth: 24, minHeight: 19)
             .background(
-                Color.secondary.opacity(isHovered || isExpanded ? 0.12 : 0.065),
+                Color.secondary.opacity(isHovered || isExpanded ? 0.14 : 0.08),
                 in: Capsule()
             )
             .contentShape(Rectangle())
@@ -1444,11 +1581,11 @@ private struct RuntimeAgeLabel: View {
 
     var body: some View {
         Text(age)
-            .font(.system(size: 9))
-            .foregroundStyle(.tertiary)
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .frame(minWidth: 40, alignment: .trailing)
+            .frame(minWidth: 42, alignment: .trailing)
             .help("Process has been running for \(age)")
     }
 }
@@ -1462,6 +1599,7 @@ struct ServiceRow: View {
     let backgroundServiceCount: Int
     let backgroundServicesExpanded: Bool
     let fillsProjectCard: Bool
+    var isKeyboardSelected: Bool = false
     let onToggleBackgroundServices: (() -> Void)?
     let onRename: () -> Void
     let onRenameProject: (() -> Void)?
@@ -1477,6 +1615,10 @@ struct ServiceRow: View {
 
     @State private var isHovered = false
     @State private var isLinkHovered = false
+    @State private var isCopyHovered = false
+    @State private var isStopHovered = false
+    @State private var copiedRecently = false
+    @State private var copyResetWorkItem: DispatchWorkItem?
     @State private var isEditingAlias = false
     @State private var aliasDraft = ""
     @State private var aliasEditorDidFocus = false
@@ -1494,6 +1636,10 @@ struct ServiceRow: View {
         normalizedAlias.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"#, options: .regularExpression) != nil
     }
 
+    private var showQuickActions: Bool {
+        isHovered || isCopyHovered || isStopHovered || copiedRecently || isKeyboardSelected
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
@@ -1502,18 +1648,18 @@ struct ServiceRow: View {
 
                 if service.observation.classification != "confirmed-web" || !(200..<500).contains(service.observation.http?.status ?? 0) {
                     Image(systemName: "questionmark.circle.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.orange.opacity(0.75))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange.opacity(0.8))
                         .help("Web detection is not yet verified")
                 } else {
                     Image(systemName: "checkmark.shield.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.green.opacity(0.72))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green.opacity(0.76))
                         .help("HTTP or HTTPS response verified")
                 }
                 if service.preferences.pinned {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 8.5))
+                        .font(.system(size: 9.5))
                         .foregroundStyle(.blue)
                         .help("Pinned")
                 }
@@ -1578,8 +1724,8 @@ struct ServiceRow: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.secondary.opacity(isHovered ? 0.58 : 0.2))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.secondary.opacity(isHovered ? 0.72 : 0.34))
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
@@ -1587,6 +1733,7 @@ struct ServiceRow: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
             }
+            .zIndex(2)
 
             if let projectContext {
                 HStack(spacing: 4) {
@@ -1594,7 +1741,7 @@ struct ServiceRow: View {
                     Text(projectContext)
                         .lineLimit(1)
                 }
-                .font(.system(size: 9.5))
+                .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
             }
 
@@ -1610,7 +1757,7 @@ struct ServiceRow: View {
                         Text(portless.runtimeStatus == .active ? ".localhost" : ".localhost:17890")
                             .foregroundStyle(.secondary)
                     }
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                     .padding(.horizontal, 7)
                     .frame(height: 26)
                     .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
@@ -1641,9 +1788,11 @@ struct ServiceRow: View {
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "link")
+                                .font(.system(size: 10))
                             Text(compactServiceAddress(service))
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 11, design: .monospaced))
                                 .lineLimit(1)
+                                .truncationMode(.middle)
                                 .underline(isLinkHovered)
                         }
                     }
@@ -1654,8 +1803,8 @@ struct ServiceRow: View {
 
                     Button { beginAliasEditing() } label: {
                         Image(systemName: "pencil")
-                            .font(.system(size: 8.5, weight: .medium))
-                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.72 : 0.38))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color.secondary.opacity(isHovered ? 0.80 : 0.45))
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
                     }
@@ -1664,11 +1813,65 @@ struct ServiceRow: View {
 
                     if service.listener.bindScope != "loopback" {
                         Image(systemName: "network")
-                            .font(.system(size: 8.5))
-                            .foregroundStyle(.secondary.opacity(0.7))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary.opacity(0.76))
                             .help("Potentially reachable on this LAN")
                     }
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 4)
+
+                    HStack(spacing: 3) {
+                        Button {
+                            copyAddress()
+                            copiedRecently = true
+                            copyResetWorkItem?.cancel()
+                            let reset = DispatchWorkItem { copiedRecently = false }
+                            copyResetWorkItem = reset
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: reset)
+                        } label: {
+                            Image(systemName: copiedRecently ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(
+                                    copiedRecently
+                                        ? Color.green
+                                        : Color.primary.opacity(isCopyHovered ? 0.88 : 0.62)
+                                )
+                                .frame(width: 22, height: 22)
+                                .background(
+                                    PortToolsTheme.hoverSurface(colorScheme).opacity(isCopyHovered ? 1.5 : 0.7),
+                                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { isCopyHovered = $0 }
+                        .help("Copy address")
+                        .accessibilityLabel("Copy address")
+
+                        Button(action: onReviewStop) {
+                            Image(systemName: "stop.circle")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(
+                                    isStopHovered
+                                        ? Color.red
+                                        : Color.primary.opacity(0.62)
+                                )
+                                .frame(width: 22, height: 22)
+                                .background(
+                                    (isStopHovered
+                                        ? Color.red.opacity(colorScheme == .dark ? 0.18 : 0.11)
+                                        : PortToolsTheme.hoverSurface(colorScheme).opacity(0.7)),
+                                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { isStopHovered = $0 }
+                        .help("Review safe stop…")
+                        .accessibilityLabel("Review safe stop…")
+                    }
+                    .opacity(showQuickActions ? 1 : 0)
+                    .allowsHitTesting(showQuickActions)
+                    .animation(.easeOut(duration: 0.1), value: showQuickActions)
                 }
             }
         }
@@ -1676,22 +1879,32 @@ struct ServiceRow: View {
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isHovered ? PortToolsTheme.hoverSurface(colorScheme) : Color.clear,
+            isKeyboardSelected
+                ? Color.accentColor.opacity(colorScheme == .dark ? 0.16 : 0.10)
+                : (isHovered ? PortToolsTheme.hoverSurface(colorScheme) : Color.clear),
             in: RoundedRectangle(cornerRadius: fillsProjectCard ? 12 : 8, style: .continuous)
         )
+        .overlay {
+            if isKeyboardSelected {
+                RoundedRectangle(cornerRadius: fillsProjectCard ? 12 : 8, style: .continuous)
+                    .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
+            }
+        }
         .zIndex(isHovered ? 5 : 0)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
         }
         .onDisappear {
             removeAliasClickMonitor()
+            copyResetWorkItem?.cancel()
+            copyResetWorkItem = nil
         }
     }
 
     private func copyAddress() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(primaryServiceURL(service)?.absoluteString ?? "", forType: .string)
-        onMessage("Address copied")
+        onMessage(portToolsString("Address copied"))
     }
 
     private func openOriginalAddress() {
@@ -1771,18 +1984,18 @@ struct RelatedServiceRow: View {
         Button(action: onEvidence) {
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
-                    .frame(width: 13, height: 16)
+                    .frame(width: 14, height: 16)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(relatedServiceName(service))
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .lineLimit(1)
                         if service.listener.bindScope != "loopback" {
                             Label("LAN access", systemImage: "network")
-                                .font(.system(size: 8.5, weight: .medium))
+                                .font(.system(size: 9.5, weight: .medium))
                                 .foregroundStyle(Color.secondary)
                         }
                         if service.staleness.possiblyForgotten {
@@ -1795,9 +2008,9 @@ struct RelatedServiceRow: View {
                         Text(relatedServiceDescription(service))
                         Text("·")
                         Text(compactRawServiceAddress(service))
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.system(size: 10, design: .monospaced))
                     }
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 }
@@ -1808,8 +2021,8 @@ struct RelatedServiceRow: View {
                         RuntimeAgeLabel(age: age)
                     }
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Color.secondary.opacity(isHovered ? 0.58 : 0.08))
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(Color.secondary.opacity(isHovered ? 0.65 : 0.18))
                         .frame(width: 10, height: 16)
                 }
             }
@@ -1842,18 +2055,18 @@ struct SecondaryServiceRow: View {
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(secondaryServiceName(service))
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                     HStack(spacing: 5) {
                         Text(secondaryServiceDescription(service))
                         Text("·")
                         Text(listenerEndpoint(service))
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.system(size: 10, design: .monospaced))
                         if service.listener.bindScope != "loopback" {
                             Text("· LAN access")
                         }
                     }
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 }
@@ -1865,8 +2078,8 @@ struct SecondaryServiceRow: View {
                     RuntimeAgeLabel(age: age)
                 }
                 Image(systemName: "info.circle")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 10)
@@ -1969,6 +2182,11 @@ struct InventoryView: View {
     @State private var pinnedProjects = Set(UserDefaults.standard.stringArray(forKey: "pinnedProjectIDs") ?? [])
     @State private var query = ""
     @State private var searchVisible = false
+    @State private var selectedSearchServiceID: String?
+    @State private var hoveredProjectID: String?
+    @State private var hoveredHeaderProjectID: String?
+    @State private var hoveredApplicationKey: String?
+    @State private var footerSearchHovered = false
     @State private var settingsHovered = false
     @State private var message: (text: String, isError: Bool)?
     @State private var scrollIndicator = ScrollIndicatorModel()
@@ -2038,6 +2256,17 @@ struct InventoryView: View {
         }
     }
 
+    private var orderedOpenableFilteredPages: [ServiceRecord] {
+        filteredProjects.flatMap { project in
+            let pages = project.applications.flatMap { application in
+                application.services.filter(isOpenablePage)
+            }
+            let isExpanded = isSearching || pages.count <= 1 || !collapsedProjects.contains(project.id)
+            guard isExpanded else { return [ServiceRecord]() }
+            return pages
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 10) {
@@ -2048,14 +2277,14 @@ struct InventoryView: View {
                             Circle().fill(store.errorMessage != nil ? Color.orange : store.document == nil ? Color.secondary : Color.green).frame(width: 5, height: 5)
                             Text(portToolsString(store.errorMessage != nil ? "UNAVAILABLE" : store.document == nil ? "SCANNING" : "UPDATED"))
                         }
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(store.errorMessage != nil ? Color.orange : store.document == nil ? Color.secondary : Color.green)
                         .padding(.horizontal, 6)
-                        .frame(height: 18)
-                        .background((store.errorMessage != nil ? Color.orange : store.document == nil ? Color.secondary : Color.green).opacity(colorScheme == .dark ? 0.12 : 0.09), in: Capsule())
+                        .frame(height: 19)
+                        .background((store.errorMessage != nil ? Color.orange : store.document == nil ? Color.secondary : Color.green).opacity(colorScheme == .dark ? 0.12 : 0.10), in: Capsule())
                     }
                     Text(store.document == nil ? "Scanning local Web apps…" : inventorySummary)
-                        .font(.caption2)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -2065,8 +2294,7 @@ struct InventoryView: View {
                     help: "Search (⌘K)",
                     isActive: searchVisible
                 ) {
-                    searchVisible.toggle()
-                    if searchVisible { searchFocused = true } else { query = "" }
+                    if searchVisible { closeSearch() } else { openSearch() }
                 }
                 SettingsLink {
                     Image(systemName: "gearshape")
@@ -2097,14 +2325,44 @@ struct InventoryView: View {
 
             if searchVisible {
                 HStack(spacing: 7) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                     TextField("Project, app, port, branch…", text: $query)
+                        .font(.system(size: 12))
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
+                        .disabled(evidenceService != nil)
+                        .onSubmit {
+                            guard evidenceService == nil else { return }
+                            openSelectedSearchResult()
+                        }
+                        .onExitCommand {
+                            guard evidenceService == nil else { return }
+                            handleSearchEscape()
+                        }
+                        .onKeyPress(.downArrow, phases: .down) { _ in
+                            guard evidenceService == nil else { return .ignored }
+                            moveSearchSelection(delta: 1)
+                            return .handled
+                        }
+                        .onKeyPress(.upArrow, phases: .down) { _ in
+                            guard evidenceService == nil else { return .ignored }
+                            moveSearchSelection(delta: -1)
+                            return .handled
+                        }
                     if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
+                        Button {
+                            query = ""
+                            selectedSearchServiceID = nil
+                            searchFocused = true
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Clear search")
+                        .accessibilityLabel("Clear search")
                     }
                 }
                 .padding(.horizontal, 10)
@@ -2118,104 +2376,141 @@ struct InventoryView: View {
 
             Divider()
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if let error = store.errorMessage {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Live scan unavailable").font(.caption.weight(.semibold))
-                                Text(error).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        if let error = store.errorMessage {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Live scan unavailable").font(.caption.weight(.semibold))
+                                    Text(error).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                                }
+                                Spacer()
+                                Button("Retry") { store.refresh() }.controlSize(.small)
                             }
-                            Spacer()
-                            Button("Retry") { store.refresh() }.controlSize(.small)
-                        }
-                        .padding(12)
-                    } else if store.document == nil {
-                        ProgressView("Checking active Web services…")
-                            .controlSize(.small)
-                            .padding(.vertical, 80)
-                    } else if filteredProjects.isEmpty && filteredOtherWebServices.isEmpty && filteredOtherListenerServices.isEmpty {
-                        ContentUnavailableView(
-                            query.isEmpty ? "No development Web apps" : "No matching Web apps",
-                            systemImage: "magnifyingglass",
-                            description: Text(query.isEmpty ? "They appear automatically when you start one." : "Try a project, app, port, or branch.")
-                        )
-                        .frame(height: 230)
-                    } else {
-                        ForEach(filteredProjects) { project in
-                            projectSection(project)
-                                .padding(.vertical, 2)
-                                .padding(.horizontal, 8)
-                        }
+                            .padding(12)
+                        } else if store.document == nil {
+                            ProgressView("Checking active Web services…")
+                                .controlSize(.small)
+                                .padding(.vertical, 80)
+                        } else if filteredProjects.isEmpty && filteredOtherWebServices.isEmpty && filteredOtherListenerServices.isEmpty {
+                            ContentUnavailableView(
+                                query.isEmpty ? "No development Web apps" : "No matching Web apps",
+                                systemImage: "magnifyingglass",
+                                description: Text(query.isEmpty ? "They appear automatically when you start one." : "Try a project, app, port, or branch.")
+                            )
+                            .frame(height: 230)
+                        } else {
+                            ForEach(filteredProjects) { project in
+                                projectSection(project)
+                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, 8)
+                                    .zIndex(hoveredProjectID == project.id ? 20 : 0)
+                                    .onHover { hovering in
+                                        if hovering {
+                                            hoveredProjectID = project.id
+                                        } else if hoveredProjectID == project.id {
+                                            hoveredProjectID = nil
+                                        }
+                                    }
+                            }
 
-                        Spacer(minLength: 2)
-                        if !filteredOtherWebServices.isEmpty {
-                            secondarySection(
-                                "Other Web endpoints",
-                                services: filteredOtherWebServices,
-                                isOpen: isSearching || expandedOtherWeb,
-                                onToggle: { expandedOtherWeb.toggle() }
-                            )
-                        }
-                        if !filteredOtherListenerServices.isEmpty {
-                            secondarySection(
-                                "Other listeners",
-                                services: filteredOtherListenerServices,
-                                isOpen: isSearching || expandedOtherListeners,
-                                onToggle: { expandedOtherListeners.toggle() }
-                            )
+                            Spacer(minLength: 2)
+                            if !filteredOtherWebServices.isEmpty {
+                                secondarySection(
+                                    "Other Web endpoints",
+                                    services: filteredOtherWebServices,
+                                    isOpen: isSearching || expandedOtherWeb,
+                                    onToggle: { expandedOtherWeb.toggle() }
+                                )
+                            }
+                            if !filteredOtherListenerServices.isEmpty {
+                                secondarySection(
+                                    "Other listeners",
+                                    services: filteredOtherListenerServices,
+                                    isOpen: isSearching || expandedOtherListeners,
+                                    onToggle: { expandedOtherListeners.toggle() }
+                                )
+                            }
                         }
                     }
+                    .frame(width: inventoryPanelWidth, alignment: .leading)
+                    .padding(.top, 5)
+                    .background(TransientScrollViewConfigurator(model: scrollIndicator))
                 }
+                .coordinateSpace(name: "inventoryScroll")
+                .scrollIndicators(.hidden)
+                .contentMargins(.trailing, 0, for: .scrollContent)
+                // A legacy scroller can widen the AppKit scroll view after SwiftUI
+                // measures it. Pin that overflow to the leading edge instead of
+                // letting the fixed-width panel center it and shift the cards.
                 .frame(width: inventoryPanelWidth, alignment: .leading)
-                .padding(.top, 5)
-                .background(TransientScrollViewConfigurator(model: scrollIndicator))
-            }
-            .scrollIndicators(.hidden)
-            .contentMargins(.trailing, 0, for: .scrollContent)
-            // A legacy scroller can widen the AppKit scroll view after SwiftUI
-            // measures it. Pin that overflow to the leading edge instead of
-            // letting the fixed-width panel center it and shift the cards.
-            .frame(width: inventoryPanelWidth, alignment: .leading)
-            .clipped()
-            .overlay(alignment: .topTrailing) {
-                TransientScrollIndicator(model: scrollIndicator)
+                .clipped()
+                .overlay(alignment: .topTrailing) {
+                    TransientScrollIndicator(model: scrollIndicator)
+                }
+                .onChange(of: selectedSearchServiceID) { _, selectedID in
+                    guard let selectedID else { return }
+                    withAnimation(.easeOut(duration: 0.14)) {
+                        scrollProxy.scrollTo(selectedID, anchor: .center)
+                    }
+                }
             }
 
             Divider()
             HStack {
                 Text(updatedText)
                 Spacer()
-                Text("⌘K Search")
+                Button {
+                    if searchVisible { closeSearch() } else { openSearch() }
+                } label: {
+                    if searchVisible {
+                        HStack(spacing: 4) {
+                            Text("↵ Open")
+                            Text("·")
+                            Text("Esc")
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            PortToolsTheme.hoverSurface(colorScheme).opacity(footerSearchHovered ? 1.2 : 0),
+                            in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        )
+                    } else {
+                        HStack(spacing: 5) {
+                            Text("⌘K")
+                                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(
+                                    Color.secondary.opacity(colorScheme == .dark ? 0.16 : 0.12),
+                                    in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                )
+                            Text("Search")
+                        }
+                        .foregroundStyle(Color.primary.opacity(footerSearchHovered ? 0.88 : 0.62))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(
+                            PortToolsTheme.hoverSurface(colorScheme).opacity(footerSearchHovered ? 1 : 0),
+                            in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+                .onHover { footerSearchHovered = $0 }
+                .help(searchVisible ? "Close search (Esc)" : "Search (⌘K)")
+                .accessibilityLabel(searchVisible ? "Close search" : "Search")
             }
-            .font(.system(size: 9))
-            .foregroundStyle(.tertiary)
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
-            .frame(height: 25)
+            .frame(height: 28)
             .background(PortToolsTheme.chromeSurface(colorScheme))
         }
         .frame(width: inventoryPanelWidth, height: inventoryPanelHeight)
         .background(PortToolsTheme.panelBase(colorScheme))
-        .overlay(alignment: .bottom) {
-            if let message {
-                HStack(spacing: 8) {
-                    Label(message.text, systemImage: message.isError ? "exclamationmark.triangle.fill" : "checkmark")
-                    if message.isError {
-                        Button("Dismiss") { withAnimation { self.message = nil } }
-                            .buttonStyle(.plain)
-                            .font(.caption.weight(.semibold))
-                    }
-                }
-                    .font(.caption)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
-                    .foregroundStyle(.white)
-                    .background(message.isError ? Color(red: 0.55, green: 0.27, blue: 0.06) : Color(red: 0.16, green: 0.22, blue: 0.30), in: RoundedRectangle(cornerRadius: 9))
-                    .padding(.bottom, 38)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
         .overlay {
             if let service = evidenceService {
                 ZStack {
@@ -2235,7 +2530,8 @@ struct InventoryView: View {
                         onIgnore: {
                             hideServiceDetails()
                             updatePreferences(service, ["ignored": true], message: "Moved to Ignored")
-                        }
+                        },
+                        onMessage: showMessage
                     )
                 }
                 .id(service.id)
@@ -2248,6 +2544,25 @@ struct InventoryView: View {
                         )
                 )
                 .zIndex(2)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let message {
+                HStack(spacing: 8) {
+                    Label(message.text, systemImage: message.isError ? "exclamationmark.triangle.fill" : "checkmark")
+                    if message.isError {
+                        Button("Dismiss") { withAnimation { self.message = nil } }
+                            .buttonStyle(.plain)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+                    .font(.caption)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(.white)
+                    .background(message.isError ? Color(red: 0.55, green: 0.27, blue: 0.06) : Color(red: 0.16, green: 0.22, blue: 0.30), in: RoundedRectangle(cornerRadius: 9))
+                    .padding(.bottom, 38)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .sheet(item: $renameTarget) { target in
@@ -2285,12 +2600,93 @@ struct InventoryView: View {
             if store.document == nil { store.refresh() }
         }
         .preferredColorScheme(preferredColorScheme)
-        .onKeyPress("k", phases: .down) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            searchVisible = true
-            searchFocused = true
+        .onChange(of: query) { _, _ in
+            if isSearching {
+                let ids = orderedOpenableFilteredPages.map(\.id)
+                if let current = selectedSearchServiceID, ids.contains(current) {
+                    return
+                }
+                selectedSearchServiceID = ids.first
+            } else {
+                selectedSearchServiceID = nil
+            }
+        }
+        .onKeyPress(.escape, phases: .down) { _ in
+            guard evidenceService == nil && searchVisible && !searchFocused else { return .ignored }
+            handleSearchEscape()
             return .handled
         }
+        .onKeyPress("k", phases: .down) { press in
+            guard press.modifiers.contains(.command), evidenceService == nil else { return .ignored }
+            if searchVisible && searchFocused && query.isEmpty {
+                closeSearch()
+            } else {
+                openSearch()
+            }
+            return .handled
+        }
+        .onKeyPress(.downArrow, phases: .down) { _ in
+            guard evidenceService == nil && searchVisible else { return .ignored }
+            moveSearchSelection(delta: 1)
+            return .handled
+        }
+        .onKeyPress(.upArrow, phases: .down) { _ in
+            guard evidenceService == nil && searchVisible else { return .ignored }
+            moveSearchSelection(delta: -1)
+            return .handled
+        }
+    }
+
+    private func openSearch() {
+        searchVisible = true
+        DispatchQueue.main.async {
+            searchFocused = true
+        }
+    }
+
+    private func closeSearch() {
+        query = ""
+        selectedSearchServiceID = nil
+        searchFocused = false
+        searchVisible = false
+    }
+
+    private func handleSearchEscape() {
+        if !query.isEmpty {
+            query = ""
+            selectedSearchServiceID = nil
+            searchFocused = true
+        } else {
+            closeSearch()
+        }
+    }
+
+    private func moveSearchSelection(delta: Int) {
+        let services = orderedOpenableFilteredPages
+        guard !services.isEmpty else {
+            selectedSearchServiceID = nil
+            return
+        }
+        guard let current = selectedSearchServiceID,
+              let index = services.firstIndex(where: { $0.id == current }) else {
+            selectedSearchServiceID = delta >= 0 ? services.first?.id : services.last?.id
+            return
+        }
+        let nextIndex = max(0, min(services.count - 1, index + delta))
+        selectedSearchServiceID = services[nextIndex].id
+    }
+
+    private func openSelectedSearchResult() {
+        guard evidenceService == nil else { return }
+        let services = orderedOpenableFilteredPages
+        let target: ServiceRecord?
+        if let selectedSearchServiceID {
+            target = services.first(where: { $0.id == selectedSearchServiceID }) ?? (isSearching ? services.first : nil)
+        } else {
+            target = isSearching ? services.first : nil
+        }
+        guard let target, let url = primaryServiceURL(target) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private var updatedText: String {
@@ -2341,41 +2737,60 @@ struct InventoryView: View {
                         }
                     }
                 )
+                .zIndex(hoveredHeaderProjectID == project.id ? 3 : 0)
+                .onHover { hovering in
+                    if hovering {
+                        hoveredHeaderProjectID = project.id
+                    } else if hoveredHeaderProjectID == project.id {
+                        hoveredHeaderProjectID = nil
+                    }
+                }
 
                 ExpandableContent(isExpanded: projectIsExpanded) {
                     VStack(spacing: 0) {
                         ForEach(project.applications) { application in
                             let applicationPages = application.services.filter(isOpenablePage)
-                            if !applicationPages.isEmpty && pageApplications.count > 1 {
-                                HStack(spacing: 6) {
-                                    Text(application.name).font(.system(size: 10, weight: .semibold))
-                                    Text(application.application.map { "\($0.manifest) · \($0.relativePath)" } ?? "command path")
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(.tertiary)
-                                        .lineLimit(1)
-                                    Spacer()
-                                }
-                                .padding(.leading, 46)
-                                .padding(.trailing, 10)
-                                .padding(.top, 5)
-                            }
-                            if !applicationPages.isEmpty {
-                                VStack(spacing: 2) {
-                                    ForEach(applicationPages) { service in
-                                        mainServiceRow(
-                                            service,
-                                            projectContext: nil,
-                                            repositoryURL: nil,
-                                            fillsProjectCard: false,
-                                            backgroundServiceCount: 0,
-                                            backgroundServicesExpanded: false,
-                                            onToggleBackgroundServices: nil,
-                                            onRenameProject: nil
-                                        )
+                            let appHoverKey = "\(project.id)|\(application.id)"
+                            VStack(spacing: 0) {
+                                if !applicationPages.isEmpty && pageApplications.count > 1 {
+                                    HStack(spacing: 6) {
+                                        Text(application.name).font(.system(size: 11, weight: .semibold))
+                                        Text(application.application.map { "\($0.manifest) · \($0.relativePath)" } ?? "command path")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                        Spacer()
                                     }
+                                    .padding(.leading, 46)
+                                    .padding(.trailing, 10)
+                                    .padding(.top, 5)
                                 }
-                                .padding(.leading, 36)
-                                .padding(.trailing, 10)
+                                if !applicationPages.isEmpty {
+                                    VStack(spacing: 2) {
+                                        ForEach(applicationPages) { service in
+                                            mainServiceRow(
+                                                service,
+                                                projectContext: nil,
+                                                repositoryURL: nil,
+                                                fillsProjectCard: false,
+                                                backgroundServiceCount: 0,
+                                                backgroundServicesExpanded: false,
+                                                onToggleBackgroundServices: nil,
+                                                onRenameProject: nil
+                                            )
+                                        }
+                                    }
+                                    .padding(.leading, 36)
+                                    .padding(.trailing, 10)
+                                }
+                            }
+                            .zIndex(hoveredApplicationKey == appHoverKey ? 4 : 0)
+                            .onHover { hovering in
+                                if hovering {
+                                    hoveredApplicationKey = appHoverKey
+                                } else if hoveredApplicationKey == appHoverKey {
+                                    hoveredApplicationKey = nil
+                                }
                             }
                         }
                         if !relatedServices.isEmpty {
@@ -2388,7 +2803,7 @@ struct InventoryView: View {
                                 if relatedIsOpen { expandedRelated.remove(project.id) } else { expandedRelated.insert(project.id) }
                             } content: {
                                 Text("\(relatedServices.count) supporting service\(relatedServices.count == 1 ? "" : "s")")
-                                    .font(.system(size: 9.5, weight: .medium))
+                                    .font(.system(size: 10.5, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
 
@@ -2407,6 +2822,7 @@ struct InventoryView: View {
                     }
                     .padding(.top, 2)
                 }
+                .zIndex(hoveredHeaderProjectID == project.id ? 0 : 1)
             }
 
             if isSinglePage && relatedIsOpen && !relatedServices.isEmpty {
@@ -2427,9 +2843,9 @@ struct InventoryView: View {
         .background(PortToolsTheme.groupSurface(colorScheme), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(PortToolsTheme.groupBorder(colorScheme), lineWidth: 0.75)
+                .stroke(PortToolsTheme.groupBorder(colorScheme), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.11 : 0.035), radius: 7, y: 2)
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.14 : 0.05), radius: 5, y: 1.5)
     }
 
     private func beginProjectRename(_ project: ProjectGroup, displayedProjectName: String) {
@@ -2471,7 +2887,7 @@ struct InventoryView: View {
                 HStack(spacing: 7) {
                     if pinnedProjects.contains(project.id) {
                         Image(systemName: "pin.fill")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.secondary)
                     }
                     HoverFullTitleText(
@@ -2481,11 +2897,12 @@ struct InventoryView: View {
                     )
                     if project.services.filter(isOpenablePage).allSatisfy({ $0.observation.classification == "confirmed-web" && (200..<400).contains($0.observation.http?.status ?? 0) }) {
                         Image(systemName: "checkmark.shield.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.green.opacity(0.72))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.green.opacity(0.76))
                             .help("All visible Web pages responded successfully")
                     }
                 }
+                .zIndex(2)
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.branch")
                     Text(
@@ -2499,13 +2916,13 @@ struct InventoryView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 }
-                .font(.system(size: 9.5))
+                .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
             }
             .layoutPriority(1)
             Spacer(minLength: 5)
             Text(countText)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Color.secondary)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 7)
@@ -2553,6 +2970,7 @@ struct InventoryView: View {
             backgroundServiceCount: backgroundServiceCount,
             backgroundServicesExpanded: backgroundServicesExpanded,
             fillsProjectCard: fillsProjectCard,
+            isKeyboardSelected: searchVisible && selectedSearchServiceID == service.id,
             onToggleBackgroundServices: onToggleBackgroundServices,
             onRename: {
                 renameTarget = RenameTarget(
@@ -2587,6 +3005,7 @@ struct InventoryView: View {
             onMessage: showMessage,
             onError: showError
         )
+        .id(service.id)
     }
 
     @ViewBuilder
@@ -2609,11 +3028,11 @@ struct InventoryView: View {
                 onToggle()
             } content: {
                 Text(label)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.secondary)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Text(String(services.count))
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -2637,6 +3056,7 @@ struct InventoryView: View {
     }
 
     private func showServiceDetails(_ service: ServiceRecord) {
+        searchFocused = false
         withAnimation(reduceMotion ? .easeOut(duration: 0.1) : detailNavigationAnimation) {
             evidenceService = service
         }

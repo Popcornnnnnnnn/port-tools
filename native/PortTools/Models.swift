@@ -72,6 +72,12 @@ struct RelevanceRecord: Codable, Sendable {
     let developerRelevant: Bool
 }
 
+struct ManagementRecord: Codable, Sendable {
+    let source: String
+    let containerName: String?
+    let labels: [String: String]?
+}
+
 struct RouteRecord: Codable, Sendable {
     let alias: String
     let port: Int
@@ -114,6 +120,7 @@ struct ServiceRecord: Codable, Identifiable, Sendable {
     let process: ProcessRecord
     let project: ProjectRecord?
     let application: ApplicationRecord?
+    let management: ManagementRecord?
     let observation: ObservationRecord
     let relevance: RelevanceRecord
     let history: ServiceHistoryRecord

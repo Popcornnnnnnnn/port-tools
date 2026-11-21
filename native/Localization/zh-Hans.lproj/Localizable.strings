@@ -100,3 +100,15 @@
 "UPDATED" = "已更新";
 "UNAVAILABLE" = "暂不可用";
 "简体中文" = "简体中文";
+"Address copied" = "已复制地址";
+"Clear search" = "清空搜索";
+"Close search" = "关闭搜索";
+"Close search (Esc)" = "关闭搜索 (Esc)";
+"Container" = "容器";
+"Copied" = "已复制";
+"Copy" = "复制";
+"Open" = "打开";
+"Reveal in Finder" = "在访达中显示";
+"Search" = "搜索";
+"Search (⌘K)" = "搜索 (⌘K)";
+"↵ Open" = "↵ 打开";
