@@ -101,9 +101,31 @@ func runTextWithTimeout(timeout time.Duration, name string, arguments ...string)
 // runTextAllowPartial returns stdout when the command produced output before
 // timing out, even if it exited non-zero (e.g. batched lsof when one PID exits).
 func runTextAllowPartial(timeout time.Duration, name string, arguments ...string) string {
+	return runTextWithEnvAllowPartial(timeout, nil, name, arguments...)
+}
+
+func runTextWithCleanLocaleAllowPartial(timeout time.Duration, name string, arguments ...string) string {
+	baseEnv := os.Environ()
+	cleanEnv := make([]string, 0, len(baseEnv)+2)
+	for _, entry := range baseEnv {
+		if key, _, ok := strings.Cut(entry, "="); ok {
+			if key == "LANG" || strings.HasPrefix(key, "LC_") {
+				continue
+			}
+		}
+		cleanEnv = append(cleanEnv, entry)
+	}
+	cleanEnv = append(cleanEnv, "LC_ALL=C", "LANG=C")
+	return runTextWithEnvAllowPartial(timeout, cleanEnv, name, arguments...)
+}
+
+func runTextWithEnvAllowPartial(timeout time.Duration, env []string, name string, arguments ...string) string {
 	contextValue, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	command := exec.CommandContext(contextValue, name, arguments...)
+	if env != nil {
+		command.Env = env
+	}
 	command.Stderr = io.Discard
 	output, _ := command.Output()
 	if contextValue.Err() != nil || len(output) == 0 {
@@ -300,7 +322,7 @@ func batchProcessInfo(pids []int) map[int]rawProcessInfo {
 		wait.Add(2)
 		go func() {
 			defer wait.Done()
-			psOut = runTextAllowPartial(2*time.Second, "/bin/ps", "-ww", "-p", csv, "-o", "pid=,ppid=,lstart=,command=")
+			psOut = runTextWithCleanLocaleAllowPartial(2*time.Second, "/bin/ps", "-ww", "-p", csv, "-o", "pid=,ppid=,lstart=,command=")
 		}()
 		go func() {
 			defer wait.Done()

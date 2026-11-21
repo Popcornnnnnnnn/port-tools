@@ -3,13 +3,30 @@ import Darwin
 import Foundation
 
 private enum UnixSocketHTTPClient {
-    enum TransportError: Error {
+    enum TransportError: LocalizedError {
         case invalidPath
         case socketFailed(Int32)
         case connectFailed(Int32)
         case writeFailed(Int32)
         case readFailed(Int32)
         case malformedResponse
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidPath:
+                return "Port Tools core socket path is too long."
+            case .socketFailed(let code):
+                return "Could not create socket for Port Tools core (\(String(cString: strerror(code))))."
+            case .connectFailed(let code):
+                return "Could not connect to Port Tools core (\(String(cString: strerror(code))))."
+            case .writeFailed(let code):
+                return "Could not send request to Port Tools core (\(String(cString: strerror(code))))."
+            case .readFailed(let code):
+                return "Could not read response from Port Tools core (\(String(cString: strerror(code))))."
+            case .malformedResponse:
+                return "Port Tools core returned a malformed HTTP response."
+            }
+        }
     }
 
     static func send(
@@ -122,6 +139,21 @@ private enum UnixSocketHTTPClient {
         }
         if isChunked {
             responseBody = try decodeChunkedBody(responseBody)
+        } else if method != "HEAD" {
+            for line in headerLines.dropFirst() {
+                let lower = line.lowercased()
+                if lower.hasPrefix("content-length:") {
+                    let rawLength = line.split(separator: ":", maxSplits: 1).dropFirst().first?
+                        .trimmingCharacters(in: .whitespaces) ?? ""
+                    guard let expectedLength = Int(rawLength), expectedLength >= 0, responseBody.count >= expectedLength else {
+                        throw TransportError.malformedResponse
+                    }
+                    if responseBody.count > expectedLength {
+                        responseBody = Data(responseBody.prefix(expectedLength))
+                    }
+                    break
+                }
+            }
         }
         return (statusCode, responseBody)
     }
@@ -138,7 +170,7 @@ private enum UnixSocketHTTPClient {
                 throw TransportError.malformedResponse
             }
             let sizeHex = sizeLine.split(separator: ";", maxSplits: 1)[0].trimmingCharacters(in: .whitespaces)
-            guard let chunkSize = Int(sizeHex, radix: 16) else {
+            guard let chunkSize = Int(sizeHex, radix: 16), chunkSize >= 0 else {
                 throw TransportError.malformedResponse
             }
             index = lineEnd.upperBound
@@ -153,7 +185,7 @@ private enum UnixSocketHTTPClient {
             decoded.append(data[index..<chunkEnd])
             index = trailerEnd
         }
-        return decoded
+        throw TransportError.malformedResponse
     }
 }
 
@@ -164,6 +196,7 @@ final class CoreRuntime: @unchecked Sendable {
     private var process: Process?
     private var logHandle: FileHandle?
     private var activeInstanceToken: String?
+    private var isStopped = false
 
     private var executableURL: URL {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/port-tools-core")
@@ -192,8 +225,14 @@ final class CoreRuntime: @unchecked Sendable {
     func start() throws {
         lock.lock()
         defer { lock.unlock() }
+        if isStopped {
+            throw CoreError.failed("Port Tools core is stopping.")
+        }
         var lastError: Error = CoreError.failed("Port Tools core could not start.")
         for attempt in 0..<8 {
+            if isStopped {
+                throw CoreError.failed("Port Tools core is stopping.")
+            }
             do {
                 try startLocked()
                 return
@@ -202,6 +241,9 @@ final class CoreRuntime: @unchecked Sendable {
             } catch CoreError.alreadyRunning {
                 throw CoreError.alreadyRunning
             } catch {
+                if isStopped {
+                    throw CoreError.failed("Port Tools core is stopping.")
+                }
                 lastError = error
                 if attempt < 7 { Thread.sleep(forTimeInterval: 0.35) }
             }
@@ -243,6 +285,9 @@ final class CoreRuntime: @unchecked Sendable {
     }
 
     private func startLocked() throws {
+        if isStopped {
+            throw CoreError.failed("Port Tools core is stopping.")
+        }
         if let process, process.isRunning {
             if let activeInstanceToken, socketInstanceToken() == activeInstanceToken { return }
             process.terminate()
@@ -302,6 +347,7 @@ final class CoreRuntime: @unchecked Sendable {
     func stop() {
         lock.lock()
         defer { lock.unlock() }
+        isStopped = true
         if let process, process.isRunning {
             process.terminate()
             process.waitUntilExit()
@@ -309,13 +355,27 @@ final class CoreRuntime: @unchecked Sendable {
         clearChild()
     }
 
+    private func canRetry(_ error: UnixSocketHTTPClient.TransportError, method: String) -> Bool {
+        switch error {
+        case .socketFailed, .connectFailed:
+            return true
+        case .writeFailed, .readFailed, .malformedResponse:
+            return method == "GET"
+        case .invalidPath:
+            return false
+        }
+    }
+
     func request(method: String = "GET", path: String, body: Data? = nil) throws -> Data {
-        let needsStart: Bool = {
+        let state: (stopped: Bool, needsStart: Bool) = {
             lock.lock()
             defer { lock.unlock() }
-            return !(process?.isRunning == true && activeInstanceToken != nil)
+            return (isStopped, !(process?.isRunning == true && activeInstanceToken != nil))
         }()
-        if needsStart {
+        if state.stopped {
+            throw CoreError.failed("Port Tools core is stopping.")
+        }
+        if state.needsStart {
             try start()
         }
 
@@ -325,7 +385,15 @@ final class CoreRuntime: @unchecked Sendable {
             response = try UnixSocketHTTPClient.send(
                 socketPath: socketPath, method: method, path: path, body: body, timeoutSeconds: 15
             )
-        } catch is UnixSocketHTTPClient.TransportError {
+        } catch let transportError as UnixSocketHTTPClient.TransportError {
+            let stopped: Bool = {
+                lock.lock()
+                defer { lock.unlock() }
+                return isStopped
+            }()
+            guard !stopped, canRetry(transportError, method: method) else {
+                throw transportError
+            }
             try start()
             response = try UnixSocketHTTPClient.send(
                 socketPath: socketPath, method: method, path: path, body: body, timeoutSeconds: 15

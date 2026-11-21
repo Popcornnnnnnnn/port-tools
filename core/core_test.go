@@ -1289,3 +1289,28 @@ func TestReverseProxyOnDemandScanResolvesWhenStatePresent(t *testing.T) {
 		t.Fatalf("expected on-demand scan to resolve pid %d, got %#v (ok=%v)", helperCmd.Process.Pid, resolved, ok)
 	}
 }
+
+func TestBatchProcessInfoWithNonUSLocale(t *testing.T) {
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	t.Setenv("LC_TIME", "zh_CN.UTF-8")
+	t.Setenv("LANG", "ja_JP.UTF-8")
+
+	pid := os.Getpid()
+	infoMap := batchProcessInfo([]int{pid})
+	info, ok := infoMap[pid]
+	if !ok {
+		t.Fatalf("batchProcessInfo missing self pid %d", pid)
+	}
+	if info.ParentPID == nil || *info.ParentPID <= 0 {
+		t.Fatalf("expected valid ParentPID under non-US locale, got %v", info.ParentPID)
+	}
+	if info.Started == "" {
+		t.Fatal("expected non-empty Started timestamp under non-US locale")
+	}
+	if _, parsed := parseProcessStarted(&info.Started); !parsed {
+		t.Fatalf("parseProcessStarted failed for %q under non-US locale", info.Started)
+	}
+	if info.Command == "" {
+		t.Fatal("expected non-empty Command under non-US locale")
+	}
+}

@@ -26,6 +26,7 @@ final class InventoryStore: ObservableObject {
                         self.lastLoggedListenerCount = document.services.count
                     }
                 case .failure(let error):
+                    self.lastLoggedListenerCount = nil
                     self.errorMessage = error.localizedDescription
                     NSLog("Port Tools scan failed: %@", error.localizedDescription)
                 }
