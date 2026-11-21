@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -22,6 +24,19 @@ import (
 	"syscall"
 	"time"
 )
+
+var unsolicitedHTTPNoise = []byte("Unsolicited response received on idle HTTP channel")
+
+type filteredLogWriter struct {
+	target io.Writer
+}
+
+func (writer *filteredLogWriter) Write(payload []byte) (int, error) {
+	if bytes.Contains(payload, unsolicitedHTTPNoise) {
+		return len(payload), nil
+	}
+	return writer.target.Write(payload)
+}
 
 var version = "development"
 
@@ -402,6 +417,25 @@ func diagnostic(response http.ResponseWriter, status int, title, message string)
 }
 
 func (server *coreServer) proxyHandler() http.Handler {
+	newTransport := func(insecure bool) *http.Transport {
+		return &http.Transport{
+			Proxy:             http.ProxyFromEnvironment,
+			DialContext:       (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2: true,
+			DisableKeepAlives: true,
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: insecure, MinVersion: tls.VersionTLS12},
+		}
+	}
+	verifiedTransport := newTransport(false)
+	insecureTransport := newTransport(true)
+	pidAlive := func(pid int) bool {
+		if pid <= 0 {
+			return false
+		}
+		err := syscall.Kill(pid, 0)
+		return err == nil || errors.Is(err, syscall.EPERM)
+	}
+
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		alias := aliasFromHost(request.Host)
 		if alias == "" {
@@ -409,6 +443,12 @@ func (server *coreServer) proxyHandler() http.Handler {
 			return
 		}
 		resolved, ok := server.routes.getResolved(alias)
+		if (!ok || !pidAlive(resolved.pid)) && server.state != nil {
+			if _, exists := server.routes.get(alias); exists {
+				_, _ = server.scan()
+				resolved, ok = server.routes.getResolved(alias)
+			}
+		}
 		if !ok {
 			if _, exists := server.routes.get(alias); exists {
 				diagnostic(response, http.StatusServiceUnavailable, "Original service unavailable", fmt.Sprintf("%s.localhost is saved, but its original listener is offline or cannot be identified uniquely.", alias))
@@ -417,8 +457,7 @@ func (server *coreServer) proxyHandler() http.Handler {
 			}
 			return
 		}
-		processError := syscall.Kill(resolved.pid, 0)
-		if resolved.pid <= 0 || (processError != nil && !errors.Is(processError, syscall.EPERM)) {
+		if !pidAlive(resolved.pid) {
 			diagnostic(response, http.StatusServiceUnavailable, "Original service unavailable", "The original process stopped. Wait for the next scan or refresh Port Tools after restarting it.")
 			return
 		}
@@ -437,12 +476,10 @@ func (server *coreServer) proxyHandler() http.Handler {
 			}
 			upstream.Header.Set("X-Forwarded-Host", originalHost)
 		}
-		proxy.Transport = &http.Transport{
-			Proxy:             http.ProxyFromEnvironment,
-			DialContext:       (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-			ForceAttemptHTTP2: true,
-			DisableKeepAlives: true,
-			TLSClientConfig:   &tls.Config{InsecureSkipVerify: route.TLSPolicy == "insecure-local", MinVersion: tls.VersionTLS12},
+		if route.TLSPolicy == "insecure-local" {
+			proxy.Transport = insecureTransport
+		} else {
+			proxy.Transport = verifiedTransport
 		}
 		proxy.ErrorHandler = func(response http.ResponseWriter, _ *http.Request, err error) {
 			diagnostic(response, http.StatusBadGateway, "Local app unavailable", fmt.Sprintf("%s.localhost could not reach %s (%s).", alias, target.Host, err.Error()))
@@ -478,6 +515,9 @@ func prepareUnixSocket(socketPath string) error {
 }
 
 func serveCore(socketPath, statePath, proxyAddress string, parentPID int, instanceToken string) error {
+	log.SetOutput(&filteredLogWriter{target: os.Stderr})
+	defer log.SetOutput(os.Stderr)
+
 	if err := os.MkdirAll(filepathDir(socketPath), 0o700); err != nil {
 		return err
 	}
@@ -559,6 +599,7 @@ func serveCore(socketPath, statePath, proxyAddress string, parentPID int, instan
 	defer shutdownCancel()
 	_ = apiHTTP.Shutdown(shutdownContext)
 	_ = proxyHTTP.Shutdown(shutdownContext)
+	_ = state.flush()
 	return nil
 }
 
@@ -577,7 +618,19 @@ func filepathDir(path string) string {
 	return path[:index]
 }
 
+func isParentAlive(parentPID, initialPPID int) bool {
+	if parentPID <= 1 {
+		return true
+	}
+	if initialPPID == parentPID && os.Getppid() != parentPID {
+		return false
+	}
+	err := syscall.Kill(parentPID, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
 func monitorParentPortable(contextValue context.Context, parentPID int, cancel context.CancelFunc) {
+	initialPPID := os.Getppid()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -585,8 +638,7 @@ func monitorParentPortable(contextValue context.Context, parentPID int, cancel c
 		case <-contextValue.Done():
 			return
 		case <-ticker.C:
-			output := runText("/bin/ps", "-p", strconv.Itoa(parentPID), "-o", "pid=")
-			if strings.TrimSpace(output) == "" {
+			if !isParentAlive(parentPID, initialPPID) {
 				cancel()
 				return
 			}

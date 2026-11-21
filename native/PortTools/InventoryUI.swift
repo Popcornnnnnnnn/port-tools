@@ -2620,8 +2620,8 @@ struct InventoryView: View {
                     .background(Color.secondary.opacity(0.1), in: Capsule())
             }
 
-            ExpandableContent(isExpanded: isOpen) {
-                VStack(spacing: 2) {
+            if isOpen {
+                LazyVStack(spacing: 2) {
                     ForEach(services) { service in
                         SecondaryServiceRow(service: service) {
                             showServiceDetails(service)

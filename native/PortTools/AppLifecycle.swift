@@ -118,6 +118,7 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private var openScanTimer: Timer?
     private var backgroundScanTimer: Timer?
     private var previewScanTimer: Timer?
+    private var idlePopoverTeardownTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppMaintenance.migrateTrialPreferences()
@@ -263,8 +264,11 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
 
         statusStore = store
         statusItem = item
-        backgroundScanTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak store] _ in
-            Task { @MainActor [weak store] in store?.refresh(silent: true) }
+        backgroundScanTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.statusPopover?.isShown != true else { return }
+                self.statusStore?.refresh(silent: true)
+            }
         }
     }
 
@@ -289,6 +293,8 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     private func showStatusPopover() {
         guard let button = statusItem?.button, let statusStore else { return }
         if let statusPopover, statusPopover.isShown { return }
+        idlePopoverTeardownTimer?.invalidate()
+        idlePopoverTeardownTimer = nil
         let statusPopover = self.statusPopover ?? makeStatusPopover(store: statusStore)
         self.statusPopover = statusPopover
         statusStore.refresh(silent: true)
@@ -303,12 +309,21 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
     func popoverDidClose(_ notification: Notification) {
         openScanTimer?.invalidate()
         openScanTimer = nil
+        idlePopoverTeardownTimer?.invalidate()
+        idlePopoverTeardownTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.statusPopover?.isShown != true else { return }
+                self.statusPopover = nil
+                self.idlePopoverTeardownTimer = nil
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         openScanTimer?.invalidate()
         backgroundScanTimer?.invalidate()
         previewScanTimer?.invalidate()
+        idlePopoverTeardownTimer?.invalidate()
         CoreRuntime.shared.stop()
     }
 }

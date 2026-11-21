@@ -98,6 +98,42 @@ func runTextWithTimeout(timeout time.Duration, name string, arguments ...string)
 	return strings.TrimSpace(string(output))
 }
 
+// runTextAllowPartial returns stdout when the command produced output before
+// timing out, even if it exited non-zero (e.g. batched lsof when one PID exits).
+func runTextAllowPartial(timeout time.Duration, name string, arguments ...string) string {
+	return runTextWithEnvAllowPartial(timeout, nil, name, arguments...)
+}
+
+func runTextWithCleanLocaleAllowPartial(timeout time.Duration, name string, arguments ...string) string {
+	baseEnv := os.Environ()
+	cleanEnv := make([]string, 0, len(baseEnv)+2)
+	for _, entry := range baseEnv {
+		if key, _, ok := strings.Cut(entry, "="); ok {
+			if key == "LANG" || strings.HasPrefix(key, "LC_") {
+				continue
+			}
+		}
+		cleanEnv = append(cleanEnv, entry)
+	}
+	cleanEnv = append(cleanEnv, "LC_ALL=C", "LANG=C")
+	return runTextWithEnvAllowPartial(timeout, cleanEnv, name, arguments...)
+}
+
+func runTextWithEnvAllowPartial(timeout time.Duration, env []string, name string, arguments ...string) string {
+	contextValue, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	command := exec.CommandContext(contextValue, name, arguments...)
+	if env != nil {
+		command.Env = env
+	}
+	command.Stderr = io.Discard
+	output, _ := command.Output()
+	if contextValue.Err() != nil || len(output) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
 func parseEndpoint(value string) (string, int, string, bool) {
 	index := strings.LastIndex(value, ":")
 	if index < 0 {
@@ -199,19 +235,115 @@ func projectCandidatesFromCommand(command, cwd string) map[string]*ProjectRecord
 	return candidateProjects
 }
 
-func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord, *ApplicationRecord, string, []string) {
-	pid := strconv.Itoa(listener.PID)
-	command := runText("/bin/ps", "-p", pid, "-o", "command=")
-	parentText := runText("/bin/ps", "-p", pid, "-o", "ppid=")
-	started := runText("/bin/ps", "-p", pid, "-o", "lstart=")
-	cwdOutput := runText("/usr/sbin/lsof", "-a", "-p", pid, "-d", "cwd", "-Fn")
-	var cwd string
-	for _, line := range strings.Split(cwdOutput, "\n") {
-		if strings.HasPrefix(line, "n") {
-			cwd = line[1:]
-			break
+var batchPSLinePattern = regexp.MustCompile(`^\s*(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*(.*)$`)
+
+type rawProcessInfo struct {
+	ParentPID *int
+	Started   string
+	Command   string
+	CWD       string
+}
+
+func parseBatchPSOutput(output string) map[int]rawProcessInfo {
+	result := map[int]rawProcessInfo{}
+	for _, rawLine := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		match := batchPSLinePattern.FindStringSubmatch(line)
+		if len(match) != 5 {
+			continue
+		}
+		pid, err := strconv.Atoi(match[1])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		info := rawProcessInfo{
+			Started: strings.Join(strings.Fields(match[3]), " "),
+			Command: strings.TrimSpace(match[4]),
+		}
+		if ppid, ppidErr := strconv.Atoi(match[2]); ppidErr == nil {
+			info.ParentPID = pointer(ppid)
+		}
+		result[pid] = info
+	}
+	return result
+}
+
+func parseBatchLsofCWDOutput(output string) map[int]string {
+	result := map[int]string{}
+	currentPID := 0
+	inCWD := false
+	for _, line := range strings.Split(output, "\n") {
+		if len(line) < 2 {
+			continue
+		}
+		value := line[1:]
+		switch line[0] {
+		case 'p':
+			currentPID, _ = strconv.Atoi(value)
+			inCWD = false
+		case 'f':
+			inCWD = value == "cwd"
+		case 'n':
+			if currentPID > 0 && inCWD && value != "" {
+				result[currentPID] = value
+			}
 		}
 	}
+	return result
+}
+
+func batchProcessInfo(pids []int) map[int]rawProcessInfo {
+	unique := make([]int, 0, len(pids))
+	seen := make(map[int]bool, len(pids))
+	for _, pid := range pids {
+		if pid > 0 && !seen[pid] {
+			seen[pid] = true
+			unique = append(unique, pid)
+		}
+	}
+	result := make(map[int]rawProcessInfo, len(unique))
+	if len(unique) == 0 {
+		return result
+	}
+	const chunkSize = 128
+	for start := 0; start < len(unique); start += chunkSize {
+		end := min(len(unique), start+chunkSize)
+		pidStrings := make([]string, 0, end-start)
+		for _, pid := range unique[start:end] {
+			pidStrings = append(pidStrings, strconv.Itoa(pid))
+		}
+		csv := strings.Join(pidStrings, ",")
+
+		var psOut, lsofOut string
+		var wait sync.WaitGroup
+		wait.Add(2)
+		go func() {
+			defer wait.Done()
+			psOut = runTextWithCleanLocaleAllowPartial(2*time.Second, "/bin/ps", "-ww", "-p", csv, "-o", "pid=,ppid=,lstart=,command=")
+		}()
+		go func() {
+			defer wait.Done()
+			lsofOut = runTextAllowPartial(2*time.Second, "/usr/sbin/lsof", "-a", "-p", csv, "-d", "cwd", "-Fpn")
+		}()
+		wait.Wait()
+
+		psInfo := parseBatchPSOutput(psOut)
+		cwds := parseBatchLsofCWDOutput(lsofOut)
+		for _, pid := range unique[start:end] {
+			info := psInfo[pid]
+			if cwd, ok := cwds[pid]; ok {
+				info.CWD = cwd
+			}
+			result[pid] = info
+		}
+	}
+	return result
+}
+
+func buildProcessMetadata(listener discoveredListener, info rawProcessInfo) (ProcessRecord, *ProjectRecord, *ApplicationRecord, string, []string) {
 	process := ProcessRecord{PID: listener.PID}
 	if listener.ProcessName != "" {
 		process.Name = pointer(listener.ProcessName)
@@ -219,27 +351,27 @@ func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord
 	if listener.Owner != "" {
 		process.Owner = pointer(listener.Owner)
 	}
-	if command != "" {
-		process.Command = pointer(command)
+	if info.Command != "" {
+		process.Command = pointer(info.Command)
 	}
-	if value, err := strconv.Atoi(strings.TrimSpace(parentText)); err == nil {
-		process.ParentPID = pointer(value)
+	if info.ParentPID != nil {
+		process.ParentPID = pointer(*info.ParentPID)
 	}
-	if started != "" {
-		process.Started = pointer(started)
+	if info.Started != "" {
+		process.Started = pointer(info.Started)
 	}
-	if cwd != "" {
-		process.CWD = pointer(cwd)
+	if info.CWD != "" {
+		process.CWD = pointer(info.CWD)
 	}
 
-	project := findProject(cwd)
+	project := findProject(info.CWD)
 	projectEvidence := ""
 	projectCandidates := []string{}
 	if project != nil {
 		projectEvidence = "cwd"
 	}
 	if project == nil {
-		candidateProjects := projectCandidatesFromCommand(command, cwd)
+		candidateProjects := projectCandidatesFromCommand(info.Command, info.CWD)
 		for root := range candidateProjects {
 			projectCandidates = append(projectCandidates, root)
 		}
@@ -253,9 +385,14 @@ func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord
 	}
 	var application *ApplicationRecord
 	if project != nil {
-		application = findApplication(cwd, command, project.Root)
+		application = findApplication(info.CWD, info.Command, project.Root)
 	}
 	return process, project, application, projectEvidence, projectCandidates
+}
+
+func processMetadata(listener discoveredListener) (ProcessRecord, *ProjectRecord, *ApplicationRecord, string, []string) {
+	info := batchProcessInfo([]int{listener.PID})[listener.PID]
+	return buildProcessMetadata(listener, info)
 }
 
 func findDockerBinary() string {
@@ -1158,27 +1295,71 @@ func classifyRelevance(process ProcessRecord, project *ProjectRecord, management
 	return RelevanceRecord{Category: "unattributed-web-endpoint", DeveloperRelevant: false, Confidence: 0.6, Evidence: []EvidenceRecord{{Kind: "no-project-or-framework-evidence", Value: true}}}
 }
 
+type resolvedProcessMetadata struct {
+	process           ProcessRecord
+	project           *ProjectRecord
+	application       *ApplicationRecord
+	projectEvidence   string
+	projectCandidates []string
+}
+
 func scanServices() (ScanDocument, error) {
 	listeners, err := discoverListeners()
 	if err != nil {
 		return ScanDocument{}, err
 	}
+	selfPID := os.Getpid()
+	uniquePIDs := make([]int, 0, len(listeners))
+	firstListenerByPID := make(map[int]discoveredListener, len(listeners))
+	for _, listener := range listeners {
+		if listener.PID == selfPID || listener.PID <= 0 {
+			continue
+		}
+		if _, seen := firstListenerByPID[listener.PID]; !seen {
+			firstListenerByPID[listener.PID] = listener
+			uniquePIDs = append(uniquePIDs, listener.PID)
+		}
+	}
+	rawByPID := batchProcessInfo(uniquePIDs)
+	resolvedByPID := make(map[int]resolvedProcessMetadata, len(uniquePIDs))
+	for _, pid := range uniquePIDs {
+		process, project, application, evidence, candidates := buildProcessMetadata(firstListenerByPID[pid], rawByPID[pid])
+		resolvedByPID[pid] = resolvedProcessMetadata{
+			process:           process,
+			project:           project,
+			application:       application,
+			projectEvidence:   evidence,
+			projectCandidates: candidates,
+		}
+	}
+
 	dockerPorts := dockerPortMetadata()
 	services := make([]ServiceRecord, len(listeners))
 	semaphore := make(chan struct{}, 20)
 	var wait sync.WaitGroup
 	for index, listener := range listeners {
 		index, listener := index, listener
-		if listener.PID == os.Getpid() {
+		if listener.PID == selfPID {
 			services[index] = ServiceRecord{}
 			continue
 		}
+		base := resolvedByPID[listener.PID]
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			process, project, application, projectEvidence, projectCandidates := processMetadata(listener)
+			process := base.process
+			if process.Name == nil && listener.ProcessName != "" {
+				process.Name = pointer(listener.ProcessName)
+			}
+			if process.Owner == nil && listener.Owner != "" {
+				process.Owner = pointer(listener.Owner)
+			}
+			project := base.project
+			application := base.application
+			projectEvidence := base.projectEvidence
+			projectCandidates := base.projectCandidates
 			management := ManagementRecord{Source: "unmanaged"}
 			var hostProcessProject *ProjectRecord
 			if docker, exists := dockerPorts[listener.Port]; exists {

@@ -6,11 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
 
-const inventoryStateSchemaVersion = 1
+const (
+	inventoryStateSchemaVersion      = 1
+	inventoryRoutinePersistInterval  = 15 * time.Minute
+	inventoryChangePersistInterval   = 60 * time.Second
+	inventoryUnseenRetention         = 7 * 24 * time.Hour
+	inventoryMaxUnseenHistoryEntries = 500
+)
 
 type inventoryStateEntry struct {
 	History             ServiceHistoryRecord     `json:"history"`
@@ -37,6 +44,11 @@ type inventoryStateManager struct {
 	path        string
 	state       inventoryStateFile
 	lastPersist time.Time
+	dirty       bool
+}
+
+func hasUserPreferences(prefs ServicePreferencesRecord) bool {
+	return prefs.Pinned || prefs.DisplayName != "" || prefs.Ignored || prefs.ClassificationOverride != ""
 }
 
 func newInventoryStateManager(path string) (*inventoryStateManager, error) {
@@ -74,7 +86,7 @@ func (manager *inventoryStateManager) persistLocked() error {
 	if err := os.MkdirAll(filepath.Dir(manager.path), 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(manager.state, "", "  ")
+	data, err := json.Marshal(manager.state)
 	if err != nil {
 		return err
 	}
@@ -120,11 +132,17 @@ func (manager *inventoryStateManager) apply(document *ScanDocument) error {
 	now := time.Now().UTC()
 	nowText := now.Format(time.RFC3339Nano)
 	seen := map[string]bool{}
+	meaningfulChange := false
 	for index := range document.Services {
 		service := &document.Services[index]
 		seen[service.LogicalID] = true
 		entry, exists := manager.state.Services[service.LogicalID]
+		prevFailures := entry.History.ConsecutiveProbeFailures
+		prevFirstFailed := entry.History.FirstFailedProbe
+		prevProjectRoot := entry.LastProjectRoot
+		prevAppRoot := entry.LastApplicationRoot
 		if !exists {
+			meaningfulChange = true
 			entry.History = ServiceHistoryRecord{
 				FirstSeen:        nowText,
 				LastSeen:         nowText,
@@ -155,6 +173,12 @@ func (manager *inventoryStateManager) apply(document *ScanDocument) error {
 		if service.Application != nil {
 			entry.LastApplicationRoot = service.Application.Root
 		}
+		if entry.History.ConsecutiveProbeFailures != prevFailures ||
+			entry.History.FirstFailedProbe != prevFirstFailed ||
+			entry.LastProjectRoot != prevProjectRoot ||
+			entry.LastApplicationRoot != prevAppRoot {
+			meaningfulChange = true
+		}
 
 		service.History = entry.History
 		service.Preferences = entry.Preferences
@@ -162,24 +186,65 @@ func (manager *inventoryStateManager) apply(document *ScanDocument) error {
 		manager.state.Services[service.LogicalID] = entry
 	}
 
+	type unseenHistory struct {
+		logicalID string
+		lastSeen  time.Time
+	}
+	var unseenPlain []unseenHistory
 	for logicalID, entry := range manager.state.Services {
-		if seen[logicalID] || entry.Preferences.Pinned || entry.Preferences.DisplayName != "" {
+		if seen[logicalID] || hasUserPreferences(entry.Preferences) {
 			continue
 		}
 		lastSeen, err := time.Parse(time.RFC3339Nano, entry.History.LastSeen)
-		if err == nil && now.Sub(lastSeen) > 30*24*time.Hour {
+		if err == nil && now.Sub(lastSeen) > inventoryUnseenRetention {
 			delete(manager.state.Services, logicalID)
+			meaningfulChange = true
+			continue
+		}
+		unseenPlain = append(unseenPlain, unseenHistory{logicalID: logicalID, lastSeen: lastSeen})
+	}
+	if len(unseenPlain) > inventoryMaxUnseenHistoryEntries {
+		sort.Slice(unseenPlain, func(i, j int) bool {
+			if unseenPlain[i].lastSeen.Equal(unseenPlain[j].lastSeen) {
+				return unseenPlain[i].logicalID < unseenPlain[j].logicalID
+			}
+			return unseenPlain[i].lastSeen.Before(unseenPlain[j].lastSeen)
+		})
+		excess := len(unseenPlain) - inventoryMaxUnseenHistoryEntries
+		for _, item := range unseenPlain[:excess] {
+			delete(manager.state.Services, item.logicalID)
+			meaningfulChange = true
 		}
 	}
-	// The menu can scan every three seconds while open. Keep history current in
-	// memory, but avoid rewriting the state file on every poll. Preference edits
-	// still persist immediately through updatePreferences.
-	if manager.lastPersist.IsZero() || now.Sub(manager.lastPersist) >= 30*time.Second {
+	if meaningfulChange || len(document.Services) > 0 {
+		manager.dirty = true
+	}
+	// Avoid rewriting inventory.json on every 3s/30s/300s scan just for LastSeen
+	// timestamps. Persist immediately on startup, throttle meaningful transitions
+	// to 60s, and flush routine LastSeen updates every 15m and on shutdown.
+	if manager.lastPersist.IsZero() ||
+		(meaningfulChange && now.Sub(manager.lastPersist) >= inventoryChangePersistInterval) ||
+		(manager.dirty && now.Sub(manager.lastPersist) >= inventoryRoutinePersistInterval) {
 		if err := manager.persistLocked(); err != nil {
 			return err
 		}
 		manager.lastPersist = now
+		manager.dirty = false
 	}
+	return nil
+}
+
+func (manager *inventoryStateManager) flush() error {
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+	if !manager.dirty {
+		return nil
+	}
+	if err := manager.persistLocked(); err != nil {
+		return err
+	}
+	manager.lastPersist = time.Now().UTC()
+	manager.dirty = false
 	return nil
 }
 
@@ -250,5 +315,6 @@ func (manager *inventoryStateManager) updatePreferences(logicalID string, patch 
 		return ServicePreferencesRecord{}, err
 	}
 	manager.lastPersist = time.Now().UTC()
+	manager.dirty = false
 	return entry.Preferences, nil
 }
