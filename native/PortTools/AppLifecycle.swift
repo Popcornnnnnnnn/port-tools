@@ -78,6 +78,36 @@ enum AppMaintenance {
     }
 }
 
+private enum StatusBarIcon {
+    static func makeImage() -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        guard let symbol = NSImage(systemSymbolName: "network", accessibilityDescription: "Port Tools")?
+            .withSymbolConfiguration(configuration)
+        else {
+            return nil
+        }
+        let symbolSize = symbol.size
+        let canvasSize = NSSize(width: ceil(symbolSize.width), height: ceil(symbolSize.height))
+        guard canvasSize.width > 0, canvasSize.height > 0 else {
+            symbol.isTemplate = true
+            return symbol
+        }
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let drawRect = NSRect(
+                x: floor((rect.width - symbolSize.width) / 2),
+                y: floor((rect.height - symbolSize.height) / 2),
+                width: symbolSize.width,
+                height: symbolSize.height
+            )
+            symbol.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Port Tools"
+        return image
+    }
+}
+
 @MainActor
 final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var previewWindow: NSWindow?
@@ -223,13 +253,8 @@ final class PortToolsAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDele
 
         let item = NSStatusBar.system.statusItem(withLength: 24)
         if let button = item.button {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-            let image = NSImage(systemSymbolName: "network", accessibilityDescription: "Port Tools")?
-                .withSymbolConfiguration(configuration)
-            image?.isTemplate = true
-            image?.size = NSSize(width: 16, height: 16)
-            button.image = image
-            button.imageScaling = .scaleNone
+            button.image = StatusBarIcon.makeImage()
+            button.imageScaling = .scaleProportionallyDown
             button.imagePosition = .imageOnly
             button.toolTip = "Port Tools"
             button.target = self
