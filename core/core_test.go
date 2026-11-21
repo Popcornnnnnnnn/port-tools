@@ -1337,6 +1337,16 @@ func TestExtractHTMLTitleIgnoresHTMLComments(t *testing.T) {
 			want: "",
 		},
 		{
+			name: "multiple comments before and after real title",
+			html: `<!-- <title>First</title> --><!-- second comment --><title>Actual App</title><!-- trailing -->`,
+			want: "Actual App",
+		},
+		{
+			name: "unclosed trailing comment does not discard earlier title",
+			html: `<!-- intro --><title>Healthy Title</title><!-- unclosed`,
+			want: "Healthy Title",
+		},
+		{
 			name: "normal whitespace normalized title",
 			html: `<head><title>  Simple` + "\n" + `Title </title></head>`,
 			want: "Simple Title",

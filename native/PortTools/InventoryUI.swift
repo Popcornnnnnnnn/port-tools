@@ -326,7 +326,7 @@ func serviceSearchText(_ service: ServiceRecord) -> String {
     [
         serviceName(service),
         containerServiceName(service),
-        service.management?.containerName,
+        service.management?.source == "docker" ? service.management?.containerName : nil,
         String(service.listener.port),
         service.listener.address,
         service.project?.name,
@@ -390,7 +390,7 @@ func secondaryServiceDescription(_ service: ServiceRecord) -> String {
 }
 
 struct ServiceDetailRow: View {
-    let label: String
+    let label: LocalizedStringKey
     let value: String
     var monospaced = false
 
@@ -433,6 +433,7 @@ struct ServiceDetailView: View {
     @State private var scrollIndicator = ScrollIndicatorModel()
     @State private var backHovered = false
     @State private var copiedAddress = false
+    @State private var copyResetWorkItem: DispatchWorkItem?
 
     private var openableURL: URL? {
         guard webClassifications.contains(service.observation.classification) else { return nil }
@@ -531,9 +532,10 @@ struct ServiceDetailView: View {
                                 NSPasteboard.general.setString(copyValue, forType: .string)
                                 copiedAddress = true
                                 onMessage(portToolsString("Address copied"))
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
-                                    copiedAddress = false
-                                }
+                                copyResetWorkItem?.cancel()
+                                let reset = DispatchWorkItem { copiedAddress = false }
+                                copyResetWorkItem = reset
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: reset)
                             } label: {
                                 Label(copiedAddress ? "Copied" : "Copy", systemImage: copiedAddress ? "checkmark" : "doc.on.doc")
                                     .lineLimit(1)
@@ -621,10 +623,19 @@ struct ServiceDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onKeyPress("[", phases: .down) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            onBack()
-            return .handled
+        .background {
+            Button("Back", action: onBack)
+                .keyboardShortcut("[", modifiers: .command)
+                .labelsHidden()
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .onDisappear {
+            copyResetWorkItem?.cancel()
+            copyResetWorkItem = nil
         }
     }
 }
@@ -1100,6 +1111,8 @@ private struct HoverFullTitleText: View {
             .onDisappear {
                 pendingReveal?.cancel()
                 pendingReveal = nil
+                pointerIsInside = false
+                isVisible = false
             }
     }
 
@@ -1215,6 +1228,17 @@ private struct ExpandableContentHeightKey: PreferenceKey {
     }
 }
 
+private struct ExpandableClipShape: Shape {
+    let isClipped: Bool
+
+    func path(in rect: CGRect) -> Path {
+        if isClipped {
+            return Path(rect)
+        }
+        return Path(rect.insetBy(dx: -24, dy: -140))
+    }
+}
+
 /// Keeps secondary-section width stable while giving the content a compact,
 /// direction-aware reveal inspired by React Bits' Animated Content pattern.
 struct ExpandableContent<Content: View>: View {
@@ -1223,6 +1247,8 @@ struct ExpandableContent<Content: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var contentHeight: CGFloat = 0
+    @State private var isTransitioning = false
+    @State private var transitionResetWorkItem: DispatchWorkItem?
 
     private var animation: Animation {
         reduceMotion ? .easeOut(duration: 0.1) : .snappy(duration: 0.2, extraBounce: 0.035)
@@ -1240,10 +1266,27 @@ struct ExpandableContent<Content: View>: View {
             .offset(y: reduceMotion || isExpanded ? 0 : -5)
             .scaleEffect(x: 1, y: reduceMotion || isExpanded ? 1 : 0.985, anchor: .top)
             .frame(height: isExpanded ? contentHeight : 0, alignment: .top)
-            .clipped()
+            .clipShape(ExpandableClipShape(isClipped: !isExpanded || isTransitioning || contentHeight == 0))
             .allowsHitTesting(isExpanded)
             .accessibilityHidden(!isExpanded)
             .animation(animation, value: isExpanded)
+            .onChange(of: isExpanded) { _, _ in
+                transitionResetWorkItem?.cancel()
+                transitionResetWorkItem = nil
+                guard !reduceMotion else {
+                    isTransitioning = false
+                    return
+                }
+                isTransitioning = true
+                let reset = DispatchWorkItem { isTransitioning = false }
+                transitionResetWorkItem = reset
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: reset)
+            }
+            .onDisappear {
+                transitionResetWorkItem?.cancel()
+                transitionResetWorkItem = nil
+                isTransitioning = false
+            }
             .onPreferenceChange(ExpandableContentHeightKey.self) { measuredHeight in
                 guard measuredHeight > 0, abs(measuredHeight - contentHeight) > 0.5 else { return }
                 contentHeight = measuredHeight
@@ -1575,6 +1618,7 @@ struct ServiceRow: View {
     @State private var isCopyHovered = false
     @State private var isStopHovered = false
     @State private var copiedRecently = false
+    @State private var copyResetWorkItem: DispatchWorkItem?
     @State private var isEditingAlias = false
     @State private var aliasDraft = ""
     @State private var aliasEditorDidFocus = false
@@ -1779,9 +1823,10 @@ struct ServiceRow: View {
                         Button {
                             copyAddress()
                             copiedRecently = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
-                                copiedRecently = false
-                            }
+                            copyResetWorkItem?.cancel()
+                            let reset = DispatchWorkItem { copiedRecently = false }
+                            copyResetWorkItem = reset
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: reset)
                         } label: {
                             Image(systemName: copiedRecently ? "checkmark" : "doc.on.doc")
                                 .font(.system(size: 10.5, weight: .medium))
@@ -1851,6 +1896,8 @@ struct ServiceRow: View {
         }
         .onDisappear {
             removeAliasClickMonitor()
+            copyResetWorkItem?.cancel()
+            copyResetWorkItem = nil
         }
     }
 
@@ -2137,6 +2184,8 @@ struct InventoryView: View {
     @State private var searchVisible = false
     @State private var selectedSearchServiceID: String?
     @State private var hoveredProjectID: String?
+    @State private var hoveredHeaderProjectID: String?
+    @State private var hoveredApplicationKey: String?
     @State private var footerSearchHovered = false
     @State private var settingsHovered = false
     @State private var message: (text: String, isError: Bool)?
@@ -2209,9 +2258,12 @@ struct InventoryView: View {
 
     private var orderedOpenableFilteredPages: [ServiceRecord] {
         filteredProjects.flatMap { project in
-            project.applications.flatMap { application in
+            let pages = project.applications.flatMap { application in
                 application.services.filter(isOpenablePage)
             }
+            let isExpanded = isSearching || pages.count <= 1 || !collapsedProjects.contains(project.id)
+            guard isExpanded else { return [ServiceRecord]() }
+            return pages
         }
     }
 
@@ -2280,17 +2332,22 @@ struct InventoryView: View {
                         .font(.system(size: 12))
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
-                        .onSubmit { openSelectedSearchResult() }
-                        .onExitCommand { handleSearchEscape() }
-                        .onKeyPress(.escape) {
-                            handleSearchEscape()
-                            return .handled
+                        .disabled(evidenceService != nil)
+                        .onSubmit {
+                            guard evidenceService == nil else { return }
+                            openSelectedSearchResult()
                         }
-                        .onKeyPress(.downArrow) {
+                        .onExitCommand {
+                            guard evidenceService == nil else { return }
+                            handleSearchEscape()
+                        }
+                        .onKeyPress(.downArrow, phases: .down) { _ in
+                            guard evidenceService == nil else { return .ignored }
                             moveSearchSelection(delta: 1)
                             return .handled
                         }
-                        .onKeyPress(.upArrow) {
+                        .onKeyPress(.upArrow, phases: .down) { _ in
+                            guard evidenceService == nil else { return .ignored }
                             moveSearchSelection(delta: -1)
                             return .handled
                         }
@@ -2554,10 +2611,10 @@ struct InventoryView: View {
                 selectedSearchServiceID = nil
             }
         }
-        .onExitCommand {
-            if evidenceService == nil && searchVisible {
-                handleSearchEscape()
-            }
+        .onKeyPress(.escape, phases: .down) { _ in
+            guard evidenceService == nil && searchVisible && !searchFocused else { return .ignored }
+            handleSearchEscape()
+            return .handled
         }
         .onKeyPress("k", phases: .down) { press in
             guard press.modifiers.contains(.command), evidenceService == nil else { return .ignored }
@@ -2620,6 +2677,7 @@ struct InventoryView: View {
     }
 
     private func openSelectedSearchResult() {
+        guard evidenceService == nil else { return }
         let services = orderedOpenableFilteredPages
         let target: ServiceRecord?
         if let selectedSearchServiceID {
@@ -2679,41 +2737,60 @@ struct InventoryView: View {
                         }
                     }
                 )
+                .zIndex(hoveredHeaderProjectID == project.id ? 3 : 0)
+                .onHover { hovering in
+                    if hovering {
+                        hoveredHeaderProjectID = project.id
+                    } else if hoveredHeaderProjectID == project.id {
+                        hoveredHeaderProjectID = nil
+                    }
+                }
 
                 ExpandableContent(isExpanded: projectIsExpanded) {
                     VStack(spacing: 0) {
                         ForEach(project.applications) { application in
                             let applicationPages = application.services.filter(isOpenablePage)
-                            if !applicationPages.isEmpty && pageApplications.count > 1 {
-                                HStack(spacing: 6) {
-                                    Text(application.name).font(.system(size: 11, weight: .semibold))
-                                    Text(application.application.map { "\($0.manifest) · \($0.relativePath)" } ?? "command path")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                    Spacer()
-                                }
-                                .padding(.leading, 46)
-                                .padding(.trailing, 10)
-                                .padding(.top, 5)
-                            }
-                            if !applicationPages.isEmpty {
-                                VStack(spacing: 2) {
-                                    ForEach(applicationPages) { service in
-                                        mainServiceRow(
-                                            service,
-                                            projectContext: nil,
-                                            repositoryURL: nil,
-                                            fillsProjectCard: false,
-                                            backgroundServiceCount: 0,
-                                            backgroundServicesExpanded: false,
-                                            onToggleBackgroundServices: nil,
-                                            onRenameProject: nil
-                                        )
+                            let appHoverKey = "\(project.id)|\(application.id)"
+                            VStack(spacing: 0) {
+                                if !applicationPages.isEmpty && pageApplications.count > 1 {
+                                    HStack(spacing: 6) {
+                                        Text(application.name).font(.system(size: 11, weight: .semibold))
+                                        Text(application.application.map { "\($0.manifest) · \($0.relativePath)" } ?? "command path")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                        Spacer()
                                     }
+                                    .padding(.leading, 46)
+                                    .padding(.trailing, 10)
+                                    .padding(.top, 5)
                                 }
-                                .padding(.leading, 36)
-                                .padding(.trailing, 10)
+                                if !applicationPages.isEmpty {
+                                    VStack(spacing: 2) {
+                                        ForEach(applicationPages) { service in
+                                            mainServiceRow(
+                                                service,
+                                                projectContext: nil,
+                                                repositoryURL: nil,
+                                                fillsProjectCard: false,
+                                                backgroundServiceCount: 0,
+                                                backgroundServicesExpanded: false,
+                                                onToggleBackgroundServices: nil,
+                                                onRenameProject: nil
+                                            )
+                                        }
+                                    }
+                                    .padding(.leading, 36)
+                                    .padding(.trailing, 10)
+                                }
+                            }
+                            .zIndex(hoveredApplicationKey == appHoverKey ? 4 : 0)
+                            .onHover { hovering in
+                                if hovering {
+                                    hoveredApplicationKey = appHoverKey
+                                } else if hoveredApplicationKey == appHoverKey {
+                                    hoveredApplicationKey = nil
+                                }
                             }
                         }
                         if !relatedServices.isEmpty {
@@ -2745,6 +2822,7 @@ struct InventoryView: View {
                     }
                     .padding(.top, 2)
                 }
+                .zIndex(hoveredHeaderProjectID == project.id ? 0 : 1)
             }
 
             if isSinglePage && relatedIsOpen && !relatedServices.isEmpty {
@@ -2978,6 +3056,7 @@ struct InventoryView: View {
     }
 
     private func showServiceDetails(_ service: ServiceRecord) {
+        searchFocused = false
         withAnimation(reduceMotion ? .easeOut(duration: 0.1) : detailNavigationAnimation) {
             evidenceService = service
         }

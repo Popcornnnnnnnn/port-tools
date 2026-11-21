@@ -25,6 +25,7 @@ class NativeServiceNamingTests(unittest.TestCase):
             "serviceName",
             "isOpenablePage",
             "relatedServiceName",
+            "serviceSearchText",
             "secondaryServiceName",
         ):
             match = re.search(rf"^func {name}\(.*?^\}}", source, re.M | re.S)
@@ -42,7 +43,12 @@ import Foundation
 let data = FileHandle.standardInput.readDataToEndOfFile()
 let services = try JSONDecoder().decode([ServiceRecord].self, from: data)
 let names = services.map {
-    ["page": serviceName($0), "related": relatedServiceName($0), "secondary": secondaryServiceName($0)]
+    [
+        "page": serviceName($0),
+        "related": relatedServiceName($0),
+        "secondary": secondaryServiceName($0),
+        "search": serviceSearchText($0),
+    ]
 }
 FileHandle.standardOutput.write(try JSONEncoder().encode(names))
 """)
@@ -81,7 +87,8 @@ FileHandle.standardOutput.write(try JSONEncoder().encode(names))
         return json.loads(result.stdout)
 
     def assert_names(self, expected, related=None, secondary=None):
-        self.assertEqual(self.names_for([self.service]), [{
+        actual = [{k: v for k, v in item.items() if k != "search"} for item in self.names_for([self.service])]
+        self.assertEqual(actual, [{
             "page": expected,
             "related": related or expected,
             "secondary": secondary or expected,
@@ -149,10 +156,17 @@ FileHandle.standardOutput.write(try JSONEncoder().encode(names))
             service["observation"]["protocol"] = "http"
             service["observation"]["http"]["title"] = title
             services.append(service)
-        self.assertEqual(self.names_for(services), [
+        actual = [{k: v for k, v in item.items() if k != "search"} for item in self.names_for(services)]
+        self.assertEqual(actual, [
             {"page": "Grafana", "related": "Grafana", "secondary": "Grafana"},
             {"page": "Blackbox Exporter", "related": "Blackbox Exporter", "secondary": "Blackbox Exporter"},
         ])
+
+    def test_search_text_includes_docker_container_and_compose_service(self):
+        self.service["observation"]["http"]["title"] = "Custom Page"
+        search_text = self.names_for([self.service])[0]["search"]
+        self.assertIn("prometheus", search_text)
+        self.assertIn("network-monitor-prometheus", search_text)
 
 
 if __name__ == "__main__":
