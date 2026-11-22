@@ -60,6 +60,8 @@ type cachedObservation struct {
 	observation ObservationRecord
 	expiresAt   time.Time
 	retryDelay  time.Duration
+	settled     bool
+	lastSeenAt  time.Time
 }
 
 const maxProbeBackoff = 5 * time.Minute
@@ -1222,8 +1224,13 @@ func shouldBackoffProbe(observation ObservationRecord) bool {
 			(observation.Classification == "non-web" && observation.Protocol == "tcp")
 	}
 	response := observation.HTTP
-	if observation.Role == "page" || response.Status == nil ||
-		(*response.Status >= 200 && *response.Status < 300) ||
+	if observation.Role == "page" || response.Status == nil {
+		return false
+	}
+	if *response.Status == http.StatusNotImplemented {
+		return true
+	}
+	if (*response.Status >= 200 && *response.Status < 300) ||
 		strings.TrimSpace(valueOrEmpty(response.Title)) != "" {
 		return false
 	}
@@ -1231,12 +1238,54 @@ func shouldBackoffProbe(observation ObservationRecord) bool {
 	return err == nil && (contentType == "application/json" || strings.HasSuffix(contentType, "+json"))
 }
 
-func nextCachedObservation(observation ObservationRecord, process ProcessRecord, previous cachedObservation, now time.Time) cachedObservation {
-	cacheDuration := 30 * time.Second
+func isYoungProcess(process ProcessRecord, now time.Time) bool {
 	started, hasStart := parseProcessStarted(process.Started)
+	return hasStart && now.Sub(started) >= 0 && now.Sub(started) < 30*time.Second
+}
+
+func listenerCacheKey(listener discoveredListener, process ProcessRecord, management ManagementRecord) string {
+	return strings.Join([]string{
+		strconv.Itoa(listener.PID), listener.Address, strconv.Itoa(listener.Port),
+		valueOrEmpty(process.Started), valueOrEmpty(process.Command),
+		management.Source, management.ContainerID, management.ContainerPort,
+	}, "\x00")
+}
+
+// Settled observations have already established a stable protocol/role for this
+// listener identity and do not need periodic HTTP re-probing while the same
+// process holds the listener. CDP stays periodic so TargetCount remains current.
+func isSettledObservation(observation ObservationRecord, process ProcessRecord, now time.Time) bool {
+	if observation.Protocol == "cdp" || shouldBackoffProbe(observation) {
+		return false
+	}
+	if observation.Classification == "non-web" && observation.Protocol == "redis" {
+		return true
+	}
+	if observation.HTTP == nil || observation.HTTP.Status == nil {
+		return false
+	}
+	status := *observation.HTTP.Status
+	if status >= 500 {
+		return false
+	}
+	// Give brand-new processes (<30s) returning an untitled non-page 4xx one
+	// retry in case routes are still mounting during startup.
+	if status >= 400 && observation.Role != "page" &&
+		strings.TrimSpace(valueOrEmpty(observation.HTTP.Title)) == "" &&
+		isYoungProcess(process, now) {
+		return false
+	}
+	return true
+}
+
+func nextCachedObservation(observation ObservationRecord, process ProcessRecord, previous cachedObservation, now time.Time) cachedObservation {
+	if isSettledObservation(observation, process, now) {
+		return cachedObservation{observation: observation, settled: true}
+	}
+	cacheDuration := 30 * time.Second
 	if observation.Classification == "suspected-web" ||
-		(observation.Classification == "unknown" && hasStart && now.Sub(started) >= 0 && now.Sub(started) < 30*time.Second) ||
-		(observation.HTTP != nil && observation.HTTP.Status != nil && *observation.HTTP.Status >= 500) {
+		(observation.Classification == "unknown" && isYoungProcess(process, now)) ||
+		(observation.HTTP != nil && observation.HTTP.Status != nil && *observation.HTTP.Status >= 500 && *observation.HTTP.Status != http.StatusNotImplemented) {
 		cacheDuration = 3 * time.Second
 	}
 	entry := cachedObservation{observation: observation}
@@ -1253,20 +1302,18 @@ func nextCachedObservation(observation ObservationRecord, process ProcessRecord,
 }
 
 func observeCached(listener discoveredListener, process ProcessRecord, management ManagementRecord) ObservationRecord {
-	cacheKey := strings.Join([]string{
-		strconv.Itoa(listener.PID), listener.Address, strconv.Itoa(listener.Port),
-		valueOrEmpty(process.Started), valueOrEmpty(process.Command),
-		management.Source, management.ContainerID, management.ContainerPort,
-	}, "\x00")
+	cacheKey := listenerCacheKey(listener, process, management)
 	now := time.Now()
 	observationCache.Lock()
 	previous, exists := observationCache.entries[cacheKey]
-	if exists && now.Before(previous.expiresAt) {
+	if exists && (previous.settled || now.Before(previous.expiresAt)) {
+		previous.lastSeenAt = now
+		observationCache.entries[cacheKey] = previous
 		observationCache.Unlock()
 		return previous.observation
 	}
 	for key, cached := range observationCache.entries {
-		if now.After(cached.expiresAt.Add(2 * time.Minute)) {
+		if !cached.settled && now.After(cached.expiresAt.Add(2*time.Minute)) {
 			delete(observationCache.entries, key)
 			if key == cacheKey {
 				previous = cachedObservation{}
@@ -1277,11 +1324,26 @@ func observeCached(listener discoveredListener, process ProcessRecord, managemen
 
 	observation := observe(listener, process, management)
 	observation.ProbedAt = now.UTC().Format(time.RFC3339Nano)
-	entry := nextCachedObservation(observation, process, previous, time.Now())
+	completedAt := time.Now()
+	entry := nextCachedObservation(observation, process, previous, completedAt)
+	entry.lastSeenAt = completedAt
 	observationCache.Lock()
 	observationCache.entries[cacheKey] = entry
 	observationCache.Unlock()
 	return observation
+}
+
+func pruneObservationCache(activeKeys map[string]struct{}, scanStartedAt time.Time) {
+	observationCache.Lock()
+	defer observationCache.Unlock()
+	for key, cached := range observationCache.entries {
+		if _, active := activeKeys[key]; active {
+			continue
+		}
+		if cached.lastSeenAt.Before(scanStartedAt) && (cached.settled || scanStartedAt.After(cached.expiresAt.Add(2*time.Minute))) {
+			delete(observationCache.entries, key)
+		}
+	}
 }
 
 func classifyRelevance(process ProcessRecord, project *ProjectRecord, management ManagementRecord) RelevanceRecord {
@@ -1342,8 +1404,10 @@ func scanServices() (ScanDocument, error) {
 		}
 	}
 
+	scanStartedAt := time.Now()
 	dockerPorts := dockerPortMetadata()
 	services := make([]ServiceRecord, len(listeners))
+	activeCacheKeys := make([]string, len(listeners))
 	semaphore := make(chan struct{}, 20)
 	var wait sync.WaitGroup
 	for index, listener := range listeners {
@@ -1389,6 +1453,7 @@ func scanServices() (ScanDocument, error) {
 					}
 				}
 			}
+			activeCacheKeys[index] = listenerCacheKey(listener, process, management)
 			services[index] = ServiceRecord{
 				ID:                 stableServiceID(listener),
 				LogicalID:          stableLogicalID(listener, process, project, application, management),
@@ -1407,6 +1472,13 @@ func scanServices() (ScanDocument, error) {
 		}()
 	}
 	wait.Wait()
+	active := make(map[string]struct{}, len(activeCacheKeys))
+	for _, key := range activeCacheKeys {
+		if key != "" {
+			active[key] = struct{}{}
+		}
+	}
+	pruneObservationCache(active, scanStartedAt)
 	filtered := services[:0]
 	for _, service := range services {
 		if service.ID != "" {

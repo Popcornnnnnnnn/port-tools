@@ -778,7 +778,12 @@ func TestFailedObservationRefreshesSoonerThanHealthyObservation(t *testing.T) {
 		observationCache.Unlock()
 		t.Fatal("observation was not cached")
 	}
-	shortTTL := time.Until(observationCache.entries[cacheKey].expiresAt)
+	entry := observationCache.entries[cacheKey]
+	if entry.settled {
+		observationCache.Unlock()
+		t.Fatal("503 response should not settle observation cache")
+	}
+	shortTTL := time.Until(entry.expiresAt)
 	observationCache.Unlock()
 	if shortTTL > 4*time.Second {
 		t.Fatalf("starting response cached too long: %v", shortTTL)
@@ -788,7 +793,7 @@ func TestFailedObservationRefreshesSoonerThanHealthyObservation(t *testing.T) {
 		t.Fatalf("starting response was not throttled: %#v", cached)
 	}
 	observationCache.Lock()
-	entry := observationCache.entries[cacheKey]
+	entry = observationCache.entries[cacheKey]
 	entry.expiresAt = time.Now().Add(-time.Millisecond)
 	observationCache.entries[cacheKey] = entry
 	observationCache.Unlock()
@@ -797,14 +802,16 @@ func TestFailedObservationRefreshesSoonerThanHealthyObservation(t *testing.T) {
 		t.Fatalf("ready response was not observed: %#v", ready)
 	}
 	observationCache.Lock()
-	healthyTTL := time.Until(observationCache.entries[cacheKey].expiresAt)
+	settledEntry := observationCache.entries[cacheKey]
+	settledEntry.expiresAt = time.Now().Add(-time.Hour)
+	observationCache.entries[cacheKey] = settledEntry
 	observationCache.Unlock()
-	if healthyTTL < 25*time.Second {
-		t.Fatalf("healthy response cache was shortened: %v", healthyTTL)
+	if !settledEntry.settled {
+		t.Fatal("healthy 200 response did not settle observation cache")
 	}
 	status.Store(503)
-	if cached := observeCached(listener, process, management); *cached.HTTP.Status != 200 {
-		t.Fatalf("healthy response was not throttled: %#v", cached)
+	if cached := observeCached(listener, process, management); *cached.HTTP.Status != 200 || cached.ProbedAt != ready.ProbedAt {
+		t.Fatalf("settled healthy response was re-probed: %#v", cached)
 	}
 }
 

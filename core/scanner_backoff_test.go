@@ -20,41 +20,62 @@ func TestProbeBackoffPolicy(t *testing.T) {
 		process     ProcessRecord
 		initialTTL  time.Duration
 		backoff     bool
+		settled     bool
 	}{
-		{"JSON 404", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(404), ContentType: pointer("application/json; charset=utf-8")}}, ProcessRecord{}, 30 * time.Second, true},
-		{"JSON 503", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(503), ContentType: pointer("application/json")}}, ProcessRecord{}, 3 * time.Second, true},
-		{"problem JSON", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(429), ContentType: pointer("Application/Problem+JSON")}}, ProcessRecord{}, 30 * time.Second, true},
-		{"unknown", ObservationRecord{Classification: "unknown"}, ProcessRecord{}, 30 * time.Second, true},
-		{"young unknown", ObservationRecord{Classification: "unknown"}, ProcessRecord{Started: pointer(now.Add(-time.Second).Format("Mon Jan 2 15:04:05 2006"))}, 3 * time.Second, true},
-		{"suspected page", ObservationRecord{Classification: "suspected-web", Role: "page"}, ProcessRecord{}, 3 * time.Second, true},
-		{"invalid HTTP response", ObservationRecord{Classification: "non-web", Protocol: "tcp"}, ProcessRecord{}, 30 * time.Second, true},
-		{"HTML startup", ObservationRecord{HTTP: &HTTPRecord{Status: pointer(503), ContentType: pointer("text/html"), Title: pointer("Starting")}}, ProcessRecord{}, 3 * time.Second, false},
-		{"JSON with title", ObservationRecord{HTTP: &HTTPRecord{Status: pointer(404), ContentType: pointer("application/json"), Title: pointer("Management")}}, ProcessRecord{}, 30 * time.Second, false},
-		{"protected page", ObservationRecord{Role: "page", HTTP: &HTTPRecord{Status: pointer(401), ContentType: pointer("application/json")}}, ProcessRecord{}, 30 * time.Second, false},
-		{"redirect", ObservationRecord{Role: "page", HTTP: &HTTPRecord{Status: pointer(302), ContentType: pointer("application/json")}}, ProcessRecord{}, 30 * time.Second, false},
-		{"successful JSON", ObservationRecord{HTTP: &HTTPRecord{Status: pointer(200), ContentType: pointer("application/json")}}, ProcessRecord{}, 30 * time.Second, false},
-		{"Redis", ObservationRecord{Classification: "non-web", Protocol: "redis"}, ProcessRecord{}, 30 * time.Second, false},
+		{"JSON 404", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(404), ContentType: pointer("application/json; charset=utf-8")}}, ProcessRecord{}, 30 * time.Second, true, false},
+		{"JSON 503", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(503), ContentType: pointer("application/json")}}, ProcessRecord{}, 3 * time.Second, true, false},
+		{"problem JSON", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(429), ContentType: pointer("Application/Problem+JSON")}}, ProcessRecord{}, 30 * time.Second, true, false},
+		{"unknown", ObservationRecord{Classification: "unknown"}, ProcessRecord{}, 30 * time.Second, true, false},
+		{"young unknown", ObservationRecord{Classification: "unknown"}, ProcessRecord{Started: pointer(now.Add(-time.Second).Format("Mon Jan 2 15:04:05 2006"))}, 3 * time.Second, true, false},
+		{"suspected page", ObservationRecord{Classification: "suspected-web", Role: "page"}, ProcessRecord{}, 3 * time.Second, true, false},
+		{"invalid HTTP response", ObservationRecord{Classification: "non-web", Protocol: "tcp"}, ProcessRecord{}, 30 * time.Second, true, false},
+		{"HTTP 501 DMAP", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(501), ContentType: pointer("application/x-dmap-tagged")}}, ProcessRecord{}, 30 * time.Second, true, false},
+		{"HTTP 501 HTML error", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(501), ContentType: pointer("text/html;charset=utf-8"), Title: pointer("Error response")}}, ProcessRecord{}, 30 * time.Second, true, false},
+		{"HTML startup", ObservationRecord{HTTP: &HTTPRecord{Status: pointer(503), ContentType: pointer("text/html"), Title: pointer("Starting")}}, ProcessRecord{}, 3 * time.Second, false, false},
+		{"CDP", ObservationRecord{Classification: "confirmed-web", Protocol: "cdp", Role: "service", HTTP: &HTTPRecord{Status: pointer(200), ContentType: pointer("text/html")}}, ProcessRecord{}, 30 * time.Second, false, false},
+		{"young non-JSON 404", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(404), ContentType: pointer("text/plain")}}, ProcessRecord{Started: pointer(now.Add(-5 * time.Second).Format("Mon Jan 2 15:04:05 2006"))}, 30 * time.Second, false, false},
+		{"HTML page", ObservationRecord{Role: "page", HTTP: &HTTPRecord{Status: pointer(200), ContentType: pointer("text/html"), Title: pointer("Dashboard")}}, ProcessRecord{}, 0, false, true},
+		{"JSON with title", ObservationRecord{HTTP: &HTTPRecord{Status: pointer(404), ContentType: pointer("application/json"), Title: pointer("Management")}}, ProcessRecord{}, 0, false, true},
+		{"protected page", ObservationRecord{Role: "page", HTTP: &HTTPRecord{Status: pointer(401), ContentType: pointer("application/json")}}, ProcessRecord{}, 0, false, true},
+		{"redirect", ObservationRecord{Role: "page", HTTP: &HTTPRecord{Status: pointer(302), ContentType: pointer("application/json")}}, ProcessRecord{}, 0, false, true},
+		{"successful JSON", ObservationRecord{HTTP: &HTTPRecord{Status: pointer(200), ContentType: pointer("application/json")}}, ProcessRecord{}, 0, false, true},
+		{"mature non-JSON 404", ObservationRecord{Role: "service", HTTP: &HTTPRecord{Status: pointer(404), ContentType: pointer("text/plain")}}, ProcessRecord{Started: pointer(now.Add(-time.Hour).Format("Mon Jan 2 15:04:05 2006"))}, 0, false, true},
+		{"Redis", ObservationRecord{Classification: "non-web", Protocol: "redis"}, ProcessRecord{}, 0, false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var entry cachedObservation
-			retryTTLs := []time.Duration{test.initialTTL, time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute}
-			for attempt, want := range retryTTLs {
+			if test.settled {
 				entry = nextCachedObservation(test.observation, test.process, entry, now)
-				if !test.backoff {
-					want = test.initialTTL
+				if !entry.settled || entry.retryDelay != 0 || !entry.expiresAt.IsZero() {
+					t.Fatalf("expected settled observation, got %#v", entry)
 				}
-				if got := entry.expiresAt.Sub(now); got != want {
-					t.Fatalf("attempt %d: TTL = %v, want %v", attempt+1, got, want)
+			} else {
+				retryTTLs := []time.Duration{test.initialTTL, time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute}
+				for attempt, want := range retryTTLs {
+					entry = nextCachedObservation(test.observation, test.process, entry, now)
+					if entry.settled {
+						t.Fatalf("attempt %d unexpectedly settled: %#v", attempt+1, entry)
+					}
+					if !test.backoff {
+						want = test.initialTTL
+					}
+					if got := entry.expiresAt.Sub(now); got != want {
+						t.Fatalf("attempt %d: TTL = %v, want %v", attempt+1, got, want)
+					}
 				}
 			}
 			// Recovery clears accumulated scheduling state, even for the same identity.
 			healthy := ObservationRecord{Role: "page", HTTP: &HTTPRecord{Status: pointer(200), ContentType: pointer("text/html")}}
 			entry = nextCachedObservation(healthy, test.process, entry, now)
-			if entry.retryDelay != 0 || entry.expiresAt.Sub(now) != 30*time.Second {
-				t.Fatalf("healthy observation retained backoff: %#v", entry)
+			if !entry.settled || entry.retryDelay != 0 || !entry.expiresAt.IsZero() {
+				t.Fatalf("healthy observation retained backoff or was not settled: %#v", entry)
 			}
 			entry = nextCachedObservation(test.observation, test.process, entry, now)
-			if entry.expiresAt.Sub(now) != test.initialTTL {
+			if test.settled {
+				if !entry.settled || entry.retryDelay != 0 {
+					t.Fatalf("settled observation lost settled state: %#v", entry)
+				}
+			} else if entry.expiresAt.Sub(now) != test.initialTTL {
 				t.Fatal("new failure inherited backoff after recovery")
 			}
 		})
@@ -156,11 +177,23 @@ func TestObserveCachedBacksOffJSONErrorsAndRecovers(t *testing.T) {
 			}
 			ready.Store(true)
 			recovered := observeCached(listener, ProcessRecord{}, ManagementRecord{})
-			if recovered.Role != "page" || *recovered.HTTP.Title != "Ready" || onlyProbeCacheEntry(t).retryDelay != 0 {
-				t.Fatalf("page did not recover after bounded backoff: %#v", recovered)
+			recoveredEntry := onlyProbeCacheEntry(t)
+			if recovered.Role != "page" || *recovered.HTTP.Title != "Ready" || !recoveredEntry.settled || recoveredEntry.retryDelay != 0 {
+				t.Fatalf("page did not settle after bounded backoff: %#v (entry=%#v)", recovered, recoveredEntry)
+			}
+			beforeSettled := requests.Load()
+			expireProbeCache(t)
+			if cached := observeCached(listener, ProcessRecord{}, ManagementRecord{}); cached.ProbedAt != recovered.ProbedAt || requests.Load() != beforeSettled {
+				t.Fatal("settled listener was re-probed after expiresAt passed")
 			}
 			ready.Store(false)
-			expireProbeCache(t)
+			observationCache.Lock()
+			for key, entry := range observationCache.entries {
+				entry.settled = false
+				entry.expiresAt = time.Now().Add(-time.Millisecond)
+				observationCache.entries[key] = entry
+			}
+			observationCache.Unlock()
 			observeCached(listener, ProcessRecord{}, ManagementRecord{})
 			want := 30 * time.Second
 			if status >= 500 {
@@ -367,5 +400,171 @@ func TestObserveCachedBacksOffFailedAndTimedOutProbes(t *testing.T) {
 				expireProbeCache(t)
 			}
 		})
+	}
+}
+
+func TestObserveCachedDoesNotReprobeSettledListeners(t *testing.T) {
+	for _, kind := range []struct {
+		name         string
+		contentType  string
+		body         string
+		wantRequests int64
+		wantRole     string
+	}{
+		{"HTML page", "text/html; charset=utf-8", "<title>Watchpost</title>", 1, "page"},
+		{"JSON API", "application/json", `{"service":"watchpost"}`, int64(1 + len(webUIPaths)), "service"},
+	} {
+		t.Run(kind.name, func(t *testing.T) {
+			resetProbeCache(t)
+			var requests atomic.Int64
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.URL.Path == "/" {
+					w.Header().Set("Content-Type", kind.contentType)
+					_, _ = io.WriteString(w, kind.body)
+					return
+				}
+				http.NotFound(w, r)
+			})
+			server := httptest.NewServer(handler)
+			defer server.Close()
+
+			listener := discoveredListener{PID: 4321, Address: "127.0.0.1", Port: server.Listener.Addr().(*net.TCPAddr).Port}
+			process := ProcessRecord{Started: pointer("Sat Nov 21 18:40:35 2026"), Command: pointer("watchpost serve")}
+			management := ManagementRecord{Source: "unmanaged"}
+
+			first := observeCached(listener, process, management)
+			if first.Role != kind.wantRole || requests.Load() != kind.wantRequests {
+				t.Fatalf("initial observation = %#v, requests = %d (want %d)", first, requests.Load(), kind.wantRequests)
+			}
+			if !onlyProbeCacheEntry(t).settled {
+				t.Fatal("healthy 200 listener was not marked settled")
+			}
+
+			observationCache.Lock()
+			for key, entry := range observationCache.entries {
+				entry.expiresAt = time.Now().Add(-24 * time.Hour)
+				observationCache.entries[key] = entry
+			}
+			observationCache.Unlock()
+
+			for scan := 0; scan < 5; scan++ {
+				cached := observeCached(listener, process, management)
+				if cached.ProbedAt != first.ProbedAt {
+					t.Fatal("settled listener refreshed observation")
+				}
+			}
+			if got := requests.Load(); got != kind.wantRequests {
+				t.Fatalf("settled listener re-probed: got %d requests, want %d", got, kind.wantRequests)
+			}
+
+			// Identity changes must bypass the settled cache and probe immediately.
+			for _, change := range []string{"PID", "Started", "Command", "Port", "ContainerID"} {
+				nextListener := listener
+				nextProcess := process
+				nextManagement := management
+				switch change {
+				case "PID":
+					nextListener.PID++
+				case "Started":
+					nextProcess.Started = pointer("Sun Nov 22 09:00:00 2026")
+				case "Command":
+					nextProcess.Command = pointer("watchpost serve --port 8788")
+				case "Port":
+					other := httptest.NewServer(handler)
+					defer other.Close()
+					nextListener.Port = other.Listener.Addr().(*net.TCPAddr).Port
+				case "ContainerID":
+					nextManagement.ContainerID = "container-123"
+				}
+				before := requests.Load()
+				observeCached(nextListener, nextProcess, nextManagement)
+				if requests.Load() != before+kind.wantRequests {
+					t.Fatalf("identity change %s did not trigger fresh probe", change)
+				}
+			}
+		})
+	}
+}
+
+func TestObserveCachedBacksOffHTTP501(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		body        string
+	}{
+		{"DMAP 501", "application/x-dmap-tagged", ""},
+		{"Python 501", "text/html;charset=utf-8", "<title>Error response</title>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetProbeCache(t)
+			var requests atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", tc.contentType)
+				w.WriteHeader(http.StatusNotImplemented)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+
+			listener := discoveredListener{PID: 5555, Address: "127.0.0.1", Port: server.Listener.Addr().(*net.TCPAddr).Port}
+			observeCached(listener, ProcessRecord{}, ManagementRecord{})
+			entry := onlyProbeCacheEntry(t)
+			if entry.settled || entry.retryDelay != 30*time.Second || time.Until(entry.expiresAt) < 25*time.Second {
+				t.Fatalf("501 initial cache state = %#v (ttl=%v)", entry, time.Until(entry.expiresAt))
+			}
+
+			expireProbeCache(t)
+			observeCached(listener, ProcessRecord{}, ManagementRecord{})
+			if got := onlyProbeCacheEntry(t).retryDelay; got != time.Minute {
+				t.Fatalf("501 second retryDelay = %v, want 1m", got)
+			}
+
+			expireProbeCache(t)
+			observeCached(listener, ProcessRecord{}, ManagementRecord{})
+			if got := onlyProbeCacheEntry(t).retryDelay; got != 2*time.Minute {
+				t.Fatalf("501 third retryDelay = %v, want 2m", got)
+			}
+		})
+	}
+}
+
+func TestPruneObservationCacheRemovesDepartedSettledListeners(t *testing.T) {
+	resetProbeCache(t)
+	scanStartedAt := time.Now()
+	activeKey := "active-settled"
+	departedKey := "departed-settled"
+	concurrentKey := "concurrent-settled"
+	recentPendingKey := "recent-pending"
+	stalePendingKey := "stale-pending"
+
+	observationCache.Lock()
+	observationCache.entries = map[string]cachedObservation{
+		activeKey:        {settled: true, lastSeenAt: scanStartedAt.Add(-time.Minute)},
+		departedKey:      {settled: true, lastSeenAt: scanStartedAt.Add(-time.Minute)},
+		concurrentKey:    {settled: true, lastSeenAt: scanStartedAt.Add(time.Millisecond)},
+		recentPendingKey: {settled: false, expiresAt: scanStartedAt.Add(-time.Minute), lastSeenAt: scanStartedAt.Add(-time.Minute)},
+		stalePendingKey:  {settled: false, expiresAt: scanStartedAt.Add(-3 * time.Minute), lastSeenAt: scanStartedAt.Add(-3 * time.Minute)},
+	}
+	observationCache.Unlock()
+
+	pruneObservationCache(map[string]struct{}{activeKey: {}}, scanStartedAt)
+
+	observationCache.Lock()
+	defer observationCache.Unlock()
+	if _, ok := observationCache.entries[activeKey]; !ok {
+		t.Fatal("active settled entry was pruned")
+	}
+	if _, ok := observationCache.entries[departedKey]; ok {
+		t.Fatal("departed settled entry was retained")
+	}
+	if _, ok := observationCache.entries[concurrentKey]; !ok {
+		t.Fatal("concurrent entry newer than scan start was pruned")
+	}
+	if _, ok := observationCache.entries[recentPendingKey]; !ok {
+		t.Fatal("recent non-settled entry within grace window was pruned")
+	}
+	if _, ok := observationCache.entries[stalePendingKey]; ok {
+		t.Fatal("stale non-settled entry past grace window was retained")
 	}
 }
