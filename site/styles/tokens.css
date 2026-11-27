@@ -1,0 +1,178 @@
+/* Port Tools Showcase Design Tokens
+ * Cascade-layered light & dark tokens supporting explicit [data-theme] override
+ * plus system prefers-color-scheme fallback.
+ */
+
+@layer reset, base, theme, components, utilities;
+
+@layer theme {
+  :root {
+    --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono", Consolas, monospace;
+
+    /* Fluid typography (max <= 2.5x min for WCAG 1.4.4 200% zoom) */
+    --text-hero: clamp(2.05rem, 1.35rem + 2.45vw, 3.35rem);
+    --text-h2: clamp(1.5rem, 1.15rem + 1.25vw, 2.2rem);
+    --text-h3: clamp(1.06rem, 0.98rem + 0.35vw, 1.26rem);
+    --text-lead: clamp(1.02rem, 0.94rem + 0.32vw, 1.2rem);
+
+    /* Light tokens */
+    --raw-bg-light: #F3F6FA;
+    --raw-surface-light: #FFFFFF;
+    --raw-surface-alt-light: #F8FAFD;
+    --raw-slab-light: #E8EEF6;
+    --raw-glass-light: rgba(243, 246, 250, 0.86);
+
+    --raw-ink-light: #0F172A;
+    --raw-ink-secondary-light: #334155;
+    --raw-ink-muted-light: #526075;
+
+    --raw-border-light: rgba(15, 23, 42, 0.12);
+    --raw-border-strong-light: rgba(15, 23, 42, 0.25);
+
+    --raw-accent-light: #005BB5;
+    --raw-accent-solid-light: #005BB5;
+    --raw-accent-tint-light: rgba(0, 91, 181, 0.10);
+
+    --raw-ok-ink-light: #166534;
+    --raw-ok-bg-light: #DCFCE7;
+    --raw-ok-border-light: rgba(22, 101, 52, 0.30);
+
+    --raw-warn-ink-light: #92400E;
+    --raw-warn-bg-light: #FEF3C7;
+    --raw-warn-border-light: rgba(146, 64, 14, 0.30);
+
+    --raw-danger-ink-light: #B91C1C;
+    --raw-danger-bg-light: #FEE2E2;
+    --raw-danger-border-light: rgba(185, 28, 28, 0.34);
+
+    --raw-scroll-track-light: #E6ECF4;
+    --raw-scroll-thumb-light: #7B879B;
+
+    /* Dark tokens */
+    --raw-bg-dark: #0A0F18;
+    --raw-surface-dark: #111827;
+    --raw-surface-alt-dark: #161F30;
+    --raw-slab-dark: #1A2436;
+    --raw-glass-dark: rgba(10, 15, 24, 0.86);
+
+    --raw-ink-dark: #F1F5F9;
+    --raw-ink-secondary-dark: #B6C2D4;
+    --raw-ink-muted-dark: #8A99B2;
+
+    --raw-border-dark: rgba(241, 245, 249, 0.12);
+    --raw-border-strong-dark: rgba(241, 245, 249, 0.26);
+
+    --raw-accent-dark: #58A6FF;
+    --raw-accent-solid-dark: #2563EB;
+    --raw-accent-tint-dark: rgba(88, 166, 255, 0.16);
+
+    --raw-ok-ink-dark: #4ADE80;
+    --raw-ok-bg-dark: rgba(34, 197, 94, 0.16);
+    --raw-ok-border-dark: rgba(74, 222, 128, 0.34);
+
+    --raw-warn-ink-dark: #FBBF24;
+    --raw-warn-bg-dark: rgba(245, 158, 11, 0.16);
+    --raw-warn-border-dark: rgba(251, 191, 36, 0.34);
+
+    --raw-danger-ink-dark: #FCA5A5;
+    --raw-danger-bg-dark: rgba(239, 68, 68, 0.16);
+    --raw-danger-border-dark: rgba(248, 113, 113, 0.38);
+
+    --raw-scroll-track-dark: #0E1522;
+    --raw-scroll-thumb-dark: #475569;
+
+    /* Active defaults (light) */
+    --bg: var(--raw-bg-light);
+    --surface: var(--raw-surface-light);
+    --surface-alt: var(--raw-surface-alt-light);
+    --slab: var(--raw-slab-light);
+    --glass: var(--raw-glass-light);
+    --ink: var(--raw-ink-light);
+    --ink-secondary: var(--raw-ink-secondary-light);
+    --ink-muted: var(--raw-ink-muted-light);
+    --border: var(--raw-border-light);
+    --border-strong: var(--raw-border-strong-light);
+    --accent: var(--raw-accent-light);
+    --accent-solid: var(--raw-accent-solid-light);
+    --accent-tint: var(--raw-accent-tint-light);
+    --ok-ink: var(--raw-ok-ink-light);
+    --ok-bg: var(--raw-ok-bg-light);
+    --ok-border: var(--raw-ok-border-light);
+    --warn-ink: var(--raw-warn-ink-light);
+    --warn-bg: var(--raw-warn-bg-light);
+    --warn-border: var(--raw-warn-border-light);
+    --danger-ink: var(--raw-danger-ink-light);
+    --danger-bg: var(--raw-danger-bg-light);
+    --danger-border: var(--raw-danger-border-light);
+    --scroll-track: var(--raw-scroll-track-light);
+    --scroll-thumb: var(--raw-scroll-thumb-light);
+
+    color-scheme: light dark;
+    accent-color: var(--accent);
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: var(--raw-bg-dark);
+      --surface: var(--raw-surface-dark);
+      --surface-alt: var(--raw-surface-alt-dark);
+      --slab: var(--raw-slab-dark);
+      --glass: var(--raw-glass-dark);
+      --ink: var(--raw-ink-dark);
+      --ink-secondary: var(--raw-ink-secondary-dark);
+      --ink-muted: var(--raw-ink-muted-dark);
+      --border: var(--raw-border-dark);
+      --border-strong: var(--raw-border-strong-dark);
+      --accent: var(--raw-accent-dark);
+      --accent-solid: var(--raw-accent-solid-dark);
+      --accent-tint: var(--raw-accent-tint-dark);
+      --ok-ink: var(--raw-ok-ink-dark);
+      --ok-bg: var(--raw-ok-bg-dark);
+      --ok-border: var(--raw-ok-border-dark);
+      --warn-ink: var(--raw-warn-ink-dark);
+      --warn-bg: var(--raw-warn-bg-dark);
+      --warn-border: var(--raw-warn-border-dark);
+      --danger-ink: var(--raw-danger-ink-dark);
+      --danger-bg: var(--raw-danger-bg-dark);
+      --danger-border: var(--raw-danger-border-dark);
+      --scroll-track: var(--raw-scroll-track-dark);
+      --scroll-thumb: var(--raw-scroll-thumb-dark);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: var(--raw-bg-dark);
+    --surface: var(--raw-surface-dark);
+    --surface-alt: var(--raw-surface-alt-dark);
+    --slab: var(--raw-slab-dark);
+    --glass: var(--raw-glass-dark);
+    --ink: var(--raw-ink-dark);
+    --ink-secondary: var(--raw-ink-secondary-dark);
+    --ink-muted: var(--raw-ink-muted-dark);
+    --border: var(--raw-border-dark);
+    --border-strong: var(--raw-border-strong-dark);
+    --accent: var(--raw-accent-dark);
+    --accent-solid: var(--raw-accent-solid-dark);
+    --accent-tint: var(--raw-accent-tint-dark);
+    --ok-ink: var(--raw-ok-ink-dark);
+    --ok-bg: var(--raw-ok-bg-dark);
+    --ok-border: var(--raw-ok-border-dark);
+    --warn-ink: var(--raw-warn-ink-dark);
+    --warn-bg: var(--raw-warn-bg-dark);
+    --warn-border: var(--raw-warn-border-dark);
+    --danger-ink: var(--raw-danger-ink-dark);
+    --danger-bg: var(--raw-danger-bg-dark);
+    --danger-border: var(--raw-danger-border-dark);
+    --scroll-track: var(--raw-scroll-track-dark);
+    --scroll-thumb: var(--raw-scroll-thumb-dark);
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+}
