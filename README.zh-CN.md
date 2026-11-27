@@ -4,7 +4,7 @@
   <p><strong>把 localhost 端口还原成项目、应用和服务类型。</strong></p>
   <p>一个本地优先的 macOS 菜单栏工具，用来理解这台 Mac 上已经运行的开发服务。</p>
   <p><a href="README.md">English</a> · <strong>简体中文</strong></p>
-  <p><a href="https://porttools.popcornnn.xyz"><strong>porttools.popcornnn.xyz</strong></a> · <a href="https://github.com/Popcornnnnnnnn/port-tools/releases/latest">下载 v1.0.6</a></p>
+  <p><a href="https://port-tools.popcornnn.xyz"><strong>port-tools.popcornnn.xyz</strong></a> · <a href="https://github.com/Popcornnnnnnnn/port-tools/releases/latest">下载 v1.0.6</a></p>
   <p>macOS 14+ · 原生 SwiftUI · 自包含 Go 核心 · 仅在本机运行</p>
 </div>
 

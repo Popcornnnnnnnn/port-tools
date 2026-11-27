@@ -4,7 +4,7 @@
   <p><strong>Turn localhost ports into projects, apps, and service types.</strong></p>
   <p>A local-first macOS menu-bar control plane for the development services already running on your Mac.</p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
-  <p><a href="https://porttools.popcornnn.xyz"><strong>porttools.popcornnn.xyz</strong></a> · <a href="https://github.com/Popcornnnnnnnn/port-tools/releases/latest">Download v1.0.6</a></p>
+  <p><a href="https://port-tools.popcornnn.xyz"><strong>port-tools.popcornnn.xyz</strong></a> · <a href="https://github.com/Popcornnnnnnnn/port-tools/releases/latest">Download v1.0.6</a></p>
   <p>macOS 14+ · Native SwiftUI · Self-contained Go core · Local only</p>
 </div>
 
