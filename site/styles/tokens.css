@@ -22,14 +22,21 @@
     --raw-surface-light: #FFFFFF;
     --raw-surface-alt-light: #F8FAFD;
     --raw-slab-light: #E8EEF6;
-    --raw-glass-light: rgba(243, 246, 250, 0.86);
+    --raw-well-light: #E5ECF5;
+    --raw-control-light: #FFFFFF;
+    --raw-control-hover-light: #EEF3FA;
+    --raw-glass-light: rgba(243, 246, 250, 0.88);
+    --raw-shadow-stage-light: 0 20px 50px rgba(15, 23, 42, 0.12), 0 1px 2px rgba(15, 23, 42, 0.06);
+    --raw-shadow-card-light: 0 12px 32px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --raw-shadow-seg-light: 0 1px 2px rgba(15, 23, 42, 0.12);
 
     --raw-ink-light: #0F172A;
     --raw-ink-secondary-light: #334155;
-    --raw-ink-muted-light: #526075;
+    --raw-ink-muted-light: #4B596E;
 
     --raw-border-light: rgba(15, 23, 42, 0.12);
-    --raw-border-strong-light: rgba(15, 23, 42, 0.25);
+    --raw-border-strong-light: rgba(15, 23, 42, 0.50);
+    --raw-input-border-light: #64748B;
 
     --raw-accent-light: #005BB5;
     --raw-accent-solid-light: #005BB5;
@@ -37,32 +44,44 @@
 
     --raw-ok-ink-light: #166534;
     --raw-ok-bg-light: #DCFCE7;
-    --raw-ok-border-light: rgba(22, 101, 52, 0.30);
+    --raw-ok-border-light: rgba(22, 101, 52, 0.72);
 
     --raw-warn-ink-light: #92400E;
     --raw-warn-bg-light: #FEF3C7;
     --raw-warn-border-light: rgba(146, 64, 14, 0.30);
 
     --raw-danger-ink-light: #B91C1C;
+    --raw-danger-solid-light: #B91C1C;
     --raw-danger-bg-light: #FEE2E2;
-    --raw-danger-border-light: rgba(185, 28, 28, 0.34);
+    --raw-danger-border-light: rgba(185, 28, 28, 0.68);
+
+    --raw-code-bg-light: #0B111E;
+    --raw-code-bar-light: #111A2D;
+    --raw-code-border-light: rgba(148, 163, 184, 0.24);
 
     --raw-scroll-track-light: #E6ECF4;
     --raw-scroll-thumb-light: #7B879B;
 
-    /* Dark tokens */
+    /* Dark tokens (monotonically elevated: bg < well < surface < surface-alt < slab < control) */
     --raw-bg-dark: #0A0F18;
-    --raw-surface-dark: #111827;
-    --raw-surface-alt-dark: #161F30;
-    --raw-slab-dark: #1A2436;
-    --raw-glass-dark: rgba(10, 15, 24, 0.86);
+    --raw-surface-dark: #131B2C;
+    --raw-surface-alt-dark: #182236;
+    --raw-slab-dark: #1E2940;
+    --raw-well-dark: #0D1422;
+    --raw-control-dark: #25334D;
+    --raw-control-hover-dark: #2F4060;
+    --raw-glass-dark: rgba(10, 15, 24, 0.88);
+    --raw-shadow-stage-dark: 0 24px 56px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --raw-shadow-card-dark: 0 16px 40px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    --raw-shadow-seg-dark: 0 1px 3px rgba(0, 0, 0, 0.45);
 
     --raw-ink-dark: #F1F5F9;
     --raw-ink-secondary-dark: #B6C2D4;
-    --raw-ink-muted-dark: #8A99B2;
+    --raw-ink-muted-dark: #9BA8BE;
 
-    --raw-border-dark: rgba(241, 245, 249, 0.12);
-    --raw-border-strong-dark: rgba(241, 245, 249, 0.26);
+    --raw-border-dark: rgba(241, 245, 249, 0.14);
+    --raw-border-strong-dark: rgba(241, 245, 249, 0.46);
+    --raw-input-border-dark: #7B8FA8;
 
     --raw-accent-dark: #58A6FF;
     --raw-accent-solid-dark: #2563EB;
@@ -70,15 +89,20 @@
 
     --raw-ok-ink-dark: #4ADE80;
     --raw-ok-bg-dark: rgba(34, 197, 94, 0.16);
-    --raw-ok-border-dark: rgba(74, 222, 128, 0.34);
+    --raw-ok-border-dark: rgba(74, 222, 128, 0.62);
 
     --raw-warn-ink-dark: #FBBF24;
     --raw-warn-bg-dark: rgba(245, 158, 11, 0.16);
     --raw-warn-border-dark: rgba(251, 191, 36, 0.34);
 
-    --raw-danger-ink-dark: #FCA5A5;
-    --raw-danger-bg-dark: rgba(239, 68, 68, 0.16);
-    --raw-danger-border-dark: rgba(248, 113, 113, 0.38);
+    --raw-danger-ink-dark: #FECACA;
+    --raw-danger-solid-dark: #C81E1E;
+    --raw-danger-bg-dark: rgba(239, 68, 68, 0.22);
+    --raw-danger-border-dark: rgba(248, 113, 113, 0.82);
+
+    --raw-code-bg-dark: #101829;
+    --raw-code-bar-dark: #182338;
+    --raw-code-border-dark: rgba(148, 163, 184, 0.42);
 
     --raw-scroll-track-dark: #0E1522;
     --raw-scroll-thumb-dark: #475569;
@@ -88,12 +112,19 @@
     --surface: var(--raw-surface-light);
     --surface-alt: var(--raw-surface-alt-light);
     --slab: var(--raw-slab-light);
+    --well: var(--raw-well-light);
+    --control: var(--raw-control-light);
+    --control-hover: var(--raw-control-hover-light);
     --glass: var(--raw-glass-light);
+    --shadow-stage: var(--raw-shadow-stage-light);
+    --shadow-card: var(--raw-shadow-card-light);
+    --shadow-seg: var(--raw-shadow-seg-light);
     --ink: var(--raw-ink-light);
     --ink-secondary: var(--raw-ink-secondary-light);
     --ink-muted: var(--raw-ink-muted-light);
     --border: var(--raw-border-light);
     --border-strong: var(--raw-border-strong-light);
+    --input-border: var(--raw-input-border-light);
     --accent: var(--raw-accent-light);
     --accent-solid: var(--raw-accent-solid-light);
     --accent-tint: var(--raw-accent-tint-light);
@@ -104,8 +135,12 @@
     --warn-bg: var(--raw-warn-bg-light);
     --warn-border: var(--raw-warn-border-light);
     --danger-ink: var(--raw-danger-ink-light);
+    --danger-solid: var(--raw-danger-solid-light);
     --danger-bg: var(--raw-danger-bg-light);
     --danger-border: var(--raw-danger-border-light);
+    --code-bg: var(--raw-code-bg-light);
+    --code-bar: var(--raw-code-bar-light);
+    --code-border: var(--raw-code-border-light);
     --scroll-track: var(--raw-scroll-track-light);
     --scroll-thumb: var(--raw-scroll-thumb-light);
 
@@ -120,12 +155,19 @@
       --surface: var(--raw-surface-dark);
       --surface-alt: var(--raw-surface-alt-dark);
       --slab: var(--raw-slab-dark);
+      --well: var(--raw-well-dark);
+      --control: var(--raw-control-dark);
+      --control-hover: var(--raw-control-hover-dark);
       --glass: var(--raw-glass-dark);
+      --shadow-stage: var(--raw-shadow-stage-dark);
+      --shadow-card: var(--raw-shadow-card-dark);
+      --shadow-seg: var(--raw-shadow-seg-dark);
       --ink: var(--raw-ink-dark);
       --ink-secondary: var(--raw-ink-secondary-dark);
       --ink-muted: var(--raw-ink-muted-dark);
       --border: var(--raw-border-dark);
       --border-strong: var(--raw-border-strong-dark);
+      --input-border: var(--raw-input-border-dark);
       --accent: var(--raw-accent-dark);
       --accent-solid: var(--raw-accent-solid-dark);
       --accent-tint: var(--raw-accent-tint-dark);
@@ -136,8 +178,12 @@
       --warn-bg: var(--raw-warn-bg-dark);
       --warn-border: var(--raw-warn-border-dark);
       --danger-ink: var(--raw-danger-ink-dark);
+      --danger-solid: var(--raw-danger-solid-dark);
       --danger-bg: var(--raw-danger-bg-dark);
       --danger-border: var(--raw-danger-border-dark);
+      --code-bg: var(--raw-code-bg-dark);
+      --code-bar: var(--raw-code-bar-dark);
+      --code-border: var(--raw-code-border-dark);
       --scroll-track: var(--raw-scroll-track-dark);
       --scroll-thumb: var(--raw-scroll-thumb-dark);
       color-scheme: dark;
@@ -149,12 +195,19 @@
     --surface: var(--raw-surface-dark);
     --surface-alt: var(--raw-surface-alt-dark);
     --slab: var(--raw-slab-dark);
+    --well: var(--raw-well-dark);
+    --control: var(--raw-control-dark);
+    --control-hover: var(--raw-control-hover-dark);
     --glass: var(--raw-glass-dark);
+    --shadow-stage: var(--raw-shadow-stage-dark);
+    --shadow-card: var(--raw-shadow-card-dark);
+    --shadow-seg: var(--raw-shadow-seg-dark);
     --ink: var(--raw-ink-dark);
     --ink-secondary: var(--raw-ink-secondary-dark);
     --ink-muted: var(--raw-ink-muted-dark);
     --border: var(--raw-border-dark);
     --border-strong: var(--raw-border-strong-dark);
+    --input-border: var(--raw-input-border-dark);
     --accent: var(--raw-accent-dark);
     --accent-solid: var(--raw-accent-solid-dark);
     --accent-tint: var(--raw-accent-tint-dark);
@@ -165,8 +218,12 @@
     --warn-bg: var(--raw-warn-bg-dark);
     --warn-border: var(--raw-warn-border-dark);
     --danger-ink: var(--raw-danger-ink-dark);
+    --danger-solid: var(--raw-danger-solid-dark);
     --danger-bg: var(--raw-danger-bg-dark);
     --danger-border: var(--raw-danger-border-dark);
+    --code-bg: var(--raw-code-bg-dark);
+    --code-bar: var(--raw-code-bar-dark);
+    --code-border: var(--raw-code-border-dark);
     --scroll-track: var(--raw-scroll-track-dark);
     --scroll-thumb: var(--raw-scroll-thumb-dark);
     color-scheme: dark;

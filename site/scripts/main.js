@@ -11,19 +11,23 @@
       'nav.architecture': 'Architecture',
       'nav.install': 'Install',
       'nav.studio': 'Studio',
+      'nav.menuAria': 'Section navigation',
+      'nav.mobileAria': 'Mobile section navigation',
       'controls.langLabel': '中文',
-      'controls.langAria': 'Switch language to Chinese',
+      'controls.langAria': '中文 — Switch language to Chinese',
       'controls.toLight': 'Switch to light theme',
       'controls.toDark': 'Switch to dark theme',
-      'hero.eyebrow': 'MACOS 14+ MENU BAR · APPLE SILICON · MIT',
-      'hero.titleRest': ' finds a PID. Port Tools finds the project behind it.',
+      'hero.eyebrow': 'macOS 14+ MENU BAR · APPLE SILICON · MIT',
+      'hero.titleMid': ' finds a PID. ',
+      'hero.titleEnd': 'Port\u00A0Tools finds the project behind it.',
       'hero.subPre': 'A local-first macOS menu-bar control plane for the development services already running on your Mac. Reconstruct repositories, Git worktrees, application manifests, stable ',
       'hero.subPost': ' routes, and identity-bound Safe Stop without changing how you start your apps.',
       'hero.ctaDownload': 'Download v1.0.6 (.dmg)',
-      'hero.ctaDemo': 'Try Menu-Bar Demo',
+      'hero.ctaDemo': 'Try Menu\u2011Bar Demo',
       'hero.ctaRepo': 'GitHub',
       'common.copy': 'Copy',
       'common.copied': 'Copied',
+      'common.copyFailed': 'Copy failed',
       'trust.t1Title': 'SwiftUI + Bundled Go Core',
       'trust.t1Sub': 'Private Unix socket · Zero runtime deps',
       'trust.t2Title': 'Stable *.localhost Routes',
@@ -33,6 +37,9 @@
       'trust.t4Title': 'Local-Only · MIT',
       'trust.t4Sub': 'No accounts, telemetry, or /etc/hosts edits',
       'stage.aria': 'Port Tools real macOS app screenshots',
+      'stage.lightAlt': 'Port Tools menu-bar popover in light appearance showing grouped local web projects',
+      'stage.darkAlt': 'Port Tools menu-bar popover in dark appearance showing grouped local web projects',
+      'stage.liveBadge': '● LIVE',
       'stage.projectsCount': '6 projects',
       'stage.caption': 'Real macOS popover captures',
       'stage.groupAria': 'Screenshot appearance preview',
@@ -40,16 +47,17 @@
       'stage.light': 'Light',
       'stage.dark': 'Dark',
       'stage.compare': 'Compare',
-      'wb.heading': 'Interactive Menu-Bar Workbench',
+      'wb.heading': 'Interactive Menu\u2011Bar Workbench',
       'wb.sub': 'Click any service to inspect reconstructed Git and manifest evidence, edit its *.localhost alias, toggle the port-free helper, or walk through Safe Stop, 3-second Force Stop, and Docker refusal.',
       'wb.popoverAria': 'Simulated Port Tools menu-bar popover',
+      'wb.demoBadge': '● DEMO',
       'wb.reset': 'Reset demo',
       'wb.helperOn': 'Port-free addresses are active.',
       'wb.helperOff': 'Port-free addresses are off. Addresses use :17890.',
       'wb.helperBtnOn': 'Helper :80 ON',
       'wb.helperBtnOff': 'Fallback :17890',
-      'wb.searchLabel': 'Filter local services',
-      'wb.searchPlaceholder': 'Search projects, branches, ports, or aliases…',
+      'wb.searchLabel': 'Filter project services',
+      'wb.searchPlaceholder': 'Filter projects, branches, or ports…',
       'wb.otherWeb': 'Other Web endpoints',
       'wb.otherWeb1': 'Vite HMR status socket (loopback)',
       'wb.otherWeb2': 'Preview docs health endpoint (HTTP 404)',
@@ -57,20 +65,30 @@
       'wb.otherLis1': 'redis-server (non-HTTP TCP)',
       'wb.otherLis2': 'postgres (non-HTTP TCP)',
       'wb.otherLis3': 'mDNSResponder (system)',
-      'wb.updated': 'Updated just now',
-      'wb.shortcutHint': 'Press / to search',
-      'wb.empty': 'No running services match that filter.',
+      'wb.updated': 'Simulated local snapshot',
+      'wb.shortcutHint': 'Press / in workbench to search',
+      'wb.empty': 'No services match that filter.',
       'wb.inspect': 'Inspect',
+      'wb.inspectAria': 'Inspect {name}',
+      'wb.selected': 'Selected',
+      'wb.selectedAria': 'Selected — View evidence for {name}',
       'wb.stop': 'Stop',
+      'wb.stopAria': 'Stop {name}',
       'wb.restart': 'Restart',
+      'wb.restartAria': 'Restart {name}',
       'wb.rename': 'Edit alias',
+      'wb.copyRouteAria': 'Copy address for {name}',
+      'wb.renameAria': 'Edit alias for {name}',
       'wb.aliasInputAria': 'Alias for {name}',
       'wb.save': 'Save',
       'wb.cancel': 'Cancel',
       'wb.supportToggle': '1 supporting',
+      'wb.supportAria': '1 supporting — Toggle supporting service details for {name}',
       'wb.supportDetail': 'Supporting API · 127.0.0.1:3001 · HTTP 200 application/json (kept separate from openable Web pages)',
+      'wb.shieldDockerSr': 'Docker container, stop refused',
+      'wb.shieldStoppedSr': 'Stopped',
       'wb.stoppedLabel': 'Stopped · listener released',
-      'wb.aliasError': 'Use lowercase letters, digits, or hyphens.',
+      'wb.aliasError': 'Use 1–39 lowercase letters, digits, or hyphens (start and end with a letter or digit).',
       'wb.aliasDup': 'That alias is already assigned to another service.',
       'ins.kicker': 'EVIDENCE INSPECTOR',
       'ins.kickerStop': 'SAFE STOP REVIEW',
@@ -86,6 +104,7 @@
       'ins.manifest': 'Manifest',
       'ins.bind': 'Bind Scope',
       'ins.probe': 'HTTP Probe',
+      'ins.probeStoppedPrefix': 'Last probe before stop: ',
       'ins.route': 'Active Route',
       'ins.stopPolicy': 'Stop Policy',
       'ins.policyOwned': 'Eligible (current user, attributed)',
@@ -96,7 +115,7 @@
       'ins.reviewStop': 'Review Safe Stop…',
       'ins.restartBtn': 'Restart service',
       'ins.stopTitle': 'Stop this service?',
-      'ins.stopSub': 'Port Tools revalidates this exact process tree before sending SIGTERM.',
+      'ins.stopSub': 'Simulated Safe Stop — Port Tools revalidates this exact process tree before sending SIGTERM.',
       'ins.planToken': 'Plan token',
       'ins.pidOrder': 'PID order',
       'ins.verifyPort': 'Verify released',
@@ -108,12 +127,16 @@
       'ins.stopLogFail': '3. Listener 127.0.0.1:{port} still bound after grace window (process ignored SIGTERM).',
       'ins.forceTitle': 'Force stop this service?',
       'ins.forceSub': 'SIGKILL cannot be handled or postponed by the app. Port Tools will revalidate every PID and listener again.',
-      'ins.forceCountdown': 'Force stop in {n}…',
+      'ins.forceCountdown': 'Force stop available in {n} s…',
       'ins.forceNow': 'Force stop now',
       'ins.forceDone': 'Second single-use plan revalidated PID {pid}, sent SIGKILL, and verified 127.0.0.1:{port} released.',
       'ins.refusedTitle': 'Cannot stop this service safely',
       'ins.refusedBody': 'Docker, other-user, shared-runtime, and unattributed processes are intentionally refused. Manage this container through Docker Desktop or docker compose.',
       'ins.back': 'Back to evidence',
+      'ins.backToList': 'Services',
+      'ins.emptyTitle': 'No matching services',
+      'ins.emptyBody': 'Clear or adjust your filter in the service list to inspect ownership evidence or test Safe Stop.',
+      'ins.clearFilter': 'Clear filter',
       'cmp.heading': 'Pain & Solution, in the Same Place',
       'cmp.sub': 'Port Tools does not replace the CLI and OS utilities developers already rely on. It connects the missing project context between them.',
       'cmp.p1Tag': 'OWNERSHIP',
@@ -181,6 +204,17 @@
       'inst.tab2': 'Direct DMG (v1.0.6)',
       'inst.tab3': 'Build from Source',
       'inst.tab4': 'v1.0.6 Release Notes',
+      'inst.barBrew': 'zsh · Homebrew Cask (Apple Silicon · macOS 14+)',
+      'inst.barDmg': 'zsh · Signed & Notarized v1.0.6 DMG (10.1 MiB)',
+      'inst.barBuild': 'zsh · Build & Verify Bundle Locally',
+      'inst.codeAriaBrew': 'Homebrew Cask installation commands',
+      'inst.codeAriaDmg': 'Direct DMG download and SHA-256 verification commands',
+      'inst.codeAriaBuild': 'Build and verify Port Tools from source commands',
+      'inst.dlLink': 'Download DMG',
+      'inst.cBrew1': '# Install via personal Homebrew tap',
+      'inst.cBrew2': '# Upgrade later (Sparkle built in)',
+      'inst.cDmg1': '# Download DMG & verify SHA-256',
+      'inst.cBuild1': '# Verify bundle & runtime paths',
       'inst.relTitle': 'Port Tools 1.0.6 (Released 2026-11-22)',
       'inst.rel1': 'Stop periodic HTTP re-probing of already-classified live listeners and back off HTTP 501 responses instead of retrying every 3 seconds.',
       'inst.rel2': 'Significantly reduce idle CPU usage, subprocess churn, SSD writes, and log noise with batched process inspection, direct Unix-socket IPC, compact inventory persistence, and a 5-minute background refresh cadence.',
@@ -202,9 +236,14 @@
       'msg.restarted': '{name} restarted',
       'msg.forceStopped': '{name} force stopped',
       'msg.forceReady': 'Force stop is now available for {name}',
+      'msg.sigtermIgnored': '{name} ignored SIGTERM and is still listening',
       'msg.aliasUpdated': '{name} route updated to {url}',
       'msg.copiedVal': 'Copied {val}',
-      'msg.clipboardUnavailable': 'Clipboard permission unavailable'
+      'msg.inspecting': 'Inspecting {name}',
+      'msg.clipboardUnavailable': 'Clipboard permission unavailable',
+      'msg.copyFallbackTitle': 'Clipboard unavailable — copy manually below:',
+      'msg.copyFallbackInputAria': 'Text to copy manually',
+      'msg.close': 'Close'
     },
     'zh-Hans': {
       'meta.title': 'Port Tools — 把 localhost 端口还原成项目、应用和服务类型',
@@ -214,29 +253,36 @@
       'nav.compare': '对比与方案',
       'nav.architecture': '技术边界',
       'nav.install': '安装与构建',
-      'nav.studio': '主页',
+      'nav.studio': '工作室',
+      'nav.menuAria': '页面导航',
+      'nav.mobileAria': '移动端页面导航',
       'controls.langLabel': 'EN',
-      'controls.langAria': 'Switch language to English',
+      'controls.langAria': 'EN — Switch language to English',
       'controls.toLight': '切换到浅色模式',
       'controls.toDark': '切换到深色模式',
-      'hero.eyebrow': 'MACOS 14+ 菜单栏 · APPLE SILICON · MIT',
-      'hero.titleRest': ' 找到 PID，Port Tools 看清背后的项目',
-      'hero.subPre': '一个本地优先的 macOS 菜单栏工具，无需改变现有启动方式，就能把正在运行的 localhost 端口还原为仓库、Git worktree、应用清单、稳定的 ',
-      'hero.subPost': ' 地址，以及经过复核的安全停止流程。',
+      'hero.eyebrow': 'macOS 14+ 菜单栏 · APPLE SILICON · MIT',
+      'hero.titleMid': ' 找到 PID，',
+      'hero.titleEnd': 'Port\u00A0Tools 看清背后的项目',
+      'hero.subPre': '本地优先的 macOS 菜单栏工具，无需改变启动方式，即可把运行中的 localhost 端口识别为对应仓库、Git worktree、应用清单与稳定的 ',
+      'hero.subPost': ' 地址，并在关闭服务前提供身份复核的安全停止流程。',
       'hero.ctaDownload': '下载 v1.0.6 (.dmg)',
       'hero.ctaDemo': '体验菜单栏演示',
       'hero.ctaRepo': 'GitHub 仓库',
       'common.copy': '复制',
       'common.copied': '已复制',
+      'common.copyFailed': '复制失败',
       'trust.t1Title': '原生 SwiftUI + 内置 Go 核心',
       'trust.t1Sub': '私有 Unix socket · 运行时零外部依赖',
       'trust.t2Title': '稳定 *.localhost 路由',
-      'trust.t2Sub': '默认 :17890 · 可选 :80 无端口 helper',
+      'trust.t2Sub': '默认 :17890 · 可选 :80 免端口 Helper',
       'trust.t3Title': '身份复核安全停止',
       'trust.t3Sub': '自动拒绝 Docker 与归属不明进程',
       'trust.t4Title': '仅限本机 · MIT 开源',
       'trust.t4Sub': '无账号、无遥测、不改 /etc/hosts',
       'stage.aria': 'Port Tools 真实 macOS 应用界面截图',
+      'stage.lightAlt': '浅色外观下的 Port Tools 菜单栏弹窗截图，展示按项目分组的本地 Web 服务',
+      'stage.darkAlt': '深色外观下的 Port Tools 菜单栏弹窗截图，展示按项目分组的本地 Web 服务',
+      'stage.liveBadge': '● 运行中',
       'stage.projectsCount': '6 个项目',
       'stage.caption': '真实 macOS 菜单栏弹窗截图',
       'stage.groupAria': '截图外观切换',
@@ -245,15 +291,16 @@
       'stage.dark': '深色',
       'stage.compare': '双模式对比',
       'wb.heading': '交互式菜单栏工作台',
-      'wb.sub': '点击左侧任意服务查看反推出的 Git 与应用清单证据、修改 *.localhost 别名、切换无端口 helper，或体验安全停止、3 秒倒计时强制停止与 Docker 拒绝策略。',
+      'wb.sub': '点击任意服务查看还原出的 Git 与应用清单证据、修改 *.localhost 别名、切换免端口 Helper，或体验模拟安全停止、3 秒倒计时强制停止与 Docker 拒绝策略。',
       'wb.popoverAria': 'Port Tools 菜单栏弹窗交互模拟',
+      'wb.demoBadge': '● 交互演示',
       'wb.reset': '重置演示',
-      'wb.helperOn': '无端口地址已启用。',
-      'wb.helperOff': '无端口地址未启用，当前地址使用 :17890。',
-      'wb.helperBtnOn': 'Helper :80 已开启',
+      'wb.helperOn': '免端口 Helper 已启用（访问地址无需端口号）。',
+      'wb.helperOff': '免端口 Helper 未启用，当前使用默认 :17890 回退端口。',
+      'wb.helperBtnOn': '免端口 Helper :80',
       'wb.helperBtnOff': '回退端口 :17890',
-      'wb.searchLabel': '筛选本地服务',
-      'wb.searchPlaceholder': '搜索项目名、分支、端口或别名…',
+      'wb.searchLabel': '筛选项目服务',
+      'wb.searchPlaceholder': '筛选项目、分支或端口…',
       'wb.otherWeb': '其他 Web 端点',
       'wb.otherWeb1': 'Vite HMR 状态 socket（本机回环）',
       'wb.otherWeb2': '预览文档健康检查端点（HTTP 404）',
@@ -261,22 +308,32 @@
       'wb.otherLis1': 'redis-server（非 HTTP TCP）',
       'wb.otherLis2': 'postgres（非 HTTP TCP）',
       'wb.otherLis3': 'mDNSResponder（系统服务）',
-      'wb.updated': '刚刚更新',
-      'wb.shortcutHint': '按 / 键快速搜索',
+      'wb.updated': '本地模拟快照',
+      'wb.shortcutHint': '工作台内按 / 搜索',
       'wb.empty': '没有匹配当前筛选条件的服务。',
       'wb.inspect': '查看详情',
+      'wb.inspectAria': '查看详情：{name}',
+      'wb.selected': '已选中',
+      'wb.selectedAria': '已选中 — 查看 {name} 证据详情',
       'wb.stop': '停止',
+      'wb.stopAria': '停止：{name}',
       'wb.restart': '重启',
+      'wb.restartAria': '重启：{name}',
       'wb.rename': '修改别名',
+      'wb.copyRouteAria': '复制：{name} 地址',
+      'wb.renameAria': '修改别名：{name}',
       'wb.aliasInputAria': '{name} 的本地别名',
       'wb.save': '保存',
       'wb.cancel': '取消',
       'wb.supportToggle': '1 个辅助服务',
+      'wb.supportAria': '1 个辅助服务 — 切换 {name} 的辅助服务详情',
       'wb.supportDetail': '辅助服务 · 127.0.0.1:3001 · HTTP 200 application/json（与可打开 Web 页面分层展示）',
+      'wb.shieldDockerSr': 'Docker 容器，禁止停止',
+      'wb.shieldStoppedSr': '已停止',
       'wb.stoppedLabel': '已停止 · 监听端口已释放',
-      'wb.aliasError': '请使用小写字母、数字或连字符。',
+      'wb.aliasError': '请使用 1–39 位小写字母、数字或连字符（首尾须为字母或数字）。',
       'wb.aliasDup': '该别名已被其他服务占用。',
-      'ins.kicker': '证据检查器',
+      'ins.kicker': '归属证据详情',
       'ins.kickerStop': '安全停止审查',
       'ins.kickerForce': '强制停止确认',
       'ins.kickerRefused': '拒绝停止',
@@ -290,6 +347,7 @@
       'ins.manifest': '应用清单',
       'ins.bind': '监听范围',
       'ins.probe': 'HTTP 探测',
+      'ins.probeStoppedPrefix': '停止前最后探测：',
       'ins.route': '当前路由',
       'ins.stopPolicy': '停止策略',
       'ins.policyOwned': '允许停止（当前用户且归属明确）',
@@ -300,7 +358,7 @@
       'ins.reviewStop': '检查安全停止…',
       'ins.restartBtn': '重新启动演示服务',
       'ins.stopTitle': '停止此服务？',
-      'ins.stopSub': '发送 SIGTERM 前，Port Tools 会再次核对这个进程树。',
+      'ins.stopSub': '模拟安全停止 — 发送 SIGTERM 前，Port Tools 会再次核对这个进程树。',
       'ins.planToken': '计划令牌',
       'ins.pidOrder': 'PID 顺序',
       'ins.verifyPort': '释放校验',
@@ -318,6 +376,10 @@
       'ins.refusedTitle': '无法安全停止此服务',
       'ins.refusedBody': 'Docker、其他用户进程、共享 runtime 以及无法确认归属的目标会被直接拒绝。请通过 Docker Desktop 或 docker compose 管理容器。',
       'ins.back': '返回证据详情',
+      'ins.backToList': '服务列表',
+      'ins.emptyTitle': '没有匹配的服务',
+      'ins.emptyBody': '清除或调整筛选关键词，即可继续查看归属证据或演示安全停止。',
+      'ins.clearFilter': '清除筛选',
       'cmp.heading': '痛点和解决方式，放在一起',
       'cmp.sub': 'Port Tools 不打算替代开发者已经信任的工具，而是补齐它们之间缺少的项目上下文。',
       'cmp.p1Tag': '归属识别',
@@ -328,7 +390,7 @@
       'cmp.p2A': '按仓库和 worktree 分组展示应用，并把可直接打开的 Web 页面与后台辅助服务区分开。',
       'cmp.p3Tag': '稳定路由',
       'cmp.p3Q': '“端口又变了，记不住。”',
-      'cmp.p3A': '分配持久化地址，例如 phone-studio.localhost（或未启用 helper 时使用 :17890），无需记住随机开发端口。',
+      'cmp.p3A': '分配持久化地址，例如 phone-studio.localhost（未启用免端口 Helper 时使用 :17890），无需记住随机开发端口。',
       'cmp.p4Tag': '安全停止',
       'cmp.p4Q': '“这个旧服务现在能安全关掉吗？”',
       'cmp.p4A': '展示停止计划，在发送 SIGTERM 前复核进程身份并确认端口释放；Docker 与共享 runtime 一律拒绝。',
@@ -364,7 +426,7 @@
       'arch.c1Tag': 'IPC 边界',
       'arch.c1Title': '原生 SwiftUI + 内置 Go 核心',
       'arch.c1Body': '通过 0600 权限的私有 Unix socket（位于 0700 目录中的 runtime/core.sock）通信。运行时无需 Python、Node.js、Homebrew 或外部代理。',
-      'arch.c2Tag': '无端口 HELPER',
+      'arch.c2Tag': '免端口 Helper',
       'arch.c2Title': '仅监听回环的 :80 转发',
       'arch.c2Body': '可选 SMAppService LaunchDaemon 仅绑定 127.0.0.1:80 与 [::1]:80 并只转发至 127.0.0.1:17890；未批准或端口被占用时自动退回 :17890。',
       'arch.c3Tag': '安全停止',
@@ -377,7 +439,7 @@
       'arch.b1': '支持 macOS 14 Sonoma 及以上系统；公开 Release 构建仅面向 Apple Silicon（arm64）。',
       'arch.b2': '仅在 IPv4/IPv6 loopback 上运行，无账号系统、无遥测、无公网穿透。',
       'arch.b3': '不修改 /etc/hosts、不安装受信任本地根证书、不监听 443 HTTPS 端口。',
-      'arch.b4': '默认使用非特权端口 :17890；无端口 *.localhost 需在系统设置中批准一次。',
+      'arch.b4': '默认使用非特权端口 :17890；启用免端口 *.localhost 需在系统设置中批准一次。',
       'inst.heading': '安装、构建与 v1.0.6 更新说明',
       'inst.sub': '可通过 Homebrew Cask 安装、直接下载已签名公证的 Apple Silicon DMG，或使用 Go 与 Xcode Command Line Tools 在本地构建完整应用包。',
       'inst.tablistAria': 'Port Tools 安装方式',
@@ -385,6 +447,17 @@
       'inst.tab2': '直接下载 DMG (v1.0.6)',
       'inst.tab3': '从源码构建',
       'inst.tab4': 'v1.0.6 更新日志',
+      'inst.barBrew': 'zsh · Homebrew Cask（Apple Silicon · macOS 14+）',
+      'inst.barDmg': 'zsh · 已签名并公证的 v1.0.6 DMG（10.1 MiB）',
+      'inst.barBuild': 'zsh · 本地构建与校验应用包',
+      'inst.codeAriaBrew': 'Homebrew Cask 安装命令',
+      'inst.codeAriaDmg': '直接下载 DMG 与 SHA-256 校验命令',
+      'inst.codeAriaBuild': '从源码本地构建与校验命令',
+      'inst.dlLink': '直接下载 DMG',
+      'inst.cBrew1': '# 通过个人 Homebrew tap 安装',
+      'inst.cBrew2': '# 后续升级（应用内已集成 Sparkle 更新）',
+      'inst.cDmg1': '# 下载 DMG 并校验 SHA-256',
+      'inst.cBuild1': '# 校验应用包与运行路径',
       'inst.relTitle': 'Port Tools 1.0.6（2026-11-22 发布）',
       'inst.rel1': '停止对已完成分类的活动监听端口进行周期性 HTTP 重复探测，并对 HTTP 501 响应做退避处理。',
       'inst.rel2': '通过批量进程检查、直连 Unix socket IPC、精简服务清单持久化以及 5 分钟后台刷新节奏，显著降低空闲 CPU 占用、子进程拉起频率、SSD 写入和日志噪声。',
@@ -406,9 +479,14 @@
       'msg.restarted': '{name} 已重启',
       'msg.forceStopped': '{name} 已强制停止',
       'msg.forceReady': '{name} 现在可以强制停止',
+      'msg.sigtermIgnored': '{name} 忽略了 SIGTERM，端口仍在监听',
       'msg.aliasUpdated': '{name} 路由已更新为 {url}',
       'msg.copiedVal': '已复制 {val}',
-      'msg.clipboardUnavailable': '剪贴板权限不可用'
+      'msg.inspecting': '正在查看 {name} 的归属证据',
+      'msg.clipboardUnavailable': '剪贴板权限不可用',
+      'msg.copyFallbackTitle': '无法自动写入剪贴板，请手动复制：',
+      'msg.copyFallbackInputAria': '待手动复制的文本',
+      'msg.close': '关闭'
     }
   };
 
@@ -425,6 +503,7 @@
       cwd: '~/Workspace/phone-3d-ui-studio',
       manifest: 'package.json (Vite · Three.js)',
       bind: '127.0.0.1:5173 (loopback)',
+      bindZh: '127.0.0.1:5173（本机回环）',
       probe: '200 OK · text/html · "Phone 3D UI Studio"',
       stopPolicy: 'owned',
       hasSupporting: false
@@ -441,6 +520,7 @@
       cwd: '~/Workspace/reply-copilot',
       manifest: 'package.json (Next.js)',
       bind: '127.0.0.1:3000 (loopback)',
+      bindZh: '127.0.0.1:3000（本机回环）',
       probe: '200 OK · text/html · "Reply Copilot"',
       stopPolicy: 'owned',
       hasSupporting: true
@@ -454,9 +534,11 @@
       port: 4178,
       pid: 51388,
       ancestry: '51388 (ops-web) ← 1 (launchd · unmanaged)',
+      ancestryZh: '51388 (ops-web) ← 1 (launchd · 未受托管)',
       cwd: '~/Workspace/ops-dashboard/.worktrees/release-v2',
       manifest: 'go.mod + web/package.json',
       bind: '127.0.0.1:4178 (loopback)',
+      bindZh: '127.0.0.1:4178（本机回环）',
       probe: '200 OK · text/html · "Ops Dashboard"',
       stopPolicy: 'ignores-sigterm',
       hasSupporting: false
@@ -470,9 +552,12 @@
       port: 8080,
       pid: 19240,
       ancestry: '19240 (com.docker.backend · published port)',
+      ancestryZh: '19240 (com.docker.backend · 容器映射端口)',
       cwd: 'Docker container · dpage/pgadmin4',
+      cwdZh: 'Docker 容器 · dpage/pgadmin4',
       manifest: 'docker-compose.yml',
       bind: '0.0.0.0:8080 (all interfaces / LAN)',
+      bindZh: '0.0.0.0:8080（全部网卡 / 局域网）',
       probe: '200 OK · text/html · "pgAdmin 4"',
       stopPolicy: 'refused-docker',
       hasSupporting: false
@@ -489,6 +574,7 @@
       cwd: '~/Workspace/api-playground',
       manifest: 'pyproject.toml (FastAPI)',
       bind: '127.0.0.1:8000 (loopback)',
+      bindZh: '127.0.0.1:8000（本机回环）',
       probe: '200 OK · text/html · "API Playground — Swagger UI"',
       stopPolicy: 'owned',
       hasSupporting: false
@@ -502,14 +588,21 @@
     selectedId: 'phone3d',
     inspectorMode: 'inspect',
     editingId: null,
-    renameDraft: '',
-    renameError: '',
+    renameDraft: null,
+    renameError: null,
     supportExpanded: false,
     forceSeconds: 0,
     forceTimer: null,
-    stopLog: [],
+    stopAttemptSeq: 0,
+    demoSessionSeq: 0,
+    stopTargetId: null,
+    stopOpenerSelector: null,
+    copyFallbackText: null,
+    copyFallbackOpener: null,
     services: cloneServices()
   };
+
+  var copyResetTimers = typeof WeakMap === 'function' ? new WeakMap() : null;
 
   function cloneServices() {
     return INITIAL_SERVICES.map(function (s) {
@@ -522,15 +615,26 @@
         port: s.port,
         pid: s.pid,
         ancestry: s.ancestry,
+        ancestryZh: s.ancestryZh || null,
         cwd: s.cwd,
+        cwdZh: s.cwdZh || null,
         manifest: s.manifest,
         bind: s.bind,
+        bindZh: s.bindZh || null,
         probe: s.probe,
         stopPolicy: s.stopPolicy,
         hasSupporting: s.hasSupporting,
-        stopped: false
+        stopped: false,
+        stopping: false,
+        stopTimer: null,
+        stopLog: []
       };
     });
+  }
+
+  function serviceField(svc, field) {
+    if (state.lang === 'zh-Hans' && svc[field + 'Zh']) return svc[field + 'Zh'];
+    return svc[field];
   }
 
   function t(key, vars) {
@@ -566,25 +670,195 @@
     }, 20);
   }
 
-  function copyText(text, btn, restoreText) {
-    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-      announce(t('msg.clipboardUnavailable'));
-      return;
+  function restoreButtonLabel(btn, prev) {
+    if (copyResetTimers && copyResetTimers.has(btn)) {
+      window.clearTimeout(copyResetTimers.get(btn));
+      copyResetTimers.delete(btn);
     }
-    navigator.clipboard.writeText(text).then(function () {
-      var prev = restoreText || btn.textContent;
+    var timerId = window.setTimeout(function () {
+      if (copyResetTimers) copyResetTimers.delete(btn);
+      if (btn.getAttribute('data-i18n')) {
+        btn.textContent = t(btn.getAttribute('data-i18n'));
+      } else {
+        btn.textContent = prev;
+      }
+    }, 1500);
+    if (copyResetTimers) copyResetTimers.set(btn, timerId);
+  }
+
+  function isFocusableVisible(el) {
+    if (!el || !el.isConnected || el.disabled || typeof el.focus !== 'function') return false;
+    if (typeof el.closest === 'function' && el.closest('[hidden]')) return false;
+    return true;
+  }
+
+  function describeCopyOpener(btn) {
+    if (!btn) return null;
+    var selector = null;
+    var fallback = '#wb-search';
+    var copyTarget = typeof btn.getAttribute === 'function' ? btn.getAttribute('data-copy-target') : null;
+    if (copyTarget) {
+      selector = '[data-copy-target="' + copyTarget + '"]';
+      fallback = copyTarget === 'brew-hero-cmd'
+        ? '#main-content'
+        : '#install [role="tab"][aria-selected="true"]';
+    } else if (typeof btn.closest === 'function') {
+      var insRoot = btn.closest('#wb-inspector');
+      var act = typeof btn.getAttribute === 'function' ? btn.getAttribute('data-action') : null;
+      if (insRoot && act) {
+        selector = '#wb-inspector [data-action="' + act + '"]';
+        fallback = '#wb-inspector-heading';
+      } else {
+        var rowCard = btn.closest('[data-svc-id]');
+        if (rowCard && act) {
+          var sid = rowCard.getAttribute('data-svc-id');
+          if (sid) {
+            selector = '[data-svc-id="' + sid + '"] [data-action="' + act + '"]';
+            fallback = '#wb-search';
+          }
+        }
+      }
+    }
+    return { el: btn, selector: selector, fallback: fallback };
+  }
+
+  function hideCopyFallback(restoreFocus) {
+    var box = document.getElementById('copy-fallback');
+    var opener = state.copyFallbackOpener;
+    state.copyFallbackText = null;
+    state.copyFallbackOpener = null;
+    if (box) {
+      box.hidden = true;
+      box.removeAttribute('aria-labelledby');
+      box.replaceChildren();
+    }
+    if (!restoreFocus) return;
+    var target = null;
+    if (opener) {
+      if (isFocusableVisible(opener.el)) {
+        target = opener.el;
+      } else if (opener.selector) {
+        var reQueried = document.querySelector(opener.selector);
+        if (isFocusableVisible(reQueried)) target = reQueried;
+      }
+      if (!target && opener.fallback) {
+        var fbEl = document.querySelector(opener.fallback);
+        if (isFocusableVisible(fbEl)) target = fbEl;
+      }
+    }
+    if (!target) {
+      var searchFallback = document.getElementById('wb-search');
+      if (isFocusableVisible(searchFallback)) target = searchFallback;
+    }
+    if (target) target.focus();
+  }
+
+  function showCopyFallback(text, openerBtn, preserveFocus) {
+    var box = document.getElementById('copy-fallback');
+    if (!box) return;
+    state.copyFallbackText = text;
+    if (openerBtn !== undefined && openerBtn !== null) {
+      state.copyFallbackOpener = describeCopyOpener(openerBtn);
+    }
+
+    if (preserveFocus && !box.hidden) {
+      var existingTitle = document.getElementById('copy-fallback-title');
+      var existingInp = box.querySelector('.copy-fallback-input');
+      var existingClose = box.querySelector('.copy-fallback-close');
+      if (existingTitle && existingInp && existingClose) {
+        existingTitle.textContent = t('msg.copyFallbackTitle');
+        existingClose.textContent = t('msg.close');
+        existingInp.setAttribute('aria-label', t('msg.copyFallbackInputAria'));
+        if (existingInp.value !== text) existingInp.value = text;
+        return;
+      }
+    }
+
+    box.replaceChildren();
+
+    var titleSpan = createEl('span', 'copy-fallback-title', t('msg.copyFallbackTitle'));
+    titleSpan.id = 'copy-fallback-title';
+    box.appendChild(titleSpan);
+
+    var inp = createEl('textarea', 'copy-fallback-input');
+    inp.readOnly = true;
+    inp.value = text;
+    var lines = String(text).split('\n').length;
+    inp.rows = Math.min(6, Math.max(2, lines));
+    inp.setAttribute('aria-label', t('msg.copyFallbackInputAria'));
+    inp.addEventListener('focus', function () {
+      inp.select();
+    });
+    box.appendChild(inp);
+
+    var closeBtn = createEl('button', 'row-btn copy-fallback-close', t('msg.close'));
+    closeBtn.type = 'button';
+    closeBtn.addEventListener('click', function () {
+      hideCopyFallback(true);
+    });
+    box.appendChild(closeBtn);
+
+    box.setAttribute('aria-labelledby', 'copy-fallback-title');
+    box.hidden = false;
+    if (!preserveFocus) {
+      inp.focus();
+      inp.select();
+    }
+  }
+
+  function legacyExecCopy(text) {
+    if (typeof document.execCommand !== 'function') return false;
+    var prevFocus = document.activeElement;
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.setAttribute('aria-hidden', 'true');
+    ta.tabIndex = -1;
+    ta.className = 'copy-scratch';
+    document.body.appendChild(ta);
+    var ok = false;
+    try {
+      ta.focus({ preventScroll: true });
+      ta.select();
+      ok = document.execCommand('copy');
+    } catch (e) {
+      ok = false;
+    } finally {
+      document.body.removeChild(ta);
+      if (prevFocus && prevFocus.isConnected && typeof prevFocus.focus === 'function') {
+        prevFocus.focus({ preventScroll: true });
+      }
+    }
+    return ok;
+  }
+
+  function copyText(text, btn, restoreText) {
+    var prev = restoreText || btn.textContent;
+    function onCopied() {
+      hideCopyFallback(false);
       btn.textContent = t('common.copied');
       announce(t('msg.copiedVal', { val: text }));
-      window.setTimeout(function () {
-        if (btn.getAttribute('data-i18n')) {
-          btn.textContent = t(btn.getAttribute('data-i18n'));
-        } else {
-          btn.textContent = prev;
-        }
-      }, 1500);
-    }).catch(function () {
+      restoreButtonLabel(btn, prev);
+    }
+    function onFailed() {
+      if (legacyExecCopy(text)) {
+        onCopied();
+        return;
+      }
+      btn.textContent = t('common.copyFailed');
+      restoreButtonLabel(btn, prev);
       announce(t('msg.clipboardUnavailable'));
-    });
+      showCopyFallback(text, btn, false);
+    }
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+      onFailed();
+      return;
+    }
+    try {
+      navigator.clipboard.writeText(text).then(onCopied).catch(onFailed);
+    } catch (e) {
+      onFailed();
+    }
   }
 
   function clearForceTimer() {
@@ -594,10 +868,39 @@
     }
   }
 
-  function focusSelector(selector) {
+  function clearAllPendingStops() {
+    state.demoSessionSeq += 1;
+    state.services.forEach(function (svc) {
+      if (svc.stopTimer) {
+        window.clearTimeout(svc.stopTimer);
+        svc.stopTimer = null;
+      }
+      svc.stopping = false;
+      svc.stopLog = [];
+    });
+  }
+
+  function cancelStopFlow() {
+    clearForceTimer();
+    state.stopAttemptSeq += 1;
+    state.stopTargetId = null;
+    state.forceSeconds = 0;
+    state.inspectorMode = 'inspect';
+  }
+
+  function dismissStopReview() {
+    if (state.inspectorMode === 'stopping') return;
+    var restore = state.stopOpenerSelector;
+    var svc = selectedService();
+    cancelStopFlow();
+    renderWorkbench(restore || (svc ? '[data-svc-id="' + svc.id + '"] [data-action="select"]' : null));
+  }
+
+  function focusSelector(selector, opts) {
     var el = selector ? document.querySelector(selector) : null;
     if (el && typeof el.focus === 'function') {
-      el.focus();
+      if (opts) el.focus(opts);
+      else el.focus();
     }
   }
 
@@ -647,6 +950,10 @@
       var key = el.getAttribute('data-i18n-aria');
       if (key) el.setAttribute('aria-label', t(key));
     });
+    document.querySelectorAll('[data-i18n-alt]').forEach(function (el) {
+      var key = el.getAttribute('data-i18n-alt');
+      if (key) el.setAttribute('alt', t(key));
+    });
     document.querySelectorAll('[data-col-key]').forEach(function (el) {
       var key = el.getAttribute('data-col-key');
       if (key) el.setAttribute('data-col-label', t(key));
@@ -655,8 +962,17 @@
     var searchInput = document.getElementById('wb-search');
     if (searchInput) searchInput.placeholder = t('wb.searchPlaceholder');
 
+    var inspectorEl = document.getElementById('wb-inspector');
+    var focusInInspector = Boolean(inspectorEl && document.activeElement && inspectorEl.contains(document.activeElement));
+
     syncHelperControls();
     renderWorkbench();
+    if (focusInInspector) {
+      focusSelector(state.inspectorMode !== 'inspect' ? '#wb-sheet-title' : '#wb-inspector-heading', { preventScroll: true });
+    }
+    if (state.copyFallbackText !== null) {
+      showCopyFallback(state.copyFallbackText, null, true);
+    }
   }
 
   function initLanguageToggle() {
@@ -722,7 +1038,11 @@
           var match = panel.getAttribute('aria-labelledby') === targetTab.id;
           if (match) {
             panel.removeAttribute('hidden');
-            panel.tabIndex = 0;
+            if (panel.id === 'inst-panel-notes') {
+              panel.tabIndex = 0;
+            } else {
+              panel.removeAttribute('tabindex');
+            }
           } else {
             panel.setAttribute('hidden', 'until-found');
             panel.removeAttribute('tabindex');
@@ -759,13 +1079,29 @@
     });
   }
 
+  function extractCommandText(el) {
+    var clone = el.cloneNode(true);
+    clone.querySelectorAll('.code-comment').forEach(function (node) {
+      node.remove();
+    });
+    return (clone.textContent || '')
+      .split('\n')
+      .map(function (line) { return line.replace(/\s+$/, ''); })
+      .filter(function (line, idx, arr) {
+        if (line.trim() !== '') return true;
+        return idx > 0 && idx < arr.length - 1 && arr[idx - 1].trim() !== '';
+      })
+      .join('\n')
+      .trim();
+  }
+
   function initStaticCopyButtons() {
     document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var id = btn.getAttribute('data-copy-target');
         var el = id ? document.getElementById(id) : null;
         if (!el) return;
-        copyText((el.textContent || '').trim(), btn);
+        copyText(extractCommandText(el), btn);
       });
     });
   }
@@ -801,21 +1137,109 @@
     return found || state.services[0];
   }
 
-  function startStopFlow(svc) {
-    clearForceTimer();
+  function reconcileVisibleSelection() {
+    var vis = filteredServices();
+    var prevSelected = state.selectedId;
+    if (vis.length && !vis.some(function (s) { return s.id === state.selectedId; })) {
+      state.selectedId = vis[0].id;
+    }
+    if (state.inspectorMode !== 'inspect' && (!vis.length || !vis.some(function (s) { return s.id === state.stopTargetId; }) || state.stopTargetId !== state.selectedId || prevSelected !== state.selectedId)) {
+      cancelStopFlow();
+    }
+    if (state.editingId && !vis.some(function (s) { return s.id === state.editingId; })) {
+      state.editingId = null;
+      state.renameDraft = null;
+      state.renameError = null;
+    }
+    return vis;
+  }
+
+  function isStackedWorkbench() {
+    var shell = document.querySelector('.wb-shell');
+    return !shell || shell.clientWidth < 860;
+  }
+
+  function revealInspectorOnStacked() {
+    if (!isStackedWorkbench()) return false;
+    var card = document.getElementById('wb-inspector');
+    var heading = document.getElementById('wb-inspector-heading');
+    if (card && typeof card.scrollIntoView === 'function') {
+      var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    }
+    if (heading && typeof heading.focus === 'function') {
+      heading.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
+  function initMobileNavMenu() {
+    var menu = document.getElementById('mobile-nav');
+    if (!menu) return;
+    menu.querySelectorAll('a').forEach(function (link) {
+      link.addEventListener('click', function () {
+        menu.open = false;
+      });
+    });
+    document.addEventListener('click', function (ev) {
+      if (menu.open && !menu.contains(ev.target)) {
+        menu.open = false;
+      }
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && menu.open) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        menu.open = false;
+        var summary = menu.querySelector('summary');
+        if (summary && typeof summary.focus === 'function') summary.focus();
+      }
+    });
+    menu.addEventListener('focusout', function (ev) {
+      if (!menu.open) return;
+      if (ev.relatedTarget && !menu.contains(ev.relatedTarget)) {
+        menu.open = false;
+      }
+    });
+  }
+
+  function startStopFlow(svc, openerSelector) {
+    cancelStopFlow();
     state.selectedId = svc.id;
     state.editingId = null;
-    state.renameError = '';
-    state.stopLog = [];
-    if (svc.stopped) {
-      svc.stopped = false;
-      state.inspectorMode = 'inspect';
-      announce(t('msg.restarted', { name: svc.name }));
-      renderWorkbench('[data-svc-id="' + svc.id + '"] [data-action="stop"]');
+    state.renameDraft = null;
+    state.renameError = null;
+    if (svc.stopping) {
+      state.stopTargetId = svc.id;
+      state.stopOpenerSelector = openerSelector || ('[data-svc-id="' + svc.id + '"] [data-action="select"]');
+      state.inspectorMode = 'stopping';
+      var stackedBusy = isStackedWorkbench();
+      renderWorkbench();
+      focusSelector('#wb-inspector #wb-sheet-title', { preventScroll: stackedBusy });
       return;
     }
+    if (svc.stopped) {
+      svc.stopped = false;
+      svc.stopLog = [];
+      state.stopOpenerSelector = null;
+      announce(t('msg.restarted', { name: svc.name }));
+      renderWorkbench(openerSelector || '[data-svc-id="' + svc.id + '"] [data-action="stop"]');
+      return;
+    }
+    svc.stopLog = [];
+    state.stopTargetId = svc.id;
+    state.stopOpenerSelector = openerSelector || ('[data-svc-id="' + svc.id + '"] [data-action="stop"]');
     state.inspectorMode = svc.stopPolicy === 'refused-docker' ? 'refused' : 'confirm-stop';
-    renderWorkbench('#wb-inspector .action-btn');
+    var stacked = isStackedWorkbench();
+    renderWorkbench();
+    focusSelector('#wb-inspector #wb-sheet-title', { preventScroll: stacked });
+    if (stacked) {
+      var card = document.getElementById('wb-inspector');
+      if (card && typeof card.scrollIntoView === 'function') {
+        var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+      }
+    }
   }
 
   function updateForceCountdownButton() {
@@ -831,53 +1255,90 @@
   }
 
   function executeSigtermStop(svc) {
+    if (!svc || svc.id !== state.stopTargetId || svc.stopPolicy === 'refused-docker' || svc.stopped || svc.stopping) {
+      return;
+    }
     clearForceTimer();
+    var sessionSeq = state.demoSessionSeq;
+    var targetId = svc.id;
+    svc.stopping = true;
     state.inspectorMode = 'stopping';
-    state.stopLog = [
-      t('ins.stopLog1', { pid: svc.pid, port: svc.port }),
-      t('ins.stopLog2', { pid: svc.pid, port: svc.port })
+    svc.stopLog = [
+      { key: 'ins.stopLog1', vars: { pid: svc.pid, port: svc.port } },
+      { key: 'ins.stopLog2', vars: { pid: svc.pid, port: svc.port } }
     ];
-    renderInspector();
+    renderWorkbench();
+    focusSelector('#wb-sheet-title', { preventScroll: true });
 
-    window.setTimeout(function () {
+    svc.stopTimer = window.setTimeout(function () {
+      svc.stopTimer = null;
+      if (sessionSeq !== state.demoSessionSeq || !svc.stopping || svc.stopped || svc.stopPolicy === 'refused-docker') {
+        svc.stopping = false;
+        return;
+      }
+      svc.stopping = false;
+      var vis = filteredServices();
+      var isViewing = state.selectedId === targetId && vis.some(function (item) { return item.id === targetId; });
+
       if (svc.stopPolicy === 'ignores-sigterm') {
-        state.stopLog.push(t('ins.stopLogFail', { pid: svc.pid, port: svc.port }));
-        state.inspectorMode = 'force-stop';
-        state.forceSeconds = 3;
-        renderInspector();
-        focusSelector('#wb-inspector .action-btn');
-        state.forceTimer = window.setInterval(function () {
-          state.forceSeconds -= 1;
-          if (state.forceSeconds <= 0) {
-            state.forceSeconds = 0;
-            clearForceTimer();
-            updateForceCountdownButton();
-            announce(t('msg.forceReady', { name: svc.name }));
-          } else {
-            updateForceCountdownButton();
-          }
-        }, 1000);
+        svc.stopLog = svc.stopLog.concat([{ key: 'ins.stopLogFail', vars: { pid: svc.pid, port: svc.port } }]);
+        if (isViewing) {
+          state.stopAttemptSeq += 1;
+          var attempt = state.stopAttemptSeq;
+          state.stopTargetId = targetId;
+          state.inspectorMode = 'force-stop';
+          state.forceSeconds = 3;
+          renderWorkbench();
+          focusSelector('#wb-sheet-title', { preventScroll: true });
+          state.forceTimer = window.setInterval(function () {
+            if (attempt !== state.stopAttemptSeq || state.stopTargetId !== targetId || state.inspectorMode !== 'force-stop') {
+              clearForceTimer();
+              return;
+            }
+            state.forceSeconds -= 1;
+            if (state.forceSeconds <= 0) {
+              state.forceSeconds = 0;
+              clearForceTimer();
+              updateForceCountdownButton();
+              announce(t('msg.forceReady', { name: svc.name }));
+            } else {
+              updateForceCountdownButton();
+            }
+          }, 1000);
+        } else {
+          announce(t('msg.sigtermIgnored', { name: svc.name }));
+          renderWorkbench();
+        }
       } else {
         svc.stopped = true;
-        state.stopLog.push(t('ins.stopLog3', { pid: svc.pid, port: svc.port }));
-        state.inspectorMode = 'inspect';
+        svc.stopLog = svc.stopLog.concat([{ key: 'ins.stopLog3', vars: { pid: svc.pid, port: svc.port } }]);
         announce(t('msg.stopped', { name: svc.name }));
-        renderWorkbench('#wb-inspector .action-btn');
+        if (isViewing && state.stopTargetId === targetId) {
+          cancelStopFlow();
+          state.stopOpenerSelector = null;
+          renderWorkbench('#wb-inspector-heading');
+        } else {
+          renderWorkbench();
+        }
       }
     }, 350);
   }
 
   function executeForceKill(svc) {
-    clearForceTimer();
+    if (!svc || state.inspectorMode !== 'force-stop' || state.forceSeconds > 0 || svc.id !== state.stopTargetId || svc.stopPolicy === 'refused-docker' || svc.stopped) {
+      return;
+    }
     svc.stopped = true;
-    state.stopLog = [t('ins.forceDone', { pid: svc.pid, port: svc.port })];
-    state.inspectorMode = 'inspect';
+    svc.stopLog = [{ key: 'ins.forceDone', vars: { pid: svc.pid, port: svc.port } }];
+    cancelStopFlow();
+    state.stopOpenerSelector = null;
     announce(t('msg.forceStopped', { name: svc.name }));
-    renderWorkbench('#wb-inspector .action-btn');
+    renderWorkbench('#wb-inspector-heading');
   }
 
   function renderServiceList(restoreFocusSelector) {
     var listEl = document.getElementById('wb-list');
+    var emptyEl = document.getElementById('wb-empty');
     var summaryEl = document.getElementById('wb-summary');
     if (!listEl) return;
     listEl.replaceChildren();
@@ -889,8 +1350,17 @@
     }
 
     if (!visible.length) {
-      listEl.appendChild(createEl('div', 'svc-card', t('wb.empty')));
+      listEl.hidden = true;
+      if (emptyEl) {
+        emptyEl.textContent = t('wb.empty');
+        emptyEl.hidden = false;
+      }
       return;
+    }
+    listEl.hidden = false;
+    if (emptyEl) {
+      emptyEl.textContent = '';
+      emptyEl.hidden = true;
     }
 
     visible.forEach(function (svc) {
@@ -901,28 +1371,37 @@
 
       var head = createEl('div', 'svc-head');
       var titleGroup = createEl('div', 'svc-title-group');
+      var namePair = createEl('span', 'svc-name-pair');
 
       var nameBtn = createEl('button', 'svc-name-btn', svc.name);
       nameBtn.type = 'button';
       nameBtn.setAttribute('data-action', 'select');
       if (isSelected) nameBtn.setAttribute('aria-current', 'true');
       nameBtn.addEventListener('click', function () {
-        clearForceTimer();
+        cancelStopFlow();
         state.selectedId = svc.id;
-        state.inspectorMode = 'inspect';
-        state.stopLog = [];
+        announce(t('msg.inspecting', { name: svc.name }));
         renderWorkbench('[data-svc-id="' + svc.id + '"] [data-action="select"]');
+        revealInspectorOnStacked();
       });
-      titleGroup.appendChild(nameBtn);
+      namePair.appendChild(nameBtn);
 
       var shield = createEl('span', 'shield-dot' + (svc.stopped ? ' is-stopped' : (svc.stopPolicy === 'refused-docker' ? ' is-warn' : '')), svc.stopped ? '–' : (svc.stopPolicy === 'refused-docker' ? '!' : '✓'));
       shield.setAttribute('aria-hidden', 'true');
-      titleGroup.appendChild(shield);
+      namePair.appendChild(shield);
+      if (svc.stopped) {
+        namePair.appendChild(createEl('span', 'visually-hidden', t('wb.shieldStoppedSr')));
+      } else if (svc.stopPolicy === 'refused-docker') {
+        namePair.appendChild(createEl('span', 'visually-hidden', t('wb.shieldDockerSr')));
+      }
+      titleGroup.appendChild(namePair);
 
       if (svc.hasSupporting && !svc.stopped) {
         var supBtn = createEl('button', 'support-pill', t('wb.supportToggle'));
         supBtn.type = 'button';
         supBtn.setAttribute('data-action', 'support');
+        supBtn.setAttribute('aria-label', t('wb.supportAria', { name: svc.name }));
+        supBtn.setAttribute('aria-controls', 'wb-support-' + svc.id);
         supBtn.setAttribute('aria-expanded', state.supportExpanded ? 'true' : 'false');
         supBtn.addEventListener('click', function () {
           state.supportExpanded = !state.supportExpanded;
@@ -934,29 +1413,53 @@
       head.appendChild(titleGroup);
 
       var actions = createEl('div', 'svc-actions');
-      var inspectBtn = createEl('button', 'row-btn', t('wb.inspect'));
-      inspectBtn.type = 'button';
-      inspectBtn.setAttribute('data-action', 'inspect');
-      inspectBtn.addEventListener('click', function () {
-        clearForceTimer();
-        state.selectedId = svc.id;
-        state.inspectorMode = 'inspect';
-        state.stopLog = [];
-        renderWorkbench('[data-svc-id="' + svc.id + '"] [data-action="inspect"]');
-      });
-      actions.appendChild(inspectBtn);
+      if (isSelected) {
+        var selectedBtn = createEl('button', 'selected-tag', t('wb.selected'));
+        selectedBtn.type = 'button';
+        selectedBtn.setAttribute('data-action', 'inspect');
+        selectedBtn.setAttribute('aria-label', t('wb.selectedAria', { name: svc.name }));
+        selectedBtn.addEventListener('click', function () {
+          cancelStopFlow();
+          announce(t('msg.inspecting', { name: svc.name }));
+          renderWorkbench();
+          focusSelector('#wb-inspector-heading', { preventScroll: isStackedWorkbench() });
+          revealInspectorOnStacked();
+        });
+        actions.appendChild(selectedBtn);
+      } else {
+        var inspectBtn = createEl('button', 'row-btn', t('wb.inspect'));
+        inspectBtn.type = 'button';
+        inspectBtn.setAttribute('data-action', 'inspect');
+        inspectBtn.setAttribute('aria-label', t('wb.inspectAria', { name: svc.name }));
+        inspectBtn.addEventListener('click', function () {
+          cancelStopFlow();
+          state.selectedId = svc.id;
+          announce(t('msg.inspecting', { name: svc.name }));
+          renderWorkbench();
+          focusSelector('#wb-inspector-heading', { preventScroll: isStackedWorkbench() });
+          revealInspectorOnStacked();
+        });
+        actions.appendChild(inspectBtn);
+      }
 
       var stopBtn = createEl('button', 'row-btn' + (svc.stopped ? '' : ' is-danger'), t(svc.stopped ? 'wb.restart' : 'wb.stop'));
       stopBtn.type = 'button';
       stopBtn.setAttribute('data-action', 'stop');
+      stopBtn.setAttribute('aria-label', t(svc.stopped ? 'wb.restartAria' : 'wb.stopAria', { name: svc.name }));
+      stopBtn.disabled = Boolean(svc.stopping);
       stopBtn.addEventListener('click', function () {
-        startStopFlow(svc);
+        startStopFlow(svc, '[data-svc-id="' + svc.id + '"] [data-action="stop"]');
       });
       actions.appendChild(stopBtn);
       head.appendChild(actions);
       card.appendChild(head);
 
-      var gitLine = createEl('div', 'svc-git', '⑂ ' + svc.branch + ' · ' + svc.repo + ' · :' + svc.port);
+      var gitLine = createEl('div', 'svc-git');
+      gitLine.appendChild(createEl('span', 'svc-git-repo', '⑂ ' + svc.branch + ' · ' + svc.repo));
+      var gitSep = createEl('span', 'svc-git-sep', '·');
+      gitSep.setAttribute('aria-hidden', 'true');
+      gitLine.appendChild(gitSep);
+      gitLine.appendChild(createEl('span', 'svc-git-port', ':' + svc.port));
       card.appendChild(gitLine);
 
       if (svc.stopped) {
@@ -967,38 +1470,47 @@
         var routeSpan = createEl('span', 'svc-route', urlText);
         routeRow.appendChild(routeSpan);
 
+        var routeActions = createEl('div', 'svc-route-actions');
         var copyBtn = createEl('button', 'row-btn', t('common.copy'));
         copyBtn.type = 'button';
         copyBtn.setAttribute('data-action', 'copy');
+        copyBtn.setAttribute('aria-label', t('wb.copyRouteAria', { name: svc.name }));
         copyBtn.addEventListener('click', function () {
           copyText(urlText, copyBtn, t('common.copy'));
         });
-        routeRow.appendChild(copyBtn);
+        routeActions.appendChild(copyBtn);
 
         var renameBtn = createEl('button', 'row-btn', t('wb.rename'));
         renameBtn.type = 'button';
         renameBtn.setAttribute('data-action', 'rename');
+        renameBtn.setAttribute('aria-expanded', state.editingId === svc.id ? 'true' : 'false');
+        renameBtn.setAttribute('aria-label', t('wb.renameAria', { name: svc.name }));
+        if (state.editingId === svc.id) {
+          renameBtn.setAttribute('aria-controls', 'wb-edit-' + svc.id);
+        }
         renameBtn.addEventListener('click', function () {
           if (state.editingId === svc.id) {
             state.editingId = null;
-            state.renameDraft = '';
-            state.renameError = '';
+            state.renameDraft = null;
+            state.renameError = null;
             renderServiceList('[data-svc-id="' + svc.id + '"] [data-action="rename"]');
           } else {
             state.editingId = svc.id;
             state.renameDraft = svc.alias;
-            state.renameError = '';
+            state.renameError = null;
             renderServiceList('[data-svc-id="' + svc.id + '"] .inline-edit-input');
           }
         });
-        routeRow.appendChild(renameBtn);
+        routeActions.appendChild(renameBtn);
+        routeRow.appendChild(routeActions);
         card.appendChild(routeRow);
 
         if (state.editingId === svc.id) {
           var editRow = createEl('form', 'inline-edit-row');
+          editRow.id = 'wb-edit-' + svc.id;
           var input = createEl('input', 'inline-edit-input');
           input.type = 'text';
-          input.value = state.renameDraft || svc.alias;
+          input.value = state.renameDraft !== null ? state.renameDraft : svc.alias;
           input.setAttribute('aria-label', t('wb.aliasInputAria', { name: svc.name }));
           if (state.renameError) {
             input.setAttribute('aria-invalid', 'true');
@@ -1006,6 +1518,22 @@
           }
           input.addEventListener('input', function () {
             state.renameDraft = input.value;
+            if (state.renameError) {
+              state.renameError = null;
+              input.removeAttribute('aria-invalid');
+              input.removeAttribute('aria-describedby');
+              var existingErr = document.getElementById('wb-rename-err');
+              if (existingErr) existingErr.remove();
+            }
+          });
+          editRow.addEventListener('keydown', function (ev) {
+            if (ev.key !== 'Escape') return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            state.editingId = null;
+            state.renameDraft = null;
+            state.renameError = null;
+            renderServiceList('[data-svc-id="' + svc.id + '"] [data-action="rename"]');
           });
           editRow.appendChild(input);
 
@@ -1017,8 +1545,8 @@
           cancelBtn.type = 'button';
           cancelBtn.addEventListener('click', function () {
             state.editingId = null;
-            state.renameDraft = '';
-            state.renameError = '';
+            state.renameDraft = null;
+            state.renameError = null;
             renderServiceList('[data-svc-id="' + svc.id + '"] [data-action="rename"]');
           });
           editRow.appendChild(cancelBtn);
@@ -1027,8 +1555,8 @@
             ev.preventDefault();
             var nextAlias = input.value.trim().toLowerCase();
             state.renameDraft = input.value;
-            if (!/^[a-z0-9][a-z0-9-]{0,38}$/.test(nextAlias)) {
-              state.renameError = t('wb.aliasError');
+            if (!/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/.test(nextAlias)) {
+              state.renameError = { key: 'wb.aliasError' };
               renderServiceList('[data-svc-id="' + svc.id + '"] .inline-edit-input');
               return;
             }
@@ -1036,21 +1564,24 @@
               return other.id !== svc.id && other.alias === nextAlias;
             });
             if (dup) {
-              state.renameError = t('wb.aliasDup');
+              state.renameError = { key: 'wb.aliasDup' };
               renderServiceList('[data-svc-id="' + svc.id + '"] .inline-edit-input');
               return;
             }
             svc.alias = nextAlias;
             state.editingId = null;
-            state.renameDraft = '';
-            state.renameError = '';
+            state.renameDraft = null;
+            state.renameError = null;
+            var visAfterRename = reconcileVisibleSelection();
+            var stillVisible = visAfterRename.some(function (item) { return item.id === svc.id; });
             announce(t('msg.aliasUpdated', { name: svc.name, url: routeUrl(svc) }));
-            renderWorkbench('[data-svc-id="' + svc.id + '"] [data-action="rename"]');
+            renderWorkbench(stillVisible ? '[data-svc-id="' + svc.id + '"] [data-action="rename"]' : '#wb-search');
+            if (!stillVisible) focusSelector('#wb-search');
           });
           card.appendChild(editRow);
 
           if (state.renameError) {
-            var errEl = createEl('div', 'svc-git inline-error', state.renameError);
+            var errEl = createEl('div', 'inline-error', t(state.renameError.key));
             errEl.id = 'wb-rename-err';
             errEl.setAttribute('role', 'alert');
             card.appendChild(errEl);
@@ -1058,7 +1589,9 @@
         }
 
         if (svc.hasSupporting && state.supportExpanded) {
-          card.appendChild(createEl('div', 'support-drawer', t('wb.supportDetail')));
+          var drawer = createEl('div', 'support-drawer', t('wb.supportDetail'));
+          drawer.id = 'wb-support-' + svc.id;
+          card.appendChild(drawer);
         }
       }
 
@@ -1082,7 +1615,46 @@
     if (!root) return;
     root.replaceChildren();
 
+    var visible = filteredServices();
+    if (!visible.length) {
+      var emptyHead = createEl('div', 'inspector-head');
+      var emptyBox = createEl('div');
+      emptyBox.appendChild(createEl('div', 'inspector-kicker', t('ins.kicker')));
+      var emptyH3 = createEl('h3', '', t('ins.emptyTitle'));
+      emptyH3.id = 'wb-inspector-heading';
+      emptyH3.tabIndex = -1;
+      emptyBox.appendChild(emptyH3);
+      emptyHead.appendChild(emptyBox);
+      root.appendChild(emptyHead);
+
+      var emptySheet = createEl('div', 'stop-sheet');
+      emptySheet.setAttribute('role', 'group');
+      emptySheet.setAttribute('aria-labelledby', 'wb-inspector-heading');
+      emptySheet.appendChild(createEl('p', '', t('ins.emptyBody')));
+      var emptyActions = createEl('div', 'inspector-actions');
+      var clearBtn = createEl('button', 'action-btn', t('ins.clearFilter'));
+      clearBtn.type = 'button';
+      clearBtn.addEventListener('click', function () {
+        var searchEl = document.getElementById('wb-search');
+        state.query = '';
+        if (searchEl) searchEl.value = '';
+        cancelStopFlow();
+        renderWorkbench('#wb-search');
+      });
+      emptyActions.appendChild(clearBtn);
+      emptySheet.appendChild(emptyActions);
+      root.appendChild(emptySheet);
+      return;
+    }
+
     var svc = selectedService();
+    if (svc.stopping) {
+      state.stopTargetId = svc.id;
+      state.inspectorMode = 'stopping';
+    } else if (state.inspectorMode !== 'inspect' && state.stopTargetId !== svc.id) {
+      cancelStopFlow();
+    }
+
     var head = createEl('div', 'inspector-head');
     var titleBox = createEl('div');
 
@@ -1092,7 +1664,10 @@
     else if (state.inspectorMode === 'refused') kickerKey = 'ins.kickerRefused';
 
     titleBox.appendChild(createEl('div', 'inspector-kicker', t(kickerKey)));
-    titleBox.appendChild(createEl('h3', '', svc.name));
+    var headingEl = createEl('h3', '', svc.name);
+    headingEl.id = 'wb-inspector-heading';
+    headingEl.tabIndex = -1;
+    titleBox.appendChild(headingEl);
     head.appendChild(titleBox);
 
     var pillClass = 'status-pill';
@@ -1107,12 +1682,35 @@
       pillClass += ' is-danger';
       pillText = t('ins.badgeIgnoresSigterm');
     }
-    head.appendChild(createEl('span', pillClass, pillText));
+
+    var headActions = createEl('div', 'inspector-head-actions');
+    headActions.appendChild(createEl('span', pillClass, pillText));
+    var backListBtn = createEl('button', 'row-btn back-to-list-btn');
+    backListBtn.type = 'button';
+    var backArrow = createEl('span', 'back-arrow', '↑');
+    backArrow.setAttribute('aria-hidden', 'true');
+    backListBtn.appendChild(backArrow);
+    backListBtn.appendChild(createEl('span', '', t('ins.backToList')));
+    backListBtn.addEventListener('click', function () {
+      var targetRow = document.querySelector('[data-svc-id="' + svc.id + '"]');
+      if (targetRow && typeof targetRow.scrollIntoView === 'function') {
+        var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        targetRow.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+      }
+      focusSelector('[data-svc-id="' + svc.id + '"] [data-action="select"]');
+    });
+    headActions.appendChild(backListBtn);
+    head.appendChild(headActions);
     root.appendChild(head);
 
     if (state.inspectorMode === 'confirm-stop' || state.inspectorMode === 'stopping') {
       var sheet = createEl('div', 'stop-sheet');
-      sheet.appendChild(createEl('h4', '', t('ins.stopTitle')));
+      sheet.setAttribute('role', 'group');
+      sheet.setAttribute('aria-labelledby', 'wb-sheet-title');
+      var stopH4 = createEl('h4', '', t('ins.stopTitle'));
+      stopH4.id = 'wb-sheet-title';
+      stopH4.tabIndex = -1;
+      sheet.appendChild(stopH4);
       sheet.appendChild(createEl('p', '', t('ins.stopSub')));
 
       var stopGrid = createEl('div', 'evidence-grid');
@@ -1121,10 +1719,10 @@
       addEvidenceRow(stopGrid, t('ins.verifyPort'), '127.0.0.1:' + svc.port, true);
       sheet.appendChild(stopGrid);
 
-      if (state.stopLog.length) {
+      if (svc.stopLog && svc.stopLog.length) {
         var ul = createEl('ul', 'stop-log');
-        state.stopLog.forEach(function (line) {
-          ul.appendChild(createEl('li', '', line));
+        svc.stopLog.forEach(function (entry) {
+          ul.appendChild(createEl('li', '', t(entry.key, entry.vars)));
         });
         sheet.appendChild(ul);
       }
@@ -1133,12 +1731,7 @@
       var cancelBtn = createEl('button', 'action-btn', t('wb.cancel'));
       cancelBtn.type = 'button';
       cancelBtn.disabled = state.inspectorMode === 'stopping';
-      cancelBtn.addEventListener('click', function () {
-        state.inspectorMode = 'inspect';
-        state.stopLog = [];
-        renderInspector();
-        focusSelector('#wb-inspector .action-btn');
-      });
+      cancelBtn.addEventListener('click', dismissStopReview);
       stopActions.appendChild(cancelBtn);
 
       var confirmBtn = createEl('button', 'action-btn is-danger', state.inspectorMode === 'stopping' ? t('ins.stopping') : t('ins.confirmStop'));
@@ -1155,13 +1748,18 @@
 
     if (state.inspectorMode === 'force-stop') {
       var forceSheet = createEl('div', 'stop-sheet is-danger');
-      forceSheet.appendChild(createEl('h4', '', t('ins.forceTitle')));
+      forceSheet.setAttribute('role', 'group');
+      forceSheet.setAttribute('aria-labelledby', 'wb-sheet-title');
+      var forceH4 = createEl('h4', '', t('ins.forceTitle'));
+      forceH4.id = 'wb-sheet-title';
+      forceH4.tabIndex = -1;
+      forceSheet.appendChild(forceH4);
       forceSheet.appendChild(createEl('p', '', t('ins.forceSub')));
 
-      if (state.stopLog.length) {
+      if (svc.stopLog && svc.stopLog.length) {
         var logUl = createEl('ul', 'stop-log');
-        state.stopLog.forEach(function (line) {
-          logUl.appendChild(createEl('li', '', line));
+        svc.stopLog.forEach(function (entry) {
+          logUl.appendChild(createEl('li', '', t(entry.key, entry.vars)));
         });
         forceSheet.appendChild(logUl);
       }
@@ -1175,12 +1773,7 @@
       var forceActions = createEl('div', 'inspector-actions');
       var cancelForce = createEl('button', 'action-btn', t('wb.cancel'));
       cancelForce.type = 'button';
-      cancelForce.addEventListener('click', function () {
-        clearForceTimer();
-        state.inspectorMode = 'inspect';
-        renderInspector();
-        focusSelector('#wb-inspector .action-btn');
-      });
+      cancelForce.addEventListener('click', dismissStopReview);
       forceActions.appendChild(cancelForce);
 
       var forceBtn = createEl('button', 'action-btn is-danger', '');
@@ -1198,22 +1791,23 @@
 
     if (state.inspectorMode === 'refused') {
       var refSheet = createEl('div', 'stop-sheet is-warn');
-      refSheet.appendChild(createEl('h4', '', t('ins.refusedTitle')));
+      refSheet.setAttribute('role', 'group');
+      refSheet.setAttribute('aria-labelledby', 'wb-sheet-title');
+      var refH4 = createEl('h4', '', t('ins.refusedTitle'));
+      refH4.id = 'wb-sheet-title';
+      refH4.tabIndex = -1;
+      refSheet.appendChild(refH4);
       refSheet.appendChild(createEl('p', '', t('ins.refusedBody')));
 
       var refGrid = createEl('div', 'evidence-grid');
-      addEvidenceRow(refGrid, t('ins.pid'), svc.ancestry, true);
-      addEvidenceRow(refGrid, t('ins.bind'), svc.bind, true);
+      addEvidenceRow(refGrid, t('ins.pid'), serviceField(svc, 'ancestry'), true);
+      addEvidenceRow(refGrid, t('ins.bind'), serviceField(svc, 'bind'), true);
       refSheet.appendChild(refGrid);
 
       var refActions = createEl('div', 'inspector-actions');
       var backBtn = createEl('button', 'action-btn', t('ins.back'));
       backBtn.type = 'button';
-      backBtn.addEventListener('click', function () {
-        state.inspectorMode = 'inspect';
-        renderInspector();
-        focusSelector('#wb-inspector .action-btn');
-      });
+      backBtn.addEventListener('click', dismissStopReview);
       refActions.appendChild(backBtn);
       refSheet.appendChild(refActions);
       root.appendChild(refSheet);
@@ -1221,12 +1815,12 @@
     }
 
     var grid = createEl('div', 'evidence-grid');
-    addEvidenceRow(grid, t('ins.pid'), svc.ancestry, true);
+    addEvidenceRow(grid, t('ins.pid'), serviceField(svc, 'ancestry'), true);
     addEvidenceRow(grid, t('ins.repo'), svc.repo + ' (' + svc.branch + ')', true);
-    addEvidenceRow(grid, t('ins.cwd'), svc.cwd, true);
+    addEvidenceRow(grid, t('ins.cwd'), serviceField(svc, 'cwd'), true);
     addEvidenceRow(grid, t('ins.manifest'), svc.manifest, false);
-    addEvidenceRow(grid, t('ins.bind'), svc.bind, true);
-    addEvidenceRow(grid, t('ins.probe'), svc.probe, false);
+    addEvidenceRow(grid, t('ins.bind'), serviceField(svc, 'bind'), true);
+    addEvidenceRow(grid, t('ins.probe'), svc.stopped ? (t('ins.probeStoppedPrefix') + svc.probe) : svc.probe, false);
     addEvidenceRow(grid, t('ins.route'), svc.stopped ? t('wb.stoppedLabel') : (routeUrl(svc) + ' → 127.0.0.1:' + svc.port), true);
 
     var policyKey = 'ins.policyOwned';
@@ -1235,11 +1829,11 @@
     addEvidenceRow(grid, t('ins.stopPolicy'), t(policyKey), false);
     root.appendChild(grid);
 
-    if (state.stopLog.length) {
+    if (svc.stopLog && svc.stopLog.length) {
       var doneBox = createEl('div', 'stop-sheet stop-log-box');
       var doneUl = createEl('ul', 'stop-log');
-      state.stopLog.forEach(function (line) {
-        doneUl.appendChild(createEl('li', '', line));
+      svc.stopLog.forEach(function (entry) {
+        doneUl.appendChild(createEl('li', '', t(entry.key, entry.vars)));
       });
       doneBox.appendChild(doneUl);
       root.appendChild(doneBox);
@@ -1249,9 +1843,10 @@
     if (svc.stopped) {
       var restartBtn = createEl('button', 'action-btn is-primary', t('ins.restartBtn'));
       restartBtn.type = 'button';
+      restartBtn.setAttribute('data-action', 'restart');
       restartBtn.addEventListener('click', function () {
         svc.stopped = false;
-        state.stopLog = [];
+        svc.stopLog = [];
         announce(t('msg.restarted', { name: svc.name }));
         renderWorkbench('#wb-inspector .action-btn');
       });
@@ -1259,6 +1854,7 @@
     } else {
       var copyRouteBtn = createEl('button', 'action-btn', t('ins.copyRoute'));
       copyRouteBtn.type = 'button';
+      copyRouteBtn.setAttribute('data-action', 'copy-route');
       copyRouteBtn.addEventListener('click', function () {
         copyText(routeUrl(svc), copyRouteBtn, t('ins.copyRoute'));
       });
@@ -1266,6 +1862,7 @@
 
       var copyOrigBtn = createEl('button', 'action-btn', t('ins.copyOrig'));
       copyOrigBtn.type = 'button';
+      copyOrigBtn.setAttribute('data-action', 'copy-orig');
       copyOrigBtn.addEventListener('click', function () {
         copyText('http://127.0.0.1:' + svc.port, copyOrigBtn, t('ins.copyOrig'));
       });
@@ -1273,8 +1870,9 @@
 
       var stopTrigger = createEl('button', 'action-btn is-danger', t('ins.reviewStop'));
       stopTrigger.type = 'button';
+      stopTrigger.setAttribute('data-action', 'stop');
       stopTrigger.addEventListener('click', function () {
-        startStopFlow(svc);
+        startStopFlow(svc, '#wb-inspector .action-btn.is-danger');
       });
       insActions.appendChild(stopTrigger);
     }
@@ -1310,43 +1908,52 @@
     if (searchEl) {
       searchEl.addEventListener('input', function () {
         state.query = searchEl.value;
-        var vis = filteredServices();
-        if (vis.length && !vis.some(function (s) { return s.id === state.selectedId; })) {
-          state.selectedId = vis[0].id;
-        }
+        reconcileVisibleSelection();
         renderWorkbench();
       });
 
       document.addEventListener('keydown', function (ev) {
         if (ev.key === '/' && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
-          var tag = document.activeElement ? document.activeElement.tagName : '';
+          var wb = document.getElementById('workbench');
+          if (!wb || !document.activeElement || !wb.contains(document.activeElement)) return;
+          var tag = document.activeElement.tagName;
           if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
             ev.preventDefault();
             searchEl.focus();
           }
         } else if (ev.key === 'Escape' && document.activeElement === searchEl) {
+          ev.preventDefault();
           searchEl.value = '';
           state.query = '';
-          searchEl.blur();
+          cancelStopFlow();
           renderWorkbench();
         }
       });
     }
 
+    function setDisclosure(btn, list, expanded) {
+      if (!btn || !list) return;
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      list.hidden = !expanded;
+    }
+
     if (resetBtn) {
       resetBtn.addEventListener('click', function () {
-        clearForceTimer();
+        clearAllPendingStops();
+        cancelStopFlow();
         state.services = cloneServices();
         state.query = '';
         if (searchEl) searchEl.value = '';
         state.selectedId = 'phone3d';
-        state.inspectorMode = 'inspect';
         state.editingId = null;
-        state.renameDraft = '';
-        state.renameError = '';
+        state.renameDraft = null;
+        state.renameError = null;
         state.supportExpanded = false;
-        state.stopLog = [];
+        state.stopOpenerSelector = null;
         state.helperEnabled = true;
+        setDisclosure(webToggle, webList, false);
+        setDisclosure(lisToggle, lisList, false);
+        hideCopyFallback(false);
         syncHelperControls();
         renderWorkbench();
         announce(t('msg.demoReset'));
@@ -1357,13 +1964,29 @@
       if (!btn || !list) return;
       btn.addEventListener('click', function () {
         var expanded = btn.getAttribute('aria-expanded') === 'true';
-        btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-        list.hidden = expanded;
+        setDisclosure(btn, list, !expanded);
       });
     }
 
     wireDisclosure(webToggle, webList);
     wireDisclosure(lisToggle, lisList);
+
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape' || ev.defaultPrevented) return;
+      var fb = document.getElementById('copy-fallback');
+      if (fb && !fb.hidden) {
+        ev.preventDefault();
+        hideCopyFallback(true);
+        return;
+      }
+      var nav = document.getElementById('mobile-nav');
+      if (nav && nav.open) return;
+      if (searchEl && document.activeElement === searchEl) return;
+      if (state.inspectorMode === 'confirm-stop' || state.inspectorMode === 'force-stop' || state.inspectorMode === 'refused') {
+        ev.preventDefault();
+        dismissStopReview();
+      }
+    });
 
     syncHelperControls();
     renderWorkbench();
@@ -1371,6 +1994,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     initThemeToggle();
+    initMobileNavMenu();
     initHeroStage();
     initTabs();
     initStaticCopyButtons();

@@ -47,7 +47,7 @@
   <header class="site-header">
     <div class="container header-inner">
       <a class="brand-link" href="#main-content">
-        <img class="brand-icon" src="./assets/icon-rounded.png" alt="" width="28" height="28">
+        <img class="brand-icon" src="./assets/favicon.png" alt="" width="28" height="28">
         <span>Port Tools</span>
         <span class="brand-badge">v1.0.6</span>
       </a>
@@ -60,7 +60,7 @@
       </nav>
 
       <div class="header-actions">
-        <button type="button" class="pill-btn" id="lang-toggle" data-i18n-aria="controls.langAria" aria-label="Switch language to Chinese">
+        <button type="button" class="pill-btn" id="lang-toggle" data-i18n-aria="controls.langAria" aria-label="中文 — Switch language to Chinese">
           <span data-i18n="controls.langLabel">中文</span>
         </button>
         <button type="button" class="icon-btn" id="theme-toggle">
@@ -73,7 +73,19 @@
             <span class="visually-hidden" data-i18n="controls.toDark">Switch to dark theme</span>
           </span>
         </button>
-        <a class="pill-btn" href="https://popcornnn.xyz/" data-i18n="nav.studio">Studio</a>
+        <a class="pill-btn header-studio-link" href="https://popcornnn.xyz/" data-i18n="nav.studio">Studio</a>
+        <details class="mobile-nav-menu" id="mobile-nav">
+          <summary class="icon-btn mobile-nav-toggle" data-i18n-aria="nav.menuAria" aria-label="Section navigation">
+            <svg class="theme-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </summary>
+          <nav class="mobile-nav-drawer" data-i18n-aria="nav.mobileAria" aria-label="Mobile section navigation">
+            <a href="#workbench" data-i18n="nav.demo">Interactive Demo</a>
+            <a href="#compare" data-i18n="nav.compare">Compare</a>
+            <a href="#architecture" data-i18n="nav.architecture">Architecture</a>
+            <a href="#install" data-i18n="nav.install">Install</a>
+            <a class="mobile-drawer-studio" href="https://popcornnn.xyz/" data-i18n="nav.studio">Studio</a>
+          </nav>
+        </details>
       </div>
     </div>
   </header>
@@ -81,18 +93,18 @@
   <main id="main-content" tabindex="-1">
     <section class="hero" id="hero">
       <div class="container hero-grid">
-        <div>
+        <div class="hero-lead">
           <div class="eyebrow">
             <span class="pulse-dot" aria-hidden="true"></span>
-            <span data-i18n="hero.eyebrow">MACOS 14+ MENU BAR · APPLE SILICON · MIT</span>
+            <span data-i18n="hero.eyebrow">macOS 14+ MENU BAR · APPLE SILICON · MIT</span>
           </div>
-          <h1><code>lsof</code><span data-i18n="hero.titleRest"> finds a PID. Port Tools finds the project behind it.</span></h1>
+          <h1><code>lsof</code><span data-i18n="hero.titleMid"> finds a PID. </span><span class="hero-brand-clause" data-i18n="hero.titleEnd">Port&nbsp;Tools finds the project behind it.</span></h1>
           <p class="hero-sub">
             <span data-i18n="hero.subPre">A local-first macOS menu-bar control plane for the development services already running on your Mac. Reconstruct repositories, Git worktrees, application manifests, stable </span><code>*.localhost</code><span data-i18n="hero.subPost"> routes, and identity-bound Safe Stop without changing how you start your apps.</span>
           </p>
           <div class="cta-row">
             <a class="btn-primary" href="https://github.com/Popcornnnnnnnn/port-tools/releases/download/v1.0.6/Port-Tools-1.0.6.dmg" data-i18n="hero.ctaDownload">Download v1.0.6 (.dmg)</a>
-            <a class="btn-secondary" href="#workbench" data-i18n="hero.ctaDemo">Try Menu-Bar Demo</a>
+            <a class="btn-secondary" href="#workbench" data-i18n="hero.ctaDemo">Try Menu&#8209;Bar Demo</a>
             <a class="btn-secondary" href="https://github.com/Popcornnnnnnnn/port-tools" data-i18n="hero.ctaRepo">GitHub</a>
           </div>
 
@@ -100,45 +112,28 @@
             <code id="brew-hero-cmd">brew install --cask Popcornnnnnnnn/tap/port-tools</code>
             <button type="button" class="mini-copy-btn" data-copy-target="brew-hero-cmd" data-i18n="common.copy">Copy</button>
           </div>
-
-          <div class="trust-strip">
-            <div class="trust-item">
-              <strong data-i18n="trust.t1Title">SwiftUI + Bundled Go Core</strong>
-              <span data-i18n="trust.t1Sub">Private Unix socket · Zero runtime deps</span>
-            </div>
-            <div class="trust-item">
-              <strong data-i18n="trust.t2Title">Stable *.localhost Routes</strong>
-              <span data-i18n="trust.t2Sub">:17890 default · Optional :80 helper</span>
-            </div>
-            <div class="trust-item">
-              <strong data-i18n="trust.t3Title">Revalidated Safe Stop</strong>
-              <span data-i18n="trust.t3Sub">Refuses Docker &amp; unattributed targets</span>
-            </div>
-            <div class="trust-item">
-              <strong data-i18n="trust.t4Title">Local-Only · MIT</strong>
-              <span data-i18n="trust.t4Sub">No accounts, telemetry, or /etc/hosts edits</span>
-            </div>
-          </div>
         </div>
 
         <aside class="stage-card" data-i18n-aria="stage.aria" aria-label="Port Tools real macOS app screenshots">
           <div class="menubar-mock">
             <span class="menubar-left">
-              <img src="./assets/icon-rounded.png" alt="" width="16" height="16">
+              <img src="./assets/favicon.png" alt="" width="16" height="16">
               <span>Port Tools</span>
             </span>
             <span class="menubar-right">
-              <span class="menubar-live">● LIVE</span>
-              <span data-i18n="stage.projectsCount">6 projects</span>
+              <span class="menubar-live" data-i18n="stage.liveBadge">● LIVE</span>
+              <span class="menubar-count" data-i18n="stage.projectsCount">6 projects</span>
             </span>
           </div>
 
           <div class="screenshot-frame" id="hero-shot-frame" data-shot-mode="auto">
             <figure class="shot-wrap shot-light">
-              <img src="./assets/interface-light.png" alt="Port Tools menu-bar popover in light appearance showing grouped local web projects" width="764" height="1280">
+              <img src="./assets/interface-light.png" data-i18n-alt="stage.lightAlt" alt="Port Tools menu-bar popover in light appearance showing grouped local web projects" width="764" height="1280">
+              <figcaption class="shot-label" data-i18n="stage.light">Light</figcaption>
             </figure>
             <figure class="shot-wrap shot-dark">
-              <img src="./assets/interface-dark.png" alt="Port Tools menu-bar popover in dark appearance showing grouped local web projects" width="764" height="1280">
+              <img src="./assets/interface-dark.png" data-i18n-alt="stage.darkAlt" alt="Port Tools menu-bar popover in dark appearance showing grouped local web projects" width="764" height="1280">
+              <figcaption class="shot-label" data-i18n="stage.dark">Dark</figcaption>
             </figure>
           </div>
 
@@ -152,13 +147,32 @@
             </div>
           </div>
         </aside>
+
+        <div class="trust-strip">
+          <div class="trust-item">
+            <strong data-i18n="trust.t1Title">SwiftUI + Bundled Go Core</strong>
+            <span data-i18n="trust.t1Sub">Private Unix socket · Zero runtime deps</span>
+          </div>
+          <div class="trust-item">
+            <strong data-i18n="trust.t2Title">Stable *.localhost Routes</strong>
+            <span data-i18n="trust.t2Sub">:17890 default · Optional :80 helper</span>
+          </div>
+          <div class="trust-item">
+            <strong data-i18n="trust.t3Title">Revalidated Safe Stop</strong>
+            <span data-i18n="trust.t3Sub">Refuses Docker &amp; unattributed targets</span>
+          </div>
+          <div class="trust-item">
+            <strong data-i18n="trust.t4Title">Local-Only · MIT</strong>
+            <span data-i18n="trust.t4Sub">No accounts, telemetry, or /etc/hosts edits</span>
+          </div>
+        </div>
       </div>
     </section>
 
     <section class="section" id="workbench">
       <div class="container">
         <div class="section-head">
-          <h2 data-i18n="wb.heading">Interactive Menu-Bar Workbench</h2>
+          <h2 data-i18n="wb.heading">Interactive Menu&#8209;Bar Workbench</h2>
           <p data-i18n="wb.sub">
             Click any service to inspect reconstructed Git and manifest evidence, edit its *.localhost alias, toggle the port-free helper, or walk through Safe Stop, 3-second Force Stop, and Docker refusal.
           </p>
@@ -166,12 +180,12 @@
 
         <div class="wb-shell">
           <div class="wb-grid">
-            <div class="popover-sim" data-i18n-aria="wb.popoverAria" aria-label="Simulated Port Tools menu-bar popover">
+            <div class="popover-sim" role="group" data-i18n-aria="wb.popoverAria" aria-label="Simulated Port Tools menu-bar popover">
               <div class="popover-top">
                 <div>
                   <div class="popover-title-row">
                     <strong>Port Tools</strong>
-                    <span class="live-pill">● LIVE</span>
+                    <span class="live-pill" data-i18n="wb.demoBadge">● DEMO</span>
                   </div>
                   <div class="popover-summary" id="wb-summary">5 projects · 5 Web apps</div>
                 </div>
@@ -186,12 +200,13 @@
               </div>
 
               <div class="search-wrap">
-                <label class="visually-hidden" for="wb-search" data-i18n="wb.searchLabel">Filter local services</label>
-                <input type="search" id="wb-search" class="search-input" placeholder="Search projects, branches, ports, or aliases…" autocomplete="off">
+                <label class="visually-hidden" for="wb-search" data-i18n="wb.searchLabel">Filter project services</label>
+                <input type="search" id="wb-search" class="search-input" placeholder="Filter projects, branches, or ports…" autocomplete="off">
                 <span class="search-kbd" aria-hidden="true">/</span>
               </div>
 
               <div class="svc-list" id="wb-list" role="list"></div>
+              <div class="wb-empty-state" id="wb-empty" role="status" hidden></div>
 
               <div class="disclosure-block">
                 <button type="button" class="disclosure-btn" id="wb-toggle-web-other" aria-expanded="false" aria-controls="wb-other-web-list">
@@ -215,12 +230,12 @@
               </div>
 
               <div class="popover-foot">
-                <span id="wb-updated" data-i18n="wb.updated">Updated just now</span>
-                <span data-i18n="wb.shortcutHint">Press / to search</span>
+                <span id="wb-updated" data-i18n="wb.updated">Simulated local snapshot</span>
+                <span class="shortcut-hint" data-i18n="wb.shortcutHint">Press / in workbench to search</span>
               </div>
             </div>
 
-            <div class="inspector-card" id="wb-inspector"></div>
+            <div class="inspector-card" id="wb-inspector" role="region" aria-labelledby="wb-inspector-heading"></div>
           </div>
         </div>
       </div>
@@ -262,45 +277,45 @@
         </div>
 
         <div class="table-scroll">
-          <table class="compare-table">
+          <table class="compare-table" role="table">
             <caption data-i18n="cmp.caption">How Port Tools complements existing developer tools</caption>
-            <thead>
-              <tr>
-                <th scope="col" data-i18n="cmp.colTool">Tool</th>
-                <th scope="col" data-i18n="cmp.colBest">Best at</th>
-                <th scope="col" data-i18n="cmp.colAdd">What Port Tools adds</th>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th scope="col" role="columnheader" data-i18n="cmp.colTool">Tool</th>
+                <th scope="col" role="columnheader" data-i18n="cmp.colBest">Best at</th>
+                <th scope="col" role="columnheader" data-i18n="cmp.colAdd">What Port Tools adds</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <th scope="row"><a href="https://github.com/lsof-org/lsof">lsof</a> / <code>netstat</code></th>
-                <td data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r1Best">Sockets, ports, and PIDs</td>
-                <td data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r1Add">Repository, worktree, application manifest, Web classification, and a usable address</td>
+            <tbody role="rowgroup">
+              <tr role="row">
+                <th scope="row" role="rowheader"><a href="https://github.com/lsof-org/lsof"><code>lsof</code></a> / <code>netstat</code></th>
+                <td role="cell" data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r1Best">Sockets, ports, and PIDs</td>
+                <td role="cell" data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r1Add">Repository, worktree, application manifest, Web classification, and a usable address</td>
               </tr>
-              <tr>
-                <th scope="row" data-i18n="cmp.r2Name">Activity Monitor</th>
-                <td data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r2Best">Process and resource inspection</td>
-                <td data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r2Add">A Web-service-first view organized around development projects</td>
+              <tr role="row">
+                <th scope="row" role="rowheader" data-i18n="cmp.r2Name">Activity Monitor</th>
+                <td role="cell" data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r2Best">Process and resource inspection</td>
+                <td role="cell" data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r2Add">A Web-service-first view organized around development projects</td>
               </tr>
-              <tr>
-                <th scope="row"><code>kill-port</code> / <a href="https://github.com/sindresorhus/fkill">fkill</a></th>
-                <td data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r3Best">Freeing a port quickly</td>
-                <td data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r3Add">Ownership evidence, refusal rules, identity revalidation, and listener-release verification</td>
+              <tr role="row">
+                <th scope="row" role="rowheader"><code>kill-port</code> / <a href="https://github.com/sindresorhus/fkill"><code>fkill</code></a></th>
+                <td role="cell" data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r3Best">Freeing a port quickly</td>
+                <td role="cell" data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r3Add">Ownership evidence, refusal rules, identity revalidation, and listener-release verification</td>
               </tr>
-              <tr>
-                <th scope="row"><a href="https://github.com/vercel-labs/portless">Portless</a></th>
-                <td data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r4Best">Starting apps on stable named URLs</td>
-                <td data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r4Add">Discovery and classification of services that are already running</td>
+              <tr role="row">
+                <th scope="row" role="rowheader"><a href="https://github.com/vercel-labs/portless">Portless</a></th>
+                <td role="cell" data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r4Best">Starting apps on stable named URLs</td>
+                <td role="cell" data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r4Add">Discovery and classification of services that are already running</td>
               </tr>
-              <tr>
-                <th scope="row"><a href="https://caddyserver.com/docs/caddyfile/directives/reverse_proxy">Caddy</a></th>
-                <td data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r5Best">Flexible reverse-proxy infrastructure</td>
-                <td data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r5Add">Automatic local inventory and project-aware route ownership</td>
+              <tr role="row">
+                <th scope="row" role="rowheader"><a href="https://caddyserver.com/docs/caddyfile/directives/reverse_proxy">Caddy</a></th>
+                <td role="cell" data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r5Best">Flexible reverse-proxy infrastructure</td>
+                <td role="cell" data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r5Add">Automatic local inventory and project-aware route ownership</td>
               </tr>
-              <tr>
-                <th scope="row">Docker Desktop</th>
-                <td data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r6Best">Container and published-port management</td>
-                <td data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r6Add">One view for host processes, worktrees, applications, and conservative Docker handling</td>
+              <tr role="row">
+                <th scope="row" role="rowheader">Docker Desktop</th>
+                <td role="cell" data-col-key="cmp.colBest" data-col-label="Best at" data-i18n="cmp.r6Best">Container and published-port management</td>
+                <td role="cell" data-col-key="cmp.colAdd" data-col-label="What Port Tools adds" data-i18n="cmp.r6Add">One view for host processes, worktrees, applications, and conservative Docker handling</td>
               </tr>
             </tbody>
           </table>
@@ -400,47 +415,50 @@
             <button type="button" role="tab" class="tab-btn" id="inst-tab-notes" aria-controls="inst-panel-notes" aria-selected="false" tabindex="-1" data-i18n="inst.tab4">v1.0.6 Release Notes</button>
           </div>
 
-          <div role="tabpanel" id="inst-panel-brew" aria-labelledby="inst-tab-brew" tabindex="0">
+          <div role="tabpanel" id="inst-panel-brew" aria-labelledby="inst-tab-brew">
             <div class="code-panel">
               <div class="code-bar">
-                <span>zsh · Homebrew Cask (Apple Silicon · macOS 14+)</span>
+                <span data-i18n="inst.barBrew">zsh · Homebrew Cask (Apple Silicon · macOS 14+)</span>
                 <button type="button" class="code-copy-btn" data-copy-target="code-brew" data-i18n="common.copy">Copy</button>
               </div>
-              <pre><code id="code-brew"># Install Port Tools from personal Homebrew tap
-brew install --cask Popcornnnnnnnn/tap/port-tools
+              <pre role="region" tabindex="0" data-i18n-aria="inst.codeAriaBrew" aria-label="Homebrew Cask installation commands"><code id="code-brew"><span class="code-comment" data-i18n="inst.cBrew1"># Install via personal Homebrew tap</span>
+brew install --cask \
+  Popcornnnnnnnn/tap/port-tools
 
-# Later upgrades (Sparkle 2.9.4 in-app updates are also available)
+<span class="code-comment" data-i18n="inst.cBrew2"># Upgrade later (Sparkle built in)</span>
 brew upgrade --cask port-tools</code></pre>
             </div>
           </div>
 
           <div role="tabpanel" id="inst-panel-dmg" aria-labelledby="inst-tab-dmg" hidden="until-found">
             <div class="code-panel">
-              <div class="code-bar">
-                <span>zsh · Signed &amp; Notarized v1.0.6 DMG (10.1 MiB)</span>
-                <button type="button" class="code-copy-btn" data-copy-target="code-dmg" data-i18n="common.copy">Copy</button>
+              <div class="code-bar has-actions">
+                <span data-i18n="inst.barDmg">zsh · Signed &amp; Notarized v1.0.6 DMG (10.1 MiB)</span>
+                <div class="code-bar-actions">
+                  <a class="code-dl-link" href="https://github.com/Popcornnnnnnnn/port-tools/releases/download/v1.0.6/Port-Tools-1.0.6.dmg" data-i18n="inst.dlLink">Download DMG</a>
+                  <button type="button" class="code-copy-btn" data-copy-target="code-dmg" data-i18n="common.copy">Copy</button>
+                </div>
               </div>
-              <pre><code id="code-dmg"># Download Port-Tools-1.0.6.dmg and verify SHA-256 checksum
-curl -fLO https://github.com/Popcornnnnnnnn/port-tools/releases/download/v1.0.6/Port-Tools-1.0.6.dmg
-echo "8d41526d238f9a09af3585e775798b318c777da7a8f8fb35cb2cf84a755155d  Port-Tools-1.0.6.dmg" | shasum -a 256 -c -
-
-# Or download directly in your browser:
-# https://github.com/Popcornnnnnnnn/port-tools/releases/download/v1.0.6/Port-Tools-1.0.6.dmg</code></pre>
+              <pre role="region" tabindex="0" data-i18n-aria="inst.codeAriaDmg" aria-label="Direct DMG download and SHA-256 verification commands"><code id="code-dmg"><span class="code-comment" data-i18n="inst.cDmg1"># Download DMG &amp; verify SHA-256</span>
+curl -fLO \
+  https://github.com/Popcornnnnnnnn/port-tools/releases/download/v1.0.6/Port-Tools-1.0.6.dmg
+echo "8d41526d238f9a09af3585e7757798b318c777da7a8f8fb35cb2cf84a755155d  Port-Tools-1.0.6.dmg" \
+  | shasum -a 256 -c -</code></pre>
             </div>
           </div>
 
           <div role="tabpanel" id="inst-panel-build" aria-labelledby="inst-tab-build" hidden="until-found">
             <div class="code-panel">
               <div class="code-bar">
-                <span>zsh · Build &amp; Verify Bundle Locally</span>
+                <span data-i18n="inst.barBuild">zsh · Build &amp; Verify Bundle Locally</span>
                 <button type="button" class="code-copy-btn" data-copy-target="code-build" data-i18n="common.copy">Copy</button>
               </div>
-              <pre><code id="code-build">git clone https://github.com/Popcornnnnnnnn/port-tools.git
+              <pre role="region" tabindex="0" data-i18n-aria="inst.codeAriaBuild" aria-label="Build and verify Port Tools from source commands"><code id="code-build">git clone https://github.com/Popcornnnnnnnn/port-tools.git
 cd port-tools
 native/trial/build.sh
 open "native/.build/Port Tools.app"
 
-# Verify bundle structure and critical runtime paths
+<span class="code-comment" data-i18n="inst.cBuild1"># Verify bundle &amp; runtime paths</span>
 python3 native/trial/verify.py</code></pre>
             </div>
           </div>
@@ -482,5 +500,6 @@ python3 native/trial/verify.py</code></pre>
       </nav>
     </div>
   </footer>
+  <div class="copy-fallback" id="copy-fallback" role="region" hidden></div>
 </body>
 </html>
